@@ -384,13 +384,20 @@ async def handle_render(request: web.Request) -> web.Response:
 
 
 def _note_fetch(request: web.Request, what: str) -> None:
-    """Record who came for the file — the only proof the display took it."""
+    """Record who came for the file — the only proof the display took it.
+
+    The MDC call only says the panel *accepted* the order. A line here with the
+    display's own address is what turns that into evidence, so the address is
+    named rather than assumed: during development the same endpoints get pulled
+    from a laptop, and a log that calls every caller "the display" would have
+    made the first real fetch indistinguishable from a curl.
+    """
     engine.last_fetch = {
         "what": what,
         "from": request.remote,
         "at": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
-    _LOGGER.info("Display fetched %s from %s", what, request.remote)
+    _LOGGER.info("%s fetched by %s", what, request.remote)
 
 
 async def handle_content(request: web.Request) -> web.Response:
