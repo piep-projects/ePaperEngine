@@ -1,0 +1,1022 @@
+/**
+ * ePaperEngine — sidebar panel (FSD §3.1).
+ *
+ * A build-free **custom** panel, not an iframe: Home Assistant hands `hass` in
+ * and everything goes through the integration's WebSocket API
+ * (custom_components/epaperengine/websocket_api.py). This is the *setting up*
+ * surface — the daily glance lives in the Lovelace card.
+ *
+ * The card's rule "no control that only starts what happens anyway" does **not**
+ * hold here: this is where things get tried out, and nobody wants to wait for
+ * the next 15-minute net while doing so. Hence the two header buttons
+ * [Festlegung 2026-08-20]:
+ *
+ *   Render now  — a run right away; pushed only on a changed image hash
+ *   Push now    — sends the current image **even when unchanged**, stepping over
+ *                 the hash gate of FSD §11. A second "force push" button on the
+ *                 display page would be the same thing twice, so there is none.
+ *
+ * Editing is draft-based per card: `_draft` is a working copy, committed on Save.
+ * Pages for calendar, recipes and guests arrive with those views (phase 5).
+ */
+
+const APP_NAME = "ePaperEngine";
+const ICON = "mdi:image-frame"; // const.py PANEL_ICON
+
+// Nav order. The three pages without a view yet stay visible on purpose: the
+// navigation should not change shape when phase 5 lands.
+const TABS = ["overview", "views", "calendar", "recipes", "photos", "guests", "display"];
+const TABS_PENDING = new Set(["calendar", "recipes", "guests"]);
+
+const VIEWS = ["calendar", "recipes", "photos", "guests", "error"];
+// What may be pinned by hand. ``error`` is a system state, not a choice.
+const PINNABLE = ["calendar", "recipes", "photos", "guests"];
+// The candidates the priority list may hold — the five FSD §5 defines an
+// activity condition for. Anything else could never win a comparison.
+const CANDIDATES = ["manual", "guests", "recipes", "schedule", "fallback"];
+
+const POLL_MS = 15000;
+
+// ---------------------------------------------------------------------------
+// i18n — same mechanism and the same catalogs as the card (i18n concept §4/§7).
+//
+// The panel is the *editing* surface, so it carries one duty the card does not:
+// every number it displays has to stay re-editable. Output goes through fmtNum,
+// input through parseNum (both decimal separators) — never `parseFloat` on a
+// string the user typed, that silently turns "1,5" into 1.
+// ---------------------------------------------------------------------------
+const I18N_URL = "/epaperengine_i18n"; // const.py I18N_STATIC_URL
+const I18N_BASE_LANG = "en";
+const VERSION = (() => {
+  try {
+    return new URL(import.meta.url).searchParams.get("v") || "0";
+  } catch (e) {
+    return "0";
+  }
+})();
+const I18N_EMERGENCY = {
+  "common.loading": "Loading…",
+  "common.error": "Error: {msg}",
+  "common.save": "Save",
+  "common.saved": "Saved",
+  "error.unknown": "Unknown error",
+  "error.not_loaded": "ePaperEngine is not set up",
+  "panel.tab.overview": "Overview",
+  "panel.tab.views": "Views",
+  "panel.tab.photos": "Photos",
+  "panel.tab.display": "Display",
+  "panel.action.render": "Render now",
+  "panel.action.push": "Push now",
+};
+const _i18nFetches = new Map();
+let _i18n = { lang: null, cat: {}, base: {}, degraded: false };
+const _fmt = { locale: I18N_BASE_LANG };
+
+function i18nLang(hass) {
+  return String((hass && hass.language) || I18N_BASE_LANG).split("-")[0];
+}
+
+function i18nFetch(lang) {
+  if (!_i18nFetches.has(lang)) {
+    _i18nFetches.set(
+      lang,
+      fetch(`${I18N_URL}/${lang}.json?v=${encodeURIComponent(VERSION)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null),
+    );
+  }
+  return _i18nFetches.get(lang);
+}
+
+async function i18nLoad(hass) {
+  const lang = i18nLang(hass);
+  _fmt.locale = (hass && hass.locale && hass.locale.language) || lang;
+  if (_i18n.lang === lang) return;
+  const [base, cat] = await Promise.all([
+    i18nFetch(I18N_BASE_LANG),
+    lang === I18N_BASE_LANG ? null : i18nFetch(lang),
+  ]);
+  _i18n = {
+    lang,
+    base: base || {},
+    cat: cat || (lang === I18N_BASE_LANG ? base || {} : {}),
+    degraded: !base,
+  };
+  if (_i18n.degraded) console.warn(`${APP_NAME}: no translation catalog loaded`);
+}
+
+function t(key, vars) {
+  const s = _i18n.cat[key] ?? _i18n.base[key] ?? I18N_EMERGENCY[key] ?? humanizeKey(key);
+  return vars ? s.replace(/\{(\w+)\}/g, (m, k) => (vars[k] == null ? m : String(vars[k]))) : s;
+}
+
+function humanizeKey(key) {
+  const last = String(key).split(".").pop().replace(/_/g, " ");
+  return last.charAt(0).toUpperCase() + last.slice(1);
+}
+
+function esc(value) {
+  return String(value ?? "").replace(
+    /[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+  );
+}
+
+const viewLabel = (view) => (view ? t(`view.${view}`) : t("common.none"));
+const candidateLabel = (c) => (VIEWS.includes(c) ? t(`view.${c}`) : t(`candidate.${c}`));
+
+function fmtNum(value, opts) {
+  const n = Number(value);
+  if (!isFinite(n)) return "—";
+  try {
+    return new Intl.NumberFormat(_fmt.locale, opts).format(n);
+  } catch (e) {
+    return String(n);
+  }
+}
+
+/** Counterpart to fmtNum: read a number the user typed, either separator. */
+function parseNum(text) {
+  if (text == null) return NaN;
+  const s = String(text).trim().replace(/\s/g, "");
+  if (!s) return NaN;
+  const norm = /,\d{1,3}$/.test(s) ? s.replace(/\./g, "").replace(",", ".") : s.replace(/,/g, "");
+  return Number(norm);
+}
+
+function fmtDateTime(iso) {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (isNaN(date)) return null;
+  try {
+    return new Intl.DateTimeFormat(_fmt.locale, {
+      dateStyle: "short",
+      timeStyle: "short",
+    }).format(date);
+  } catch (e) {
+    return date.toISOString();
+  }
+}
+
+function fmtTime(iso) {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (isNaN(date)) return null;
+  try {
+    return new Intl.DateTimeFormat(_fmt.locale, { hour: "2-digit", minute: "2-digit" }).format(date);
+  } catch (e) {
+    return date.toISOString().slice(11, 16);
+  }
+}
+
+function fmtDuration(ms) {
+  if (!isFinite(ms) || ms <= 0) return null;
+  const minutes = Math.round(ms / 60000);
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")} h`;
+}
+
+class EPaperEnginePanel extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._hass = null;
+    this._narrow = false;
+    this._tab = "overview";
+    this._config = null;
+    this._status = null;
+    this._photos = null;
+    this._draft = {};
+    this._notice = null;
+    this._error = null;
+    this._probe = null; // result of the explicit "Test connection"
+    this._previewUrl = null;
+    this._built = false;
+    this._timer = null;
+  }
+
+  set hass(hass) {
+    const first = !this._hass;
+    this._hass = hass;
+    if (first) this._load();
+  }
+
+  set narrow(value) {
+    this._narrow = value;
+  }
+
+  connectedCallback() {
+    this._timer = setInterval(() => this._refreshStatus(), POLL_MS);
+    if (this._hass) this._load();
+  }
+
+  disconnectedCallback() {
+    if (this._timer) clearInterval(this._timer);
+    this._timer = null;
+  }
+
+  get isAdmin() {
+    return !!(this._hass && this._hass.user && this._hass.user.is_admin);
+  }
+
+  async _call(message) {
+    return this._hass.connection.sendMessagePromise(message);
+  }
+
+  async _load() {
+    if (!this._hass) return;
+    try {
+      await i18nLoad(this._hass);
+      const answer = await this._call({ type: "epaperengine/config/get" });
+      this._config = answer.config;
+      this._status = answer.status;
+      this._draft = JSON.parse(JSON.stringify(answer.config));
+      this._error = null;
+      await this._signPreview();
+    } catch (err) {
+      this._error = this._message(err);
+    }
+    this._render();
+  }
+
+  /** Status only — the poll must not throw away what somebody is typing. */
+  async _refreshStatus() {
+    if (!this._hass || !this._config) return;
+    try {
+      this._status = await this._call({ type: "epaperengine/status" });
+      this._render();
+    } catch (err) {
+      /* a lost poll is not worth a message; the next one heals it */
+    }
+  }
+
+  _message(err) {
+    if (!err) return t("error.unknown");
+    if (err.code === "unauthorized") return t("error.no_admin");
+    if (err.code === "not_loaded") return t("error.not_loaded");
+    return err.message || t("error.code", { code: err.code || "?" });
+  }
+
+  /**
+   * ``media`` is authenticated and an `<img>` carries no bearer token, so the
+   * path is signed just before use (FSD §15, measured 2026-08-21). The panel
+   * signs rather than the integration: a signature expires, and the surface that
+   * keeps it on screen is the one that has to renew it.
+   */
+  async _sign(path, expires = 3600) {
+    if (!path) return null;
+    try {
+      const signed = await this._call({ type: "auth/sign_path", path, expires });
+      return signed && signed.path ? signed.path : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  async _signPreview() {
+    this._previewUrl = await this._sign(this._status && this._status.preview_path);
+  }
+
+  // --- actions --------------------------------------------------------------
+  async _save(sections) {
+    const patch = {};
+    for (const section of sections) patch[section] = this._draft[section];
+    try {
+      const answer = await this._call({ type: "epaperengine/config/set", config: patch });
+      this._config = answer.config;
+      this._status = answer.status;
+      this._draft = JSON.parse(JSON.stringify(answer.config));
+      this._notice = t("common.saved");
+      this._error = null;
+    } catch (err) {
+      this._error = this._message(err);
+    }
+    this._render();
+    setTimeout(() => {
+      this._notice = null;
+      this._render();
+    }, 2500);
+  }
+
+  async _render_now(force) {
+    try {
+      await this._call({ type: "epaperengine/render", force: !!force });
+      this._notice = t("panel.action.queued");
+      this._error = null;
+    } catch (err) {
+      this._error = this._message(err);
+    }
+    this._render();
+    setTimeout(() => {
+      this._notice = null;
+      this._render();
+    }, 2500);
+  }
+
+  async _setView(view) {
+    try {
+      this._status = await this._call({ type: "epaperengine/set_view", view });
+      this._error = null;
+    } catch (err) {
+      this._error = this._message(err);
+    }
+    this._render();
+  }
+
+  async _testDisplay() {
+    this._probe = { pending: true };
+    this._render();
+    try {
+      this._probe = await this._call({ type: "epaperengine/display/test" });
+      this._status = await this._call({ type: "epaperengine/status" });
+    } catch (err) {
+      this._probe = { reachable: false, error: this._message(err) };
+    }
+    this._render();
+  }
+
+  async _loadPhotos() {
+    try {
+      const answer = await this._call({ type: "epaperengine/photos/list" });
+      // Thumbnails are signed one by one; the list is short (a few hundred at
+      // 15 KB) and one signature per file is what the media view expects.
+      answer.photos = await Promise.all(
+        answer.photos.map(async (photo) => ({ ...photo, url: await this._sign(photo.thumb) })),
+      );
+      this._photos = answer;
+    } catch (err) {
+      this._photos = { total: 0, photos: [], error: this._message(err) };
+    }
+    this._render();
+  }
+
+  _go(tab) {
+    this._tab = tab;
+    this._probe = null;
+    if (tab === "photos" && !this._photos) this._loadPhotos();
+    this._render();
+  }
+
+  // --- rendering ------------------------------------------------------------
+  _build() {
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host { display: block; height: 100%; background: var(--primary-background-color); }
+        .wrap { display: flex; flex-direction: column; height: 100%; }
+        header {
+          display: flex; align-items: center; gap: 12px; padding: 12px 20px;
+          background: var(--card-background-color);
+          border-bottom: 1px solid var(--divider-color); flex: none; flex-wrap: wrap;
+        }
+        header .title { font-size: 1.25rem; font-weight: 700; flex: 1; }
+        .status-dot { display: inline-flex; align-items: center; gap: 6px;
+                      color: var(--secondary-text-color); font-size: 0.87rem; }
+        .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--disabled-text-color, #9e9e9e); }
+        .dot.ok { background: var(--success-color, #43a047); }
+        .dot.bad { background: var(--error-color, #db4437); }
+        .dot.warn { background: var(--warning-color, #ff9800); }
+        button {
+          font: inherit; cursor: pointer; border-radius: 6px; padding: 8px 14px;
+          border: 1px solid var(--primary-color); background: var(--card-background-color);
+          color: var(--primary-color);
+        }
+        button.primary { background: var(--primary-color); color: var(--text-primary-color, #fff); }
+        button.plain { border-color: var(--divider-color); color: var(--primary-text-color); }
+        button.small { padding: 4px 8px; font-size: 0.85rem; }
+        button:disabled { opacity: 0.5; cursor: default; }
+        .main { display: flex; flex: 1; min-height: 0; }
+        nav {
+          width: 200px; flex: none; padding: 12px 0;
+          background: var(--card-background-color);
+          border-right: 1px solid var(--divider-color); overflow-y: auto;
+        }
+        nav a {
+          display: block; padding: 10px 20px; cursor: pointer;
+          color: var(--primary-text-color); text-decoration: none;
+        }
+        nav a.on { background: var(--secondary-background-color); color: var(--primary-color); font-weight: 600;
+                   border-left: 3px solid var(--primary-color); padding-left: 17px; }
+        nav a.pending { color: var(--secondary-text-color); }
+        .content { flex: 1; overflow-y: auto; padding: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px; align-items: start; }
+        .card {
+          background: var(--card-background-color); border-radius: 12px; padding: 16px;
+          box-shadow: var(--ha-card-box-shadow, 0 1px 3px rgba(0,0,0,0.12));
+        }
+        .card h2 { margin: 0 0 2px; font-size: 1.05rem; }
+        .card .hint { color: var(--secondary-text-color); font-size: 0.85rem; margin-bottom: 12px; }
+        label { display: block; font-size: 0.8rem; color: var(--secondary-text-color); margin: 10px 0 4px; }
+        input, select {
+          width: 100%; box-sizing: border-box; padding: 8px 10px; font: inherit;
+          border: 1px solid var(--divider-color); border-radius: 6px;
+          background: var(--card-background-color); color: var(--primary-text-color);
+        }
+        .inline { display: flex; gap: 10px; align-items: flex-end; }
+        .inline > * { flex: 1; }
+        .inline .unit { flex: none; padding-bottom: 9px; color: var(--secondary-text-color); font-size: 0.85rem; }
+        .actions { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        th { text-align: left; font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase;
+             color: var(--secondary-text-color); padding: 4px 6px; font-weight: 600; }
+        td { padding: 6px; border-top: 1px solid var(--divider-color); vertical-align: middle; }
+        .kv { display: grid; grid-template-columns: 40% 1fr; gap: 6px 12px; font-size: 0.9rem; }
+        .kv .k { color: var(--secondary-text-color); }
+        .rank { display: flex; flex-direction: column; }
+        .sortrow {
+          display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 8px;
+          border: 1px solid var(--divider-color); border-radius: 8px;
+        }
+        .sortrow.on { border-color: var(--primary-color); background: var(--secondary-background-color); }
+        .sortrow .grow { flex: 1; }
+        .sortrow .name { font-weight: 600; }
+        .sortrow .why { color: var(--secondary-text-color); font-size: 0.82rem; }
+        .sortrow .badge { color: var(--primary-color); font-size: 0.82rem; font-weight: 600; }
+        .note {
+          border-left: 4px solid var(--primary-color); background: var(--secondary-background-color);
+          padding: 8px 12px; border-radius: 4px; font-size: 0.85rem; margin-top: 12px;
+        }
+        .note.warn { border-left-color: var(--warning-color, #ff9800); }
+        .note.bad { border-left-color: var(--error-color, #db4437); }
+        .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+        .chip {
+          border: 1px solid var(--divider-color); border-radius: 16px; padding: 5px 14px;
+          background: var(--card-background-color); color: var(--primary-text-color);
+          font: inherit; font-size: 0.87rem; cursor: pointer;
+        }
+        .chip.on { border-color: var(--primary-color); color: var(--primary-color); font-weight: 600; }
+        .thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+        .thumb img { width: 100%; border-radius: 6px; display: block; aspect-ratio: 16/9;
+                     object-fit: cover; background: var(--secondary-background-color); }
+        .thumb .cap { font-size: 0.75rem; color: var(--secondary-text-color);
+                      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .preview { width: 100%; border-radius: 8px; display: block; aspect-ratio: 16/9;
+                   object-fit: contain; background: var(--secondary-background-color); }
+        .muted { color: var(--secondary-text-color); font-size: 0.85rem; }
+        @media (max-width: 700px) {
+          .main { flex-direction: column; }
+          nav { width: auto; display: flex; overflow-x: auto; border-right: none;
+                border-bottom: 1px solid var(--divider-color); }
+          nav a.on { border-left: none; padding-left: 20px; border-bottom: 3px solid var(--primary-color); }
+        }
+      </style>
+      <div class="wrap">
+        <header></header>
+        <div class="main"><nav></nav><div class="content"></div></div>
+      </div>
+    `;
+    this._built = true;
+  }
+
+  _render() {
+    if (!this._built) this._build();
+    const root = this.shadowRoot;
+    root.querySelector("header").innerHTML = this._header();
+    root.querySelector("nav").innerHTML = this._nav();
+    root.querySelector(".content").innerHTML = this._page();
+    this._wire();
+  }
+
+  _header() {
+    const display = (this._status && this._status.display) || {};
+    let cls = "";
+    let label = t("panel.display.unknown");
+    if (display.reachable) {
+      cls = "ok";
+      label = t("panel.display.reachable");
+    } else if (Object.keys(display).length) {
+      cls = "bad";
+      label = t("panel.display.unreachable");
+    }
+    return `
+      <ha-icon icon="${ICON}"></ha-icon>
+      <div class="title">${esc(APP_NAME)}</div>
+      <span class="status-dot"><span class="dot ${cls}"></span>${esc(label)}</span>
+      <button class="plain" id="do-render">${esc(t("panel.action.render"))}</button>
+      <button class="primary" id="do-push" title="${esc(t("panel.action.push.hint"))}">${esc(t("panel.action.push"))}</button>
+    `;
+  }
+
+  _nav() {
+    return TABS.map(
+      (tab) =>
+        `<a data-tab="${tab}" class="${tab === this._tab ? "on" : ""} ${
+          TABS_PENDING.has(tab) ? "pending" : ""
+        }">${esc(t(`panel.tab.${tab}`))}</a>`,
+    ).join("");
+  }
+
+  _banner() {
+    if (this._error) return `<div class="note bad">${esc(t("common.error", { msg: this._error }))}</div>`;
+    if (this._notice) return `<div class="note">${esc(this._notice)}</div>`;
+    return "";
+  }
+
+  _page() {
+    if (!this._config) {
+      return `<div class="card">${esc(this._error || t("common.loading"))}</div>`;
+    }
+    if (TABS_PENDING.has(this._tab)) {
+      return `${this._banner()}<div class="card"><h2>${esc(t(`panel.tab.${this._tab}`))}</h2>
+        <div class="hint">${esc(t("panel.tab.soon"))}</div></div>`;
+    }
+    const body = {
+      overview: () => this._pageOverview(),
+      views: () => this._pageViews(),
+      photos: () => this._pagePhotos(),
+      display: () => this._pageDisplay(),
+    }[this._tab];
+    return this._banner() + `<div class="grid">${body ? body() : ""}</div>`;
+  }
+
+  // --- page: overview -------------------------------------------------------
+  _pageOverview() {
+    const status = this._status || {};
+    const target = status.target || {};
+    const manual = status.manual;
+    const push = status.last_push || {};
+    const run = status.last_run || {};
+
+    const because = this._becauseLine(status);
+    const since = fmtTime((manual && manual.at) || push.at);
+    const left = manual && manual.until ? fmtDuration(new Date(manual.until) - new Date()) : null;
+
+    const chips = [
+      `<button class="chip ${manual ? "" : "on"}" data-view="">${esc(t("card.chip.auto"))}</button>`,
+      ...PINNABLE.map(
+        (view) =>
+          `<button class="chip ${manual && manual.view === view ? "on" : ""}" data-view="${view}">${esc(
+            viewLabel(view),
+          )}</button>`,
+      ),
+    ].join("");
+
+    const manualNote = manual
+      ? `<div class="note warn">${esc(
+          left ? t("card.override.until", { duration: left }) : t("panel.overview.manual.open"),
+        )}</div>`
+      : "";
+
+    const preview = this._previewUrl
+      ? `<img class="preview" src="${esc(this._previewUrl)}" alt="${esc(viewLabel(target.view))}">`
+      : `<div class="preview"></div><div class="muted">${esc(t("panel.overview.preview.none"))}</div>`;
+    const fullLink = status.wall_path
+      ? `<button class="plain" id="open-full">${esc(t("panel.overview.preview.full"))}</button>`
+      : "";
+
+    return `
+      <div class="card">
+        <h2>${esc(t("panel.overview.current"))}</h2>
+        <div class="hint">${esc(t("panel.overview.shows"))}</div>
+        <div style="font-size:1.6rem;font-weight:700;color:var(--primary-color)">${esc(viewLabel(target.view))}</div>
+        <div class="kv" style="margin-top:12px">
+          <div class="k">${esc(t("panel.overview.because"))}</div><div>${esc(because)}</div>
+          <div class="k">${esc(t("panel.overview.since"))}</div><div>${esc(since || t("common.unknown"))}</div>
+          <div class="k">${esc(t("card.next_change"))}</div><div>${esc(fmtDateTime(status.next_change) || t("common.none"))}</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>${esc(t("panel.overview.push"))}</h2>
+        <div class="hint">${esc(t("panel.overview.run"))}: ${esc(t(`result.${status.result || "idle"}`))}</div>
+        <div class="kv">
+          <div class="k">${esc(t("card.last_push"))}</div>
+          <div>${esc(fmtDateTime(push.at) || t("panel.overview.push.none"))}</div>
+          <div class="k">${esc(t("panel.overview.push.hash"))}</div>
+          <div style="font-family:monospace;font-size:0.8rem">${esc(push.hash ? push.hash.slice(0, 12) + "…" : t("common.none"))}</div>
+          <div class="k">${esc(t("panel.overview.run"))}</div>
+          <div>${esc(fmtDateTime(run.at) || t("common.none"))}</div>
+        </div>
+        ${run.error ? `<div class="note bad">${esc(run.error)}</div>` : ""}
+        ${run.warning ? `<div class="note warn">${esc(run.warning)}</div>` : ""}
+        ${status.addon_error ? `<div class="note bad">${esc(status.addon_error)}</div>` : ""}
+      </div>
+
+      <div class="card">
+        <h2>${esc(t("panel.overview.manual"))}</h2>
+        <div class="hint">${esc(t("panel.overview.manual.hint"))}</div>
+        <div class="chips">${chips}</div>
+        ${manualNote}
+        ${manual ? `<div class="actions"><button class="plain" id="to-auto">${esc(t("panel.overview.manual.auto"))}</button></div>` : ""}
+      </div>
+
+      <div class="card">
+        <h2>${esc(t("panel.overview.preview"))}</h2>
+        <div class="hint">${esc(t("panel.overview.preview.hint"))}</div>
+        ${preview}
+        <div class="actions">
+          <button class="plain" id="reload-preview">${esc(t("panel.overview.preview.reload"))}</button>
+          ${fullLink}
+        </div>
+      </div>
+    `;
+  }
+
+  _becauseLine(status) {
+    const target = status.target || {};
+    switch (target.source) {
+      case "manual": {
+        const until = fmtTime(target.until);
+        return until ? t("card.because.manual", { time: until }) : t("card.because.manual_open");
+      }
+      case "schedule":
+        return t("card.because.schedule", {
+          name: String(target.schedule_entity || "").split(".").pop(),
+          rank: target.rank ?? "—",
+        });
+      case "guests":
+        return t("card.because.guests");
+      case "recipes":
+        return t("card.because.recipes", { count: target.selected ?? 0 });
+      default:
+        return t("card.because.fallback");
+    }
+  }
+
+  // --- page: views ----------------------------------------------------------
+  _pageViews() {
+    const views = this._draft.views || {};
+    const priority = (views.priority || []).filter((c) => CANDIDATES.includes(c));
+    const activeSource = ((this._status || {}).target || {}).source;
+
+    const rows = priority
+      .map((candidate, index) => {
+        // Every candidate carries its own one-liner ("as long as guest mode is
+        // on"); the priority list is useless without them.
+        const hintKey = `candidate.${candidate}.hint`;
+        return `<div class="sortrow ${candidate === activeSource ? "on" : ""}">
+          <div class="grow">
+            <div class="name">${esc(candidateLabel(candidate))}</div>
+            <div class="why">${esc(t(hintKey))}</div>
+          </div>
+          ${candidate === activeSource ? `<span class="badge">${esc(t("candidate.active"))}</span>` : ""}
+          <div class="rank">
+            <button class="plain small" data-move="up" data-index="${index}" title="${esc(t("panel.views.up"))}" ${index === 0 ? "disabled" : ""}>▲</button>
+            <button class="plain small" data-move="down" data-index="${index}" title="${esc(t("panel.views.down"))}" ${index === priority.length - 1 ? "disabled" : ""}>▼</button>
+          </div>
+        </div>`;
+      })
+      .join("");
+
+    const exceptions = (views.manual_exceptions || [])
+      .map((view) => `<button class="chip on" data-exception="${esc(view)}">${esc(viewLabel(view))} ✕</button>`)
+      .join("");
+    const addable = PINNABLE.filter((view) => !(views.manual_exceptions || []).includes(view))
+      .map((view) => `<button class="chip" data-exception-add="${esc(view)}">+ ${esc(viewLabel(view))}</button>`)
+      .join("");
+
+    return `
+      <div class="card">
+        <h2>${esc(t("panel.views.priority"))}</h2>
+        <div class="hint">${esc(t("panel.views.priority.hint"))}</div>
+        ${rows}
+        <div class="actions"><button class="primary" data-save="views">${esc(t("common.save"))}</button></div>
+        <div class="note">${esc(t("panel.views.note"))}</div>
+      </div>
+
+      ${this._cardSchedules()}
+
+      <div class="card">
+        <h2>${esc(t("panel.views.fallback"))}</h2>
+        <label>${esc(t("panel.views.fallback.timeout"))}</label>
+        <div class="inline">
+          <input id="manual-timeout" value="${esc(fmtNum(views.manual_timeout_h ?? 4))}">
+          <span class="unit">${esc(t("panel.views.fallback.hours"))}</span>
+        </div>
+        <div class="muted">${esc(t("panel.views.fallback.zero"))}</div>
+        <label>${esc(t("panel.views.fallback.exceptions"))}</label>
+        <div class="chips">${exceptions}${addable}</div>
+        <label>${esc(t("panel.views.fallback.view"))}</label>
+        <select id="fallback-view">
+          ${PINNABLE.map(
+            (view) => `<option value="${view}" ${views.fallback === view ? "selected" : ""}>${esc(viewLabel(view))}</option>`,
+          ).join("")}
+        </select>
+        <div class="muted">${esc(t("panel.views.fallback.view.hint"))}</div>
+        <div class="actions"><button class="primary" data-save="views">${esc(t("common.save"))}</button></div>
+      </div>
+    `;
+  }
+
+  _cardSchedules() {
+    const schedule = this._draft.schedule || {};
+    const helpers = Object.keys(this._hass.states || {})
+      .filter((id) => id.startsWith("schedule."))
+      .sort();
+    const entries = Object.entries(schedule);
+
+    const rows = entries
+      .map(([view, entry]) => {
+        const state = this._hass.states[entry.entity_id];
+        const now = !state
+          ? `<span class="muted">${esc(t("panel.views.schedules.missing"))}</span>`
+          : state.state === "on"
+            ? `<span style="color:var(--success-color,#43a047);font-weight:600">${esc(t("panel.views.schedules.running"))}</span>`
+            : `<span class="muted">${esc(t("panel.views.schedules.off"))}</span>`;
+        const options = helpers
+          .map((id) => `<option value="${esc(id)}" ${entry.entity_id === id ? "selected" : ""}>${esc(id)}</option>`)
+          .join("");
+        return `<tr>
+          <td>${esc(viewLabel(view))}</td>
+          <td><select data-schedule-entity="${esc(view)}"><option value="">—</option>${options}</select></td>
+          <td style="width:80px"><input data-schedule-rank="${esc(view)}" value="${esc(entry.rank ?? "")}"></td>
+          <td>${now}</td>
+          <td><button class="plain small" data-schedule-remove="${esc(view)}">✕</button></td>
+        </tr>`;
+      })
+      .join("");
+
+    const addable = PINNABLE.filter((view) => !(view in schedule));
+    const add = addable.length
+      ? `<div class="inline" style="margin-top:12px">
+           <select id="schedule-add-view">${addable.map((v) => `<option value="${v}">${esc(viewLabel(v))}</option>`).join("")}</select>
+           <button class="plain" id="schedule-add">${esc(t("panel.views.schedules.add"))}</button>
+         </div>`
+      : "";
+
+    return `<div class="card">
+      <h2>${esc(t("panel.views.schedules"))}</h2>
+      <div class="hint">${esc(t("panel.views.schedules.hint"))}</div>
+      ${
+        entries.length
+          ? `<table><thead><tr>
+              <th>${esc(t("panel.views.schedules.view"))}</th>
+              <th>${esc(t("panel.views.schedules.entity"))}</th>
+              <th>${esc(t("panel.views.schedules.rank"))}</th>
+              <th>${esc(t("panel.views.schedules.now"))}</th>
+              <th></th></tr></thead><tbody>${rows}</tbody></table>`
+          : `<div class="muted">${esc(t("panel.views.schedules.none"))}</div>`
+      }
+      ${add}
+      <div class="actions">
+        <button class="primary" data-save="schedule">${esc(t("common.save"))}</button>
+        <button class="plain" id="open-helpers">${esc(t("panel.views.schedules.open"))}</button>
+      </div>
+      <div class="note">${esc(t("panel.views.schedules.overlap"))}</div>
+    </div>`;
+  }
+
+  // --- page: photos ---------------------------------------------------------
+  _pagePhotos() {
+    const photos = this._draft.photos || {};
+    const media = this._draft.media || {};
+    const cache = this._photos;
+
+    const thumbs =
+      cache && cache.photos && cache.photos.length
+        ? `<div class="thumbs">${cache.photos
+            .slice(0, 60)
+            .map(
+              (photo) => `<div class="thumb">
+                 <img loading="lazy" src="${esc(photo.url || "")}" alt="${esc(photo.name)}">
+                 <div class="cap" title="${esc(photo.name)}">${esc(photo.name)}</div>
+               </div>`,
+            )
+            .join("")}</div>`
+        : `<div class="muted">${esc((cache && cache.error) || t("panel.photos.cache.none"))}</div>`;
+
+    return `
+      <div class="card">
+        <h2>${esc(t("panel.photos.source"))}</h2>
+        <label>${esc(t("panel.photos.root"))}</label>
+        <input id="media-root" value="${esc(media.root || "")}" placeholder="/media/epaperengine">
+        <div class="muted">${esc(t("panel.photos.root.hint"))}</div>
+        <label>${esc(t("panel.photos.source.folder"))}</label>
+        <input id="photo-folder" value="${esc(photos.source_folder || "")}">
+        <div class="muted">${esc(t("panel.photos.source.hint"))}</div>
+        <div class="actions"><button class="primary" data-save="photos,media">${esc(t("common.save"))}</button></div>
+      </div>
+
+      <div class="card">
+        <h2>${esc(t("panel.photos.rotation"))}</h2>
+        <label>${esc(t("panel.photos.rotation.interval"))}</label>
+        <div class="inline">
+          <input id="rotation" value="${esc(fmtNum(photos.rotation_interval_min ?? 60))}">
+          <span class="unit">${esc(t("panel.photos.rotation.minutes"))}</span>
+        </div>
+        <div class="muted">${esc(t("panel.photos.rotation.hint"))}</div>
+        <div class="actions"><button class="primary" data-save="photos">${esc(t("common.save"))}</button></div>
+        <div class="note warn">${esc(t("panel.photos.budget.hint"))}</div>
+      </div>
+
+      <div class="card" style="grid-column: 1 / -1">
+        <h2>${esc(t("panel.photos.cache"))}</h2>
+        <div class="hint">${esc(
+          cache ? t("panel.photos.cache.count", { count: fmtNum(cache.total || 0) }) : t("common.loading"),
+        )}</div>
+        ${thumbs}
+        <div class="actions"><button class="plain" id="reload-photos">${esc(t("panel.overview.preview.reload"))}</button></div>
+      </div>
+    `;
+  }
+
+  // --- page: display --------------------------------------------------------
+  _pageDisplay() {
+    const display = this._draft.display || {};
+    const probed = (this._status && this._status.display) || {};
+    const battery = probed.battery || {};
+    const probe = this._probe;
+
+    let probeNote = "";
+    if (probe && probe.pending) probeNote = `<div class="note">${esc(t("common.loading"))}</div>`;
+    else if (probe && probe.reachable)
+      probeNote = `<div class="note">${esc(t("panel.display.test.ok"))}</div>`;
+    else if (probe)
+      probeNote = `<div class="note bad">${esc(t("panel.display.test.failed", { msg: probe.error || t("error.unknown") }))}</div>`;
+
+    const admin = this.isAdmin;
+    const lock = admin ? "" : "disabled";
+
+    return `
+      <div class="card">
+        <h2>${esc(t("panel.display.connection"))}</h2>
+        <label>${esc(t("panel.display.host"))}</label>
+        <input id="display-host" value="${esc(display.host || "")}" ${lock}>
+        <label>${esc(t("panel.display.pin"))}</label>
+        <input id="display-pin" type="password" value="${esc(display.mdc_pin || "")}" ${lock}>
+        <label>${esc(t("panel.display.mac"))}</label>
+        <input id="display-mac" value="${esc(display.mac || "")}" ${lock}>
+        <div class="actions">
+          <button class="primary" data-save="display" ${lock}>${esc(t("common.save"))}</button>
+          <button class="plain" id="test-display" ${lock}>${esc(t("panel.display.test"))}</button>
+        </div>
+        <div class="muted">${esc(t("panel.display.test.hint"))}</div>
+        ${probeNote}
+        ${admin ? "" : `<div class="note warn">${esc(t("error.no_admin"))}</div>`}
+      </div>
+
+      <div class="card">
+        <h2>${esc(t("panel.display.renderer"))}</h2>
+        <label>${esc(t("panel.display.renderer.url"))}</label>
+        <input id="renderer-url" value="${esc(display.renderer_url || "")}" placeholder="http://homeassistant.local:8099" ${lock}>
+        <div class="muted">${esc(t("panel.display.renderer.hint"))}</div>
+        <div class="actions"><button class="primary" data-save="display" ${lock}>${esc(t("common.save"))}</button></div>
+        <div class="note warn">${esc(t("panel.display.safety.hint"))}</div>
+      </div>
+
+      <div class="card">
+        <h2>${esc(t("panel.display.device"))}</h2>
+        <div class="hint">${esc(t("panel.display.device.hint"))}</div>
+        <div class="kv">
+          <div class="k">${esc(t("panel.display.device.name"))}</div><div>${esc(probed.device_name || t("common.unknown"))}</div>
+          <div class="k">${esc(t("panel.display.device.firmware"))}</div><div>${esc(probed.software_version || t("common.unknown"))}</div>
+          <div class="k">${esc(t("panel.display.device.serial"))}</div><div>${esc(probed.serial_number || t("common.unknown"))}</div>
+          <div class="k">${esc(t("panel.display.device.power"))}</div><div>${esc(probed.power_state || t("common.unknown"))}</div>
+          <div class="k">${esc(t("panel.display.device.battery"))}</div>
+          <div>${
+            battery.batteryPercent == null
+              ? esc(t("common.unknown"))
+              : esc(`${fmtNum(battery.batteryPercent)} %${battery.pluggedIn ? ` · ${t("panel.display.device.plugged")}` : ""}`)
+          }</div>
+        </div>
+        ${probed.at ? `<div class="muted" style="margin-top:10px">${esc(t("panel.display.checked", { time: probed.at }))}</div>` : ""}
+        ${probed.error ? `<div class="note bad">${esc(probed.error)}</div>` : ""}
+      </div>
+    `;
+  }
+
+  // --- wiring ---------------------------------------------------------------
+  _wire() {
+    const root = this.shadowRoot;
+    const on = (selector, handler) => {
+      const node = root.querySelector(selector);
+      if (node) node.onclick = handler;
+    };
+
+    root.querySelectorAll("nav a").forEach((link) => {
+      link.onclick = () => this._go(link.dataset.tab);
+    });
+    on("#do-render", () => this._render_now(false));
+    on("#do-push", () => this._render_now(true));
+
+    // --- overview
+    root.querySelectorAll("[data-view]").forEach((chip) => {
+      chip.onclick = () => this._setView(chip.dataset.view || null);
+    });
+    on("#to-auto", () => this._setView(null));
+    on("#reload-preview", async () => {
+      await this._refreshStatus();
+      await this._signPreview();
+      this._render();
+    });
+    on("#open-full", async () => {
+      const url = await this._sign(this._status.wall_path, 300);
+      if (url) window.open(url, "_blank", "noopener");
+    });
+
+    // --- views
+    root.querySelectorAll("[data-move]").forEach((button) => {
+      button.onclick = () => {
+        const list = (this._draft.views.priority || []).filter((c) => CANDIDATES.includes(c));
+        const index = Number(button.dataset.index);
+        const to = button.dataset.move === "up" ? index - 1 : index + 1;
+        if (to < 0 || to >= list.length) return;
+        [list[index], list[to]] = [list[to], list[index]];
+        this._draft.views.priority = list;
+        this._render();
+      };
+    });
+    root.querySelectorAll("[data-exception]").forEach((chip) => {
+      chip.onclick = () => {
+        this._draft.views.manual_exceptions = (this._draft.views.manual_exceptions || []).filter(
+          (view) => view !== chip.dataset.exception,
+        );
+        this._render();
+      };
+    });
+    root.querySelectorAll("[data-exception-add]").forEach((chip) => {
+      chip.onclick = () => {
+        this._draft.views.manual_exceptions = [
+          ...(this._draft.views.manual_exceptions || []),
+          chip.dataset.exceptionAdd,
+        ];
+        this._render();
+      };
+    });
+    root.querySelectorAll("[data-schedule-entity]").forEach((select) => {
+      select.onchange = () => {
+        this._draft.schedule[select.dataset.scheduleEntity].entity_id = select.value || null;
+      };
+    });
+    root.querySelectorAll("[data-schedule-rank]").forEach((input) => {
+      input.onchange = () => {
+        const value = parseNum(input.value);
+        this._draft.schedule[input.dataset.scheduleRank].rank = isFinite(value) ? value : null;
+      };
+    });
+    root.querySelectorAll("[data-schedule-remove]").forEach((button) => {
+      button.onclick = () => {
+        delete this._draft.schedule[button.dataset.scheduleRemove];
+        this._render();
+      };
+    });
+    on("#schedule-add", () => {
+      const view = root.querySelector("#schedule-add-view").value;
+      const used = Object.values(this._draft.schedule || {})
+        .map((entry) => Number(entry.rank))
+        .filter((rank) => isFinite(rank));
+      this._draft.schedule = {
+        ...(this._draft.schedule || {}),
+        [view]: { entity_id: null, rank: used.length ? Math.max(...used) + 1 : 1 },
+      };
+      this._render();
+    });
+    on("#open-helpers", () => {
+      history.pushState(null, "", "/config/helpers");
+      window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true, composed: true }));
+    });
+
+    // --- photos
+    on("#reload-photos", () => this._loadPhotos());
+
+    // --- save buttons: read the inputs of the page, then commit the sections
+    root.querySelectorAll("[data-save]").forEach((button) => {
+      button.onclick = () => {
+        this._collect();
+        this._save(button.dataset.save.split(","));
+      };
+    });
+    on("#test-display", () => this._testDisplay());
+  }
+
+  /**
+   * Pull the free-text fields of the current page into the draft.
+   *
+   * Read on save rather than on every keystroke: a re-render on each character
+   * would fight the cursor, and the 15-second status poll re-renders anyway.
+   */
+  _collect() {
+    const root = this.shadowRoot;
+    const value = (selector) => {
+      const node = root.querySelector(selector);
+      return node ? node.value.trim() : null;
+    };
+    const number = (selector, fallback) => {
+      const parsed = parseNum(value(selector));
+      return isFinite(parsed) ? parsed : fallback;
+    };
+
+    if (this._tab === "views") {
+      this._draft.views.manual_timeout_h = number("#manual-timeout", this._draft.views.manual_timeout_h);
+      const fallback = value("#fallback-view");
+      if (fallback) this._draft.views.fallback = fallback;
+    }
+    if (this._tab === "photos") {
+      this._draft.media.root = value("#media-root") || null;
+      this._draft.photos.source_folder = value("#photo-folder") || null;
+      this._draft.photos.rotation_interval_min = number(
+        "#rotation",
+        this._draft.photos.rotation_interval_min,
+      );
+    }
+    if (this._tab === "display") {
+      this._draft.display.host = value("#display-host") || null;
+      this._draft.display.mdc_pin = value("#display-pin") || null;
+      this._draft.display.mac = value("#display-mac") || null;
+      this._draft.display.renderer_url = value("#renderer-url") || null;
+    }
+  }
+}
+
+if (!customElements.get("epaperengine-panel")) {
+  customElements.define("epaperengine-panel", EPaperEnginePanel);
+}

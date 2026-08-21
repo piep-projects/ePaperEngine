@@ -41,10 +41,15 @@ if TYPE_CHECKING:  # pragma: no cover
 _LOGGER = logging.getLogger("epaperengine.delivery")
 
 PUSH_SCRIPT = Path(__file__).parent / "push.mjs"
+PROBE_SCRIPT = Path(__file__).parent / "probe.mjs"
 
 # Connect, hand over the URL, disconnect. Generous, because the panel answers
 # slowly, but finite so a mute display cannot wedge the queue.
 PUSH_TIMEOUT_S = 90
+
+# A probe only reads. It must fail *fast*: it runs behind a sensor that is polled
+# on a timer, and behind a button somebody is standing in front of.
+PROBE_TIMEOUT_S = 20
 
 # Verbatim from the tool that worked. The original carries a `// TODO ?` next to
 # the duration — it is not understood and is taken over unchanged (FSD §10.1).
@@ -144,6 +149,36 @@ def push(host: str, pin: str, url: str, mac: str | None = None) -> None:
             + (" | ".join(detail[-3:]) if detail else "no output")
         )
     _LOGGER.info("Pushed %s to %s", url, host)
+
+
+def probe(host: str, pin: str, mac: str | None = None) -> dict[str, object]:
+    """Ask the display who it is (MDC read over TLS 1515).
+
+    What ``binary_sensor.epaperengine_display_reachable`` is built on
+    [Festlegung 2026-08-21]: reachable means *the PIN was accepted and the panel
+    answered*, not merely that port 1515 is open. Raises ``RuntimeError`` when
+    the connection or the handshake fails — that is the "not reachable" case.
+    """
+    command = ["node", str(PROBE_SCRIPT), host, pin]
+    if mac:
+        command.append(mac)
+    try:
+        completed = subprocess.run(
+            command, capture_output=True, text=True, timeout=PROBE_TIMEOUT_S, check=False
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"display did not answer within {PROBE_TIMEOUT_S}s") from exc
+
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "").strip().splitlines()
+        raise RuntimeError(
+            f"MDC probe failed ({completed.returncode}): "
+            + (" | ".join(detail[-3:]) if detail else "no output")
+        )
+    try:
+        return dict(json.loads(completed.stdout or "{}"))
+    except ValueError as exc:
+        raise RuntimeError(f"MDC probe returned no JSON: {completed.stdout[:200]}") from exc
 
 
 def copy_to_media(pairs: list[tuple[bytes, Path]]) -> str | None:

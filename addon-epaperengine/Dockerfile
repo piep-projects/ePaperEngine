@@ -35,7 +35,7 @@ RUN apk add --no-cache \
  && npm cache clean --force \
  && rm -rf /root/.npm /tmp/*
 
-COPY *.py push.mjs /opt/epaperengine/
+COPY *.py push.mjs probe.mjs /opt/epaperengine/
 COPY templates/ /opt/epaperengine/templates/
 COPY run.sh /run.sh
 RUN chmod a+x /run.sh

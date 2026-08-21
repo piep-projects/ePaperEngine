@@ -87,24 +87,31 @@ class TestHomeAssistantCatalogs(unittest.TestCase):
                 self.assertTrue(value.strip(), f"{lang}: {key} is empty")
 
 
-def _sensor_translation_keys() -> set[str]:
-    """Translation keys the sensor platform actually uses.
+ENTITY_PLATFORMS = ("sensor", "binary_sensor", "button")
+
+
+def _entity_translation_keys() -> set[tuple[str, str]]:
+    """``(platform, translation_key)`` for every entity the integration builds.
 
     Read out of the source rather than listed here — a hand-kept list in the
-    test would drift the moment someone adds a sensor, which is the exact
+    test would drift the moment someone adds an entity, which is the exact
     failure this test exists to catch. Every entity is built through
     ``super().__init__(coordinator, "<key>")``.
     """
-    tree = ast.parse((COMPONENT / "sensor.py").read_text(encoding="utf-8"))
-    keys: set[str] = set()
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or len(node.args) != 2:
+    keys: set[tuple[str, str]] = set()
+    for platform in ENTITY_PLATFORMS:
+        source = COMPONENT / f"{platform}.py"
+        if not source.exists():
             continue
-        func = node.func
-        if not (isinstance(func, ast.Attribute) and func.attr == "__init__"):
-            continue
-        if isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, str):
-            keys.add(node.args[1].value)
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or len(node.args) != 2:
+                continue
+            func = node.func
+            if not (isinstance(func, ast.Attribute) and func.attr == "__init__"):
+                continue
+            if isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, str):
+                keys.add((platform, node.args[1].value))
     return keys
 
 
@@ -128,13 +135,23 @@ class TestEntityCatalogs(unittest.TestCase):
             for name, catalog in self.catalogs.items():
                 self.assertIn(key, catalog, f"{name}: no label for status {result!r}")
 
+    def test_target_view_enum_states_are_translated(self) -> None:
+        """The second ENUM sensor. Same reasoning as the status one: the raw
+        token would otherwise show up in more-info, history and the logbook."""
+        for view in _const_tuple("VIEWS"):
+            key = f"entity.sensor.target_view.state.{view}"
+            for name, catalog in self.catalogs.items():
+                self.assertIn(key, catalog, f"{name}: no label for view {view!r}")
+
     def test_every_used_translation_key_has_a_name(self) -> None:
-        used = _sensor_translation_keys()
-        self.assertTrue(used, "no translation keys found in sensor.py — parser broken?")
-        for key in used:
+        used = _entity_translation_keys()
+        self.assertTrue(used, "no translation keys found — parser broken?")
+        for platform, key in used:
             for name, catalog in self.catalogs.items():
                 self.assertIn(
-                    f"entity.sensor.{key}.name", catalog, f"{name}: no name for {key!r}"
+                    f"entity.{platform}.{key}.name",
+                    catalog,
+                    f"{name}: no name for {platform}.{key!r}",
                 )
 
 

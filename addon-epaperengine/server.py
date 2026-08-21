@@ -89,11 +89,25 @@ class Outcome:
         }
 
 
+@dataclass
+class Job:
+    """One queued run.
+
+    ``force`` is the panel's "Push now" (FSD §3.1): send the current image even
+    when it is unchanged, i.e. step over the hash gate of §11. It rides on the
+    job rather than on the engine because two jobs can be in flight around one
+    another and a forced push must not leak into the next timed run.
+    """
+
+    reason: str
+    force: bool = False
+
+
 class Engine:
     """Owns the run queue and the conversation with Home Assistant."""
 
     def __init__(self) -> None:
-        self._queue: asyncio.Queue[str] = asyncio.Queue(maxsize=1)
+        self._queue: asyncio.Queue[Job] = asyncio.Queue(maxsize=1)
         self._api_base: str | None = None
         self.last_run: dict[str, Any] | None = None
         self.last_cache: dict[str, Any] | None = None
@@ -101,6 +115,10 @@ class Engine:
         # Proof that the display actually came and took it. The MDC call only
         # says the panel accepted the order, not that it fetched anything.
         self.last_fetch: dict[str, Any] | None = None
+        # Last answer of the MDC probe, with the moment it was taken. Both the
+        # reachability sensor and the panel's "Test connection" read this.
+        self.display: dict[str, Any] | None = None
+        self._probe_lock = asyncio.Lock()
 
     # --- Home Assistant -------------------------------------------------------
     async def _call(
@@ -158,37 +176,86 @@ class Engine:
         )
 
     # --- queue ----------------------------------------------------------------
-    def enqueue(self, reason: str) -> None:
+    def enqueue(self, reason: str, force: bool = False) -> None:
         """Queue a run, *last wins* (FSD §6.1).
 
         A depth of one is the whole mechanism: if a run is already waiting, the
         pending one is replaced rather than added to. Two runs racing for the
         same file is exactly what this prevents.
+
+        ``force`` survives the replacement even when the newer job does not carry
+        it: somebody pressed "Push now", and a timed run arriving a second later
+        must not quietly swallow that request.
         """
         while True:
             try:
-                self._queue.put_nowait(reason)
+                self._queue.put_nowait(Job(reason, force))
                 return
             except asyncio.QueueFull:
                 try:
-                    self._queue.get_nowait()
+                    dropped = self._queue.get_nowait()
                     self._queue.task_done()
+                    force = force or dropped.force
                 except asyncio.QueueEmpty:
                     pass
+
+    async def probe_display(
+        self, session: aiohttp.ClientSession, max_age_s: float = 30.0
+    ) -> dict[str, Any]:
+        """Ask the display who it is, at most once every ``max_age_s``.
+
+        Two callers share this: the reachability sensor on its timer and the
+        panel's "Test connection" button. The cache is what keeps an impatient
+        finger on that button from queuing a dozen TLS handshakes; passing
+        ``max_age_s=0`` forces a fresh one.
+        """
+        now = time.time()
+        cached = self.display
+        if cached and max_age_s > 0 and now - float(cached.get("at_ts") or 0) < max_age_s:
+            return cached
+
+        async with self._probe_lock:
+            # Somebody may have refreshed it while we waited for the lock.
+            cached = self.display
+            if cached and max_age_s > 0 and time.time() - float(cached.get("at_ts") or 0) < max_age_s:
+                return cached
+
+            display_cfg = (await self.get_render_data(session)).get("display") or {}
+            host, pin = display_cfg.get("host"), display_cfg.get("mdc_pin")
+            if not host or not pin:
+                result: dict[str, Any] = {
+                    "reachable": False,
+                    "error": "display.host or display.mdc_pin is not configured",
+                }
+            else:
+                try:
+                    fields = await asyncio.to_thread(
+                        delivery.probe,
+                        str(host),
+                        str(pin),
+                        str(display_cfg["mac"]) if display_cfg.get("mac") else None,
+                    )
+                    result = {"reachable": True, "host": host, **fields}
+                except RuntimeError as exc:
+                    result = {"reachable": False, "host": host, "error": str(exc)}
+            result["at_ts"] = time.time()
+            result["at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            self.display = result
+            return result
 
     async def worker(self) -> None:
         async with aiohttp.ClientSession() as session:
             while True:
-                reason = await self._queue.get()
+                job = await self._queue.get()
                 try:
-                    await self._run_once(session, reason)
+                    await self._run_once(session, job)
                 except Exception as exc:  # noqa: BLE001 - a run must never kill the worker
                     _LOGGER.exception("Run failed: %s", exc)
-                    self.last_run = {"reason": reason, "error": str(exc)}
+                    self.last_run = {"reason": job.reason, "error": str(exc)}
                 finally:
                     self._queue.task_done()
 
-    async def _run_once(self, session: aiohttp.ClientSession, reason: str) -> None:
+    async def _run_once(self, session: aiohttp.ClientSession, job: Job) -> None:
         self.runs += 1
         started = time.monotonic()
         document = await self.get_render_data(session)
@@ -198,7 +265,7 @@ class Engine:
             # Blocking from here to the end of the pipeline: Pillow, Chromium and
             # Node. In a thread, so ``/image`` stays answerable — the display
             # fetches it while this very run is still finishing.
-            outcome = await asyncio.to_thread(run_pipeline, document, view, self)
+            outcome = await asyncio.to_thread(run_pipeline, document, view, self, job.force)
         except Exception as exc:  # noqa: BLE001 - a bad run is a reported run
             _LOGGER.exception("Pipeline failed")
             outcome = Outcome(
@@ -207,7 +274,8 @@ class Engine:
 
         seconds = time.monotonic() - started
         self.last_run = {
-            "reason": reason,
+            "reason": job.reason,
+            "forced": job.force,
             "at": time.strftime("%Y-%m-%d %H:%M:%S"),
             "seconds": round(seconds, 2),
             **outcome.as_report(),
@@ -216,7 +284,7 @@ class Engine:
         _LOGGER.info(
             "Run %d (%s): %s in %.1fs%s",
             self.runs,
-            reason,
+            job.reason + (" force" if job.force else ""),
             outcome.result,
             seconds,
             f" — {outcome.error}" if outcome.error else "",
@@ -235,8 +303,15 @@ def _write_state(state: dict[str, Any]) -> None:
     STATE_PATH.write_text(json.dumps(state, indent=1), encoding="utf-8")
 
 
-def run_pipeline(document: dict[str, Any], view: str, engine: Engine) -> Outcome:
-    """FSD §6.2, steps 2 to 9. Blocking; called through ``asyncio.to_thread``."""
+def run_pipeline(
+    document: dict[str, Any], view: str, engine: Engine, force: bool = False
+) -> Outcome:
+    """FSD §6.2, steps 2 to 9. Blocking; called through ``asyncio.to_thread``.
+
+    ``force`` steps over the hash gate of §11 and nothing else — the picture is
+    still rendered from scratch, so what goes to the wall is the current state
+    and not a stale file replayed from ``/data``.
+    """
     if view != "photos":
         # Phase 3 builds one view. Saying so beats rendering a blank wall.
         return Outcome(
@@ -283,7 +358,9 @@ def run_pipeline(document: dict[str, Any], view: str, engine: Engine) -> Outcome
     digest = delivery.fingerprint(final)
     state = _read_state()
     detail = {"photo": photo.source, "photos_total": report.total}
-    if state.get("image_hash") == digest and IMAGE_PATH.exists():
+    if force:
+        detail["forced"] = True
+    if not force and state.get("image_hash") == digest and IMAGE_PATH.exists():
         # The normal outcome, not an error (FSD §11). A standing error page
         # suppresses its own repeat pushes through exactly this branch.
         return Outcome(
@@ -372,15 +449,41 @@ async def handle_health(_request: web.Request) -> web.Response:
             "photo_cache": engine.last_cache,
             "last_run": engine.last_run,
             "last_fetch": engine.last_fetch,
+            "display": engine.display,
         }
     )
 
 
+def _flag(request: web.Request, name: str) -> bool:
+    """A query flag, present-means-true: ``?force``, ``?force=1``, ``?force=true``."""
+    if name not in request.query:
+        return False
+    return request.query[name].lower() not in ("0", "false", "no")
+
+
 async def handle_render(request: web.Request) -> web.Response:
-    """Answer 202 immediately, work asynchronously (FSD §3.2)."""
+    """Answer 202 immediately, work asynchronously (FSD §3.2).
+
+    ``?force`` is the panel's "Push now": render as always, but push even when
+    the image is unchanged.
+    """
     reason = request.query.get("reason", "http")
-    engine.enqueue(reason)
-    return web.json_response({"queued": True}, status=202)
+    force = _flag(request, "force")
+    engine.enqueue(reason, force)
+    return web.json_response({"queued": True, "force": force}, status=202)
+
+
+async def handle_display(request: web.Request) -> web.Response:
+    """MDC reachability of the display — the honest kind (FSD §3.1).
+
+    Answers 200 with ``reachable: false`` and a reason rather than an HTTP error:
+    "the display is mute" is an answer to the question, not a failure to answer
+    it, and the sensor behind this needs to tell the two apart.
+    """
+    fresh = _flag(request, "fresh")
+    async with aiohttp.ClientSession() as session:
+        result = await engine.probe_display(session, max_age_s=0 if fresh else 30.0)
+    return web.json_response(result)
 
 
 def _note_fetch(request: web.Request, what: str) -> None:
@@ -436,6 +539,7 @@ async def main() -> None:
     app = web.Application()
     app.router.add_get("/health", handle_health)
     app.router.add_post("/render", handle_render)
+    app.router.add_get("/display", handle_display)
     app.router.add_get("/content.json", handle_content)
     app.router.add_get("/image", handle_image)
     app.router.add_get("/preview", handle_preview)

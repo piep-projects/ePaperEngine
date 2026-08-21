@@ -1,8 +1,8 @@
 """Sensors for ePaperEngine (FSD §3.1).
 
-Phase 3 ships the two that make a render run observable from outside:
-what the last run did, and when the wall last actually changed. The target
-view, recipe cache and display reachability follow in phase 4.
+Three of them: which view *should* be on the wall and why, what the last run
+did, and when the wall last actually changed. The recipe-cache sensor follows in
+phase 5 together with the recipe view.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, RUN_RESULTS
+from .const import DOMAIN, RUN_RESULTS, VIEWS
 from .coordinator import EPaperEngineCoordinator
 from .entity import EPaperEngineEntity
 
@@ -28,7 +28,43 @@ async def async_setup_entry(
 ) -> None:
     """Set up the ePaperEngine sensors."""
     coordinator: EPaperEngineCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([StatusSensor(coordinator), LastPushSensor(coordinator)])
+    async_add_entities(
+        [
+            TargetViewSensor(coordinator),
+            StatusSensor(coordinator),
+            LastPushSensor(coordinator),
+        ]
+    )
+
+
+class TargetViewSensor(EPaperEngineEntity, SensorEntity):
+    """Which view the priority resolution picked, and why (FSD §5).
+
+    The ``source`` attribute is not decoration: without it the resolution is a
+    black box to whoever is looking at the wall wondering why the recipes are
+    still up. It is the same reason the Lovelace card leads with the "because"
+    line.
+    """
+
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = list(VIEWS)
+
+    def __init__(self, coordinator: EPaperEngineCoordinator) -> None:
+        super().__init__(coordinator, "target_view")
+
+    @property
+    def native_value(self) -> str:
+        return self.coordinator.target.view
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        target = self.coordinator.target
+        next_change = self.coordinator.next_change_at()
+        return {
+            "source": target.source,
+            **target.detail,
+            "next_change": next_change.isoformat() if next_change else None,
+        }
 
 
 class StatusSensor(EPaperEngineEntity, SensorEntity):
@@ -65,6 +101,11 @@ class StatusSensor(EPaperEngineEntity, SensorEntity):
             "at": run.get("at"),
             "error": run.get("error"),
             "warning": run.get("warning"),
+            # A run the add-on never started reports nothing at all, so the
+            # reason it could not be reached has to travel separately — otherwise
+            # an unreachable renderer looks like a system standing still for no
+            # stated reason.
+            "addon_error": self.coordinator.addon_error,
         }
 
 

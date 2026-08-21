@@ -17,9 +17,13 @@ from homeassistant.const import Platform
 
 DOMAIN: Final = "epaperengine"
 
-# Entity platforms. Phase 3 ships the two sensors that make a render run
-# observable; the remaining entities of FSD §3.1 follow in phase 4.
-PLATFORMS: Final[list[Platform]] = [Platform.SENSOR]
+# Entity platforms. The recipe-cache sensor of FSD §3.1 follows in phase 5,
+# together with the recipe view itself.
+PLATFORMS: Final[list[Platform]] = [
+    Platform.BINARY_SENSOR,
+    Platform.BUTTON,
+    Platform.SENSOR,
+]
 
 # --- Views (FSD §5) -----------------------------------------------------------
 # Stored values and entity states — a contract, therefore stable English tokens.
@@ -71,9 +75,22 @@ RUN_RESULTS: Final[tuple[str, ...]] = (
 # to us by the add-on rather than polled.
 SIGNAL_STATE_UPDATED: Final = DOMAIN + "_state_updated_{}"
 
+# --- WebSocket commands (FSD §3.1) --------------------------------------------
+# The panel's and the card's only channel. Attributes are capped at 16 KB, so
+# anything that grows — photo lists, later the recipe cache — travels here.
+WS_CONFIG_GET: Final = f"{DOMAIN}/config/get"
+WS_CONFIG_SET: Final = f"{DOMAIN}/config/set"
+WS_STATUS: Final = f"{DOMAIN}/status"
+WS_RENDER: Final = f"{DOMAIN}/render"
+WS_SET_VIEW: Final = f"{DOMAIN}/set_view"
+WS_PHOTOS_LIST: Final = f"{DOMAIN}/photos/list"
+WS_DISPLAY_TEST: Final = f"{DOMAIN}/display/test"
+
 # --- Services (FSD §3.1) ------------------------------------------------------
 SERVICE_GET_RENDER_DATA: Final = "get_render_data"
 SERVICE_REPORT_RUN: Final = "report_run"
+SERVICE_RENDER: Final = "render"
+SERVICE_SET_VIEW: Final = "set_view"
 
 # --- Priority resolution (FSD §5) ---------------------------------------------
 # Candidates of the ordered priority list. ``manual``/``schedule``/``fallback``
@@ -94,6 +111,36 @@ DEFAULT_PRIORITY: Final[tuple[str, ...]] = (
 # Manual override falls back to automatic after this many hours; 0 disables the
 # fallback. Guests are exempt (FSD §5) — visitors stay for the weekend.
 DEFAULT_MANUAL_TIMEOUT_H: Final = 4
+
+# The candidates the panel offers for sorting. Deliberately not "every view":
+# FSD §5 defines an activity condition for exactly these five, and a candidate
+# without a condition could never win a comparison (see ``resolve.py``).
+SORTABLE_CANDIDATES: Final[tuple[str, ...]] = DEFAULT_PRIORITY
+
+# --- Render cycle (FSD §6.1) --------------------------------------------------
+# The timed net. Every 15 minutes rather than every 6 hours [Festlegung
+# 2026-08-20]: it is what catches the changes that have no trigger of their own —
+# an appointment moved on a phone, a new file in the photo folder — and it is
+# cheap, because a run only pushes when the image hash changed (FSD §11). It is
+# also the reason the card carries no refresh button.
+RENDER_INTERVAL_MIN: Final = 15
+
+# Debounce in the integration (FSD §6.1, Festlegung B6). Catches double clicks
+# and a burst of config writes from the panel; the add-on's "last wins" queue
+# handles the rest. Both, not either-or — a run takes ~10 s.
+RENDER_DEBOUNCE_S: Final = 20
+
+# How long an MDC probe answer counts as current. The add-on caches it too; this
+# is the integration's own ceiling so a reload does not start with a blank sensor
+# and a burst of handshakes.
+DISPLAY_PROBE_INTERVAL_MIN: Final = 15
+
+# Add-on endpoints (FSD §3.2). The base address is configuration
+# (``display.renderer_url``) because the add-on may run on another host.
+ADDON_RENDER_PATH: Final = "/render"
+ADDON_DISPLAY_PATH: Final = "/display"
+ADDON_HEALTH_PATH: Final = "/health"
+DEFAULT_RENDERER_URL: Final = "http://homeassistant.local:8099"
 
 # --- Frontend translation catalogs (i18n concept §6) --------------------------
 # One shared catalog per language for the card *and* the panel, served from the

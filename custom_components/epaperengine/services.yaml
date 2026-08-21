@@ -41,3 +41,23 @@ report_run:
       default: false
       selector:
         boolean:
+
+render:
+  fields:
+    force:
+      default: false
+      selector:
+        boolean:
+
+set_view:
+  fields:
+    view:
+      example: recipes
+      selector:
+        select:
+          options:
+            - calendar
+            - recipes
+            - photos
+            - guests
+            - error

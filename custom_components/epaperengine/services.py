@@ -1,7 +1,8 @@
 """Services for ePaperEngine (FSD §3.1).
 
-Two of them in phase 3, and they are the whole conversation between the
-integration and the add-on:
+Four. Two of them are the whole conversation between the integration and the
+add-on, two are for automations — the front-ends use the WebSocket API instead
+(``websocket_api.py``), because the browser is already connected there.
 
 ``get_render_data``
     the add-on pulls one document per run (FSD §6.2 step 1). ``SupportsResponse
@@ -13,6 +14,13 @@ integration and the add-on:
     the result lands in ``sensor.epaperengine_status`` but not *how* it gets
     there; a service is the obvious carrier, because the add-on already talks to
     the HA API with its ``SUPERVISOR_TOKEN`` and needs no second channel.
+
+``render``
+    ask for a run from an automation. ``force`` pushes even an unchanged image.
+
+``set_view``
+    pin a view by hand, with the timeout of FSD §5. Calling it without a view
+    hands control back to the automatic resolution.
 """
 
 from __future__ import annotations
@@ -29,12 +37,21 @@ from .const import (
     DOMAIN,
     RUN_RESULTS,
     SERVICE_GET_RENDER_DATA,
+    SERVICE_RENDER,
     SERVICE_REPORT_RUN,
+    SERVICE_SET_VIEW,
     VIEWS,
 )
 from .coordinator import EPaperEngineCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+
+RENDER_SCHEMA = vol.Schema({vol.Optional("force", default=False): cv.boolean})
+
+# An empty ``view`` is not a missing argument but a statement: "back to
+# automatic". The card's "Automatic" chip sends exactly this, and giving it its
+# own service would mean two names for one decision.
+SET_VIEW_SCHEMA = vol.Schema({vol.Optional("view"): vol.In(VIEWS)})
 
 REPORT_RUN_SCHEMA = vol.Schema(
     {
@@ -73,6 +90,14 @@ def async_register_services(hass: HomeAssistant) -> None:
             pushed=bool(data.get("pushed")),
         )
 
+    async def _render(call: ServiceCall) -> None:
+        _coordinator(hass).async_request_render(
+            "service", force=bool(call.data.get("force"))
+        )
+
+    async def _set_view(call: ServiceCall) -> None:
+        await _coordinator(hass).async_set_view(call.data.get("view"))
+
     if not hass.services.has_service(DOMAIN, SERVICE_GET_RENDER_DATA):
         hass.services.async_register(
             DOMAIN,
@@ -85,9 +110,20 @@ def async_register_services(hass: HomeAssistant) -> None:
         hass.services.async_register(
             DOMAIN, SERVICE_REPORT_RUN, _report_run, schema=REPORT_RUN_SCHEMA
         )
+    if not hass.services.has_service(DOMAIN, SERVICE_RENDER):
+        hass.services.async_register(DOMAIN, SERVICE_RENDER, _render, schema=RENDER_SCHEMA)
+    if not hass.services.has_service(DOMAIN, SERVICE_SET_VIEW):
+        hass.services.async_register(
+            DOMAIN, SERVICE_SET_VIEW, _set_view, schema=SET_VIEW_SCHEMA
+        )
 
 
 def async_unregister_services(hass: HomeAssistant) -> None:
     """Drop the services once the last entry is gone."""
-    for service in (SERVICE_GET_RENDER_DATA, SERVICE_REPORT_RUN):
+    for service in (
+        SERVICE_GET_RENDER_DATA,
+        SERVICE_REPORT_RUN,
+        SERVICE_RENDER,
+        SERVICE_SET_VIEW,
+    ):
         hass.services.async_remove(DOMAIN, service)

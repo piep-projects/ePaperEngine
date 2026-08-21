@@ -12,6 +12,16 @@
   },
   "entity": {
     "sensor": {
+      "target_view": {
+        "name": "Target view",
+        "state": {
+          "calendar": "Calendar",
+          "recipes": "Recipes",
+          "photos": "Photos",
+          "guests": "Guests",
+          "error": "Error"
+        }
+      },
       "status": {
         "name": "Status",
         "state": {
@@ -24,6 +34,16 @@
       },
       "last_push": {
         "name": "Last push"
+      }
+    },
+    "binary_sensor": {
+      "display_reachable": {
+        "name": "Display reachable"
+      }
+    },
+    "button": {
+      "refresh": {
+        "name": "Refresh"
       }
     }
   },
@@ -59,6 +79,26 @@
         "pushed": {
           "name": "Pushed",
           "description": "Whether the image really went to the display. Only then is the last-push time updated."
+        }
+      }
+    },
+    "render": {
+      "name": "Render",
+      "description": "Triggers a render run. The image is only pushed to the display when it actually changed — unless 'force' is set.",
+      "fields": {
+        "force": {
+          "name": "Force push",
+          "description": "Send the image even when it is unchanged. This is the panel's 'Push now'; use it when the display missed a picture."
+        }
+      }
+    },
+    "set_view": {
+      "name": "Set view",
+      "description": "Pins a view by hand. It overrules the priority list until the manual timeout expires; calling the service without a view hands control back to the automatic resolution.",
+      "fields": {
+        "view": {
+          "name": "View",
+          "description": "Which view to pin. Leave empty to return to automatic."
         }
       }
     }

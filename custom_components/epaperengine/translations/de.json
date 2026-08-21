@@ -12,6 +12,16 @@
   },
   "entity": {
     "sensor": {
+      "target_view": {
+        "name": "Zielansicht",
+        "state": {
+          "calendar": "Kalender",
+          "recipes": "Rezepte",
+          "photos": "Fotos",
+          "guests": "Gäste",
+          "error": "Fehler"
+        }
+      },
       "status": {
         "name": "Status",
         "state": {
@@ -24,6 +34,16 @@
       },
       "last_push": {
         "name": "Letzter Push"
+      }
+    },
+    "binary_sensor": {
+      "display_reachable": {
+        "name": "Display erreichbar"
+      }
+    },
+    "button": {
+      "refresh": {
+        "name": "Aktualisieren"
       }
     }
   },
@@ -59,6 +79,26 @@
         "pushed": {
           "name": "Gepusht",
           "description": "Ob das Bild wirklich ans Display ging. Nur dann wird der Zeitpunkt des letzten Pushes fortgeschrieben."
+        }
+      }
+    },
+    "render": {
+      "name": "Rendern",
+      "description": "Stößt einen Renderlauf an. Gepusht wird nur, wenn sich das Bild tatsächlich geändert hat — außer „Push erzwingen“ ist gesetzt.",
+      "fields": {
+        "force": {
+          "name": "Push erzwingen",
+          "description": "Schickt das Bild auch dann, wenn es unverändert ist. Das ist das „Jetzt pushen“ des Panels; nötig, wenn das Gerät ein Bild verpasst hat."
+        }
+      }
+    },
+    "set_view": {
+      "name": "Ansicht setzen",
+      "description": "Setzt eine Ansicht von Hand. Sie überstimmt die Prioritätsliste, bis der manuelle Rückfall greift; ohne Ansicht aufgerufen gibt der Dienst die Steuerung an die Automatik zurück.",
+      "fields": {
+        "view": {
+          "name": "Ansicht",
+          "description": "Welche Ansicht festgehalten wird. Leer lassen heißt zurück auf Automatik."
         }
       }
     }
