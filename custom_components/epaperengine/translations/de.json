@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "ePaperEngine",
+        "description": "Integration einrichten. Display, Ansichten, Zeitpläne, Kalender, Rezepte, Fotos und Gästemodus werden anschließend im ePaperEngine-Panel konfiguriert."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Es ist bereits eine Instanz eingerichtet."
+    }
+  }
+}

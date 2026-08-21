@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "ePaperEngine",
+        "description": "Set up the integration. The display, views, schedules, calendars, recipes, photos and guest mode are configured afterwards in the ePaperEngine panel."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "An instance is already configured."
+    }
+  }
+}

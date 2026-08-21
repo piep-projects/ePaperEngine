@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  asset:
+    name: Build and attach epaperengine.zip
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Check manifest version matches the tag
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          version="$(python3 -c 'import json;print(json.load(open("custom_components/epaperengine/manifest.json"))["version"])')"
+          if [ "$tag" != "v$version" ]; then
+            echo "::error::tag $tag does not match manifest version $version"
+            exit 1
+          fi
+
+      - name: Build zip
+        run: |
+          cd custom_components/epaperengine
+          find . -name '__pycache__' -type d -prune -exec rm -rf {} +
+          find . \( -name '*.pyc' -o -name '._*' -o -name '.DS_Store' \) -delete
+          zip -r "$GITHUB_WORKSPACE/epaperengine.zip" .
+          unzip -l "$GITHUB_WORKSPACE/epaperengine.zip"
+
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" epaperengine.zip --clobber --repo "$GITHUB_REPOSITORY"
