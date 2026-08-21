@@ -9,5 +9,58 @@
     "abort": {
       "single_instance_allowed": "An instance is already configured."
     }
+  },
+  "entity": {
+    "sensor": {
+      "status": {
+        "name": "Status",
+        "state": {
+          "idle": "No run yet",
+          "pushed": "Pushed",
+          "unchanged": "Unchanged — nothing pushed",
+          "push_failed": "Display did not answer",
+          "render_failed": "Render failed"
+        }
+      },
+      "last_push": {
+        "name": "Last push"
+      }
+    }
+  },
+  "services": {
+    "get_render_data": {
+      "name": "Get render data",
+      "description": "Returns everything the add-on needs for one render run in a single document: the target view, the deterministic photo counter, the recipe selection, the guest fields and the layout parameters. The renderer pulls, Home Assistant does not push — so no request schema has to be maintained on both sides."
+    },
+    "report_run": {
+      "name": "Report run",
+      "description": "Records the outcome of a render run. Called by the add-on once a run finishes, successfully or not; it is what makes the run visible in the status sensor and on the dashboard card.",
+      "fields": {
+        "result": {
+          "name": "Result",
+          "description": "What the run did. 'unchanged' is a normal outcome, not a failure: an image identical to the last one is deliberately not pushed."
+        },
+        "view": {
+          "name": "View",
+          "description": "Which view was rendered."
+        },
+        "error": {
+          "name": "Error",
+          "description": "Plain-text reason when the run failed. Shown on the card."
+        },
+        "warning": {
+          "name": "Warning",
+          "description": "Set when the run succeeded but something was missing — a single unavailable calendar source, for instance."
+        },
+        "image_hash": {
+          "name": "Image hash",
+          "description": "Hash of the rendered PNG, used to tell an actual change from a repeat."
+        },
+        "pushed": {
+          "name": "Pushed",
+          "description": "Whether the image really went to the display. Only then is the last-push time updated."
+        }
+      }
+    }
   }
 }

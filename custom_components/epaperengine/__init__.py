@@ -8,9 +8,10 @@ and the **ePaperEngine add-on** does the rendering, dithering and the MDC push
 
 The full specification lives in the development repo (``gesamtsystem-fsd.md``).
 
-Scope of this version: the integration loads, keeps its stores and serves the
-frontend translation catalogs. Entities, panel, card and the WebSocket API
-follow in the next build step.
+Scope of this version (phase 3): the integration keeps its stores, serves the
+frontend catalogs, exposes the two services the add-on talks through, and makes
+a render run observable with two sensors. Panel, card, WebSocket API and the
+priority resolution follow in phase 4.
 """
 
 from __future__ import annotations
@@ -23,6 +24,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN, I18N_DIRNAME, I18N_STATIC_URL, PLATFORMS
+from .coordinator import EPaperEngineCoordinator
+from .services import async_register_services, async_unregister_services
 from .store import EPaperEngineStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -48,13 +51,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await store.async_save_config(config)
     await store.async_save_state(state)
 
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
-        "store": store,
-        "config": config,
-        "state": state,
-    }
+    coordinator = EPaperEngineCoordinator(hass, entry, store, config, state)
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
     await _async_register_i18n(hass)
+    async_register_services(hass)
 
     if PLATFORMS:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -69,6 +70,17 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unloaded:
         hass.data[DOMAIN].pop(entry.entry_id, None)
     return unloaded
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Drop the services once the last entry is gone.
+
+    Not done in ``async_unload_entry``: a reload runs unload → setup, and
+    removing the services in between would make them briefly vanish from
+    automations and from the add-on's reach.
+    """
+    if not hass.data.get(DOMAIN):
+        async_unregister_services(hass)
 
 
 async def _async_register_i18n(hass: HomeAssistant) -> None:

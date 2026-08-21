@@ -1,0 +1,43 @@
+get_render_data:
+  fields: {}
+
+report_run:
+  fields:
+    result:
+      required: true
+      example: pushed
+      selector:
+        select:
+          options:
+            - idle
+            - pushed
+            - unchanged
+            - push_failed
+            - render_failed
+    view:
+      required: true
+      example: photos
+      selector:
+        select:
+          options:
+            - calendar
+            - recipes
+            - photos
+            - guests
+            - error
+    error:
+      example: Chromium exited with code 1
+      selector:
+        text:
+    warning:
+      example: calendar source unavailable
+      selector:
+        text:
+    image_hash:
+      example: 9f0df4e2c1
+      selector:
+        text:
+    pushed:
+      default: false
+      selector:
+        boolean:

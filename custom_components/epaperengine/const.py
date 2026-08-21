@@ -17,9 +17,9 @@ from homeassistant.const import Platform
 
 DOMAIN: Final = "epaperengine"
 
-# Entity platforms. Empty for now — the six entities of FSD §3.1 arrive with the
-# next build step; adding them here is all that is needed to switch them on.
-PLATFORMS: Final[list[Platform]] = []
+# Entity platforms. Phase 3 ships the two sensors that make a render run
+# observable; the remaining entities of FSD §3.1 follow in phase 4.
+PLATFORMS: Final[list[Platform]] = [Platform.SENSOR]
 
 # --- Views (FSD §5) -----------------------------------------------------------
 # Stored values and entity states — a contract, therefore stable English tokens.
@@ -41,6 +41,39 @@ VIEWS: Final[tuple[str, ...]] = (
     VIEW_GUESTS,
     VIEW_ERROR,
 )
+
+# --- Run results (FSD §11 / §12) ----------------------------------------------
+# State of ``sensor.epaperengine_status`` — an ENUM, so every value needs an
+# ``entity.sensor.status.state.<value>`` entry in all three HA catalogs, else
+# more-info, history, logbook and the automation editor show the raw token in
+# every language. tests/test_translations.py enforces that.
+#
+# The set follows straight from the specification: §11 makes "rendered but not
+# pushed, because the image is unchanged" the *normal* outcome rather than an
+# error, and §12 separates "the display did not take it" from "there was nothing
+# to give it".
+RESULT_IDLE: Final = "idle"                    # no run yet since installation
+RESULT_PUSHED: Final = "pushed"                # rendered, image changed, pushed
+RESULT_UNCHANGED: Final = "unchanged"          # rendered, same PNG hash, no push
+RESULT_PUSH_FAILED: Final = "push_failed"      # rendered and served, display mute
+RESULT_RENDER_FAILED: Final = "render_failed"  # no image — aborted, nothing pushed
+
+RUN_RESULTS: Final[tuple[str, ...]] = (
+    RESULT_IDLE,
+    RESULT_PUSHED,
+    RESULT_UNCHANGED,
+    RESULT_PUSH_FAILED,
+    RESULT_RENDER_FAILED,
+)
+
+# Dispatcher signal telling the entities that the run state changed. Format with
+# the entry_id. Cheaper than a coordinator refresh for something that is pushed
+# to us by the add-on rather than polled.
+SIGNAL_STATE_UPDATED: Final = DOMAIN + "_state_updated_{}"
+
+# --- Services (FSD §3.1) ------------------------------------------------------
+SERVICE_GET_RENDER_DATA: Final = "get_render_data"
+SERVICE_REPORT_RUN: Final = "report_run"
 
 # --- Priority resolution (FSD §5) ---------------------------------------------
 # Candidates of the ordered priority list. ``manual``/``schedule``/``fallback``

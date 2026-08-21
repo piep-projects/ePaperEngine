@@ -9,5 +9,58 @@
     "abort": {
       "single_instance_allowed": "Es ist bereits eine Instanz eingerichtet."
     }
+  },
+  "entity": {
+    "sensor": {
+      "status": {
+        "name": "Status",
+        "state": {
+          "idle": "Noch kein Lauf",
+          "pushed": "Gepusht",
+          "unchanged": "Unverändert — nichts gepusht",
+          "push_failed": "Display hat nicht geantwortet",
+          "render_failed": "Rendern fehlgeschlagen"
+        }
+      },
+      "last_push": {
+        "name": "Letzter Push"
+      }
+    }
+  },
+  "services": {
+    "get_render_data": {
+      "name": "Renderdaten abrufen",
+      "description": "Liefert alles, was das Add-on für einen Renderlauf braucht, in einem einzigen Dokument: Zielansicht, deterministischer Fotozähler, Rezeptauswahl, Gästefelder und Layoutparameter. Der Renderer zieht, Home Assistant schiebt nicht — so muss kein Anfrageschema auf beiden Seiten gepflegt werden."
+    },
+    "report_run": {
+      "name": "Lauf melden",
+      "description": "Hält das Ergebnis eines Renderlaufs fest. Wird vom Add-on aufgerufen, sobald ein Lauf endet — erfolgreich oder nicht; erst dadurch wird der Lauf im Status-Sensor und auf der Dashboard-Karte sichtbar.",
+      "fields": {
+        "result": {
+          "name": "Ergebnis",
+          "description": "Was der Lauf getan hat. „Unverändert“ ist ein normaler Ausgang, kein Fehler: ein Bild, das dem letzten gleicht, wird bewusst nicht gepusht."
+        },
+        "view": {
+          "name": "Ansicht",
+          "description": "Welche Ansicht gerendert wurde."
+        },
+        "error": {
+          "name": "Fehler",
+          "description": "Klartextgrund, wenn der Lauf fehlgeschlagen ist. Steht so auf der Karte."
+        },
+        "warning": {
+          "name": "Hinweis",
+          "description": "Gesetzt, wenn der Lauf gelang, aber etwas fehlte — etwa eine einzelne nicht erreichbare Kalenderquelle."
+        },
+        "image_hash": {
+          "name": "Bild-Hash",
+          "description": "Hash des gerenderten PNG, um eine echte Änderung von einer Wiederholung zu unterscheiden."
+        },
+        "pushed": {
+          "name": "Gepusht",
+          "description": "Ob das Bild wirklich ans Display ging. Nur dann wird der Zeitpunkt des letzten Pushes fortgeschrieben."
+        }
+      }
+    }
   }
 }

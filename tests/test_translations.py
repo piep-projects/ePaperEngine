@@ -87,6 +87,57 @@ class TestHomeAssistantCatalogs(unittest.TestCase):
                 self.assertTrue(value.strip(), f"{lang}: {key} is empty")
 
 
+def _sensor_translation_keys() -> set[str]:
+    """Translation keys the sensor platform actually uses.
+
+    Read out of the source rather than listed here — a hand-kept list in the
+    test would drift the moment someone adds a sensor, which is the exact
+    failure this test exists to catch. Every entity is built through
+    ``super().__init__(coordinator, "<key>")``.
+    """
+    tree = ast.parse((COMPONENT / "sensor.py").read_text(encoding="utf-8"))
+    keys: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or len(node.args) != 2:
+            continue
+        func = node.func
+        if not (isinstance(func, ast.Attribute) and func.attr == "__init__"):
+            continue
+        if isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, str):
+            keys.add(node.args[1].value)
+    return keys
+
+
+class TestEntityCatalogs(unittest.TestCase):
+    """ENUM sensors are the one place where a missing key is visible to users
+    *outside* our own front-ends — in more-info, history, the logbook and the
+    automation editor, and there it shows the raw token in every language."""
+
+    def setUp(self) -> None:
+        self.catalogs = {
+            "strings.json": _flatten(_load(COMPONENT / "strings.json")),
+            **{
+                f"translations/{lang}.json": _flatten(_load(HA_CATALOGS / f"{lang}.json"))
+                for lang in LANGUAGES
+            },
+        }
+
+    def test_status_enum_states_are_translated(self) -> None:
+        for result in _const_tuple("RUN_RESULTS"):
+            key = f"entity.sensor.status.state.{result}"
+            for name, catalog in self.catalogs.items():
+                self.assertIn(key, catalog, f"{name}: no label for status {result!r}")
+
+    def test_every_used_translation_key_has_a_name(self) -> None:
+        used = _sensor_translation_keys()
+        self.assertTrue(used, "no translation keys found in sensor.py — parser broken?")
+        for key in used:
+            for name, catalog in self.catalogs.items():
+                self.assertIn(
+                    f"entity.sensor.{key}.name", catalog, f"{name}: no name for {key!r}"
+                )
+
+
 class TestFrontendCatalogs(unittest.TestCase):
     """Shared card/panel catalogs — one flat JSON file per language."""
 
