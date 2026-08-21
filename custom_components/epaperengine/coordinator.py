@@ -314,7 +314,10 @@ class EPaperEngineCoordinator:
         if view is None:
             self.state["manual"] = None
         else:
-            timeout_h = int(views_cfg.get("manual_timeout_h") or 0)
+            # A float, not an int: FSD §4 calls it "a number", 4.5 h is a
+            # sensible thing to want, and truncating it would silently turn a
+            # deliberate half hour into "no deadline at all".
+            timeout_h = float(views_cfg.get("manual_timeout_h") or 0)
             exceptions = set(views_cfg.get("manual_exceptions") or ())
             now = dt_util.utcnow()
             until = (
