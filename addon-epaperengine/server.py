@@ -29,6 +29,8 @@ DATA_DIR = Path("/data")
 IMAGE_PATH = DATA_DIR / "current.png"
 CONTENT_PATH = DATA_DIR / "content.json"
 
+# Empty unless the entrypoint ran through ``with-contenv`` (see run.sh) — s6
+# does not pass the container environment to its services on its own.
 SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN", "")
 
 # ``host_network: true`` does **not** cut the add-on off from the supervisor:
@@ -192,6 +194,11 @@ async def handle_image(_request: web.Request) -> web.Response:
 async def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    if not SUPERVISOR_TOKEN:
+        _LOGGER.error(
+            "SUPERVISOR_TOKEN is empty — every call to Home Assistant will answer "
+            "401. Is the entrypoint running through with-contenv (run.sh)?"
+        )
 
     app = web.Application()
     app.router.add_get("/health", handle_health)
