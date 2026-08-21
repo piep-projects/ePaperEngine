@@ -35,12 +35,24 @@ _STATIC_REGISTERED = f"{DOMAIN}_static_registered"
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up ePaperEngine from a config entry."""
     store = EPaperEngineStore(hass)
-    data = {
+    config = await store.async_load_config()
+    state = await store.async_load_state()
+
+    # Write both documents back once, so they exist under ``.storage/`` from the
+    # very first start instead of only after the panel saves something. Two
+    # reasons, both borrowed from GardenESP (``coordinator.async_setup``):
+    # the documents are inspectable while debugging against the test instance,
+    # and this is the point where the first schema migration will have to
+    # persist its result. ``async_load_*`` merges the current defaults over what
+    # was stored, so this also writes back sections that a newer version added.
+    await store.async_save_config(config)
+    await store.async_save_state(state)
+
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "store": store,
-        "config": await store.async_load_config(),
-        "state": await store.async_load_state(),
+        "config": config,
+        "state": state,
     }
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = data
 
     await _async_register_i18n(hass)
 
