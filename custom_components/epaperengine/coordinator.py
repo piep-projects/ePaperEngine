@@ -473,6 +473,15 @@ class EPaperEngineCoordinator:
             "generated_at": dt_util.utcnow().isoformat(),
             "view": self.target.view,
             "target": self.target.as_dict(),
+            # The language the *wall* speaks [Festlegung P9, 2026-08-21]: the
+            # rendered views follow ``hass.language`` like every other surface
+            # (FSD §3.0a), so the household reads its own language on the panel
+            # and a public installation still falls back to English. Sent as the
+            # raw HA token including the region (``de``, ``en-GB``); the add-on
+            # normalises it against the catalogs it actually carries. Not a
+            # configuration key on purpose — a second language switch next to
+            # Home Assistant's own is a setting nobody remembers changing.
+            "language": self.hass.config.language,
             # The MDC PIN travels **here and nowhere else**. FSD §4 hands secrets
             # to the add-on *on request over the HA API* rather than copying them
             # into the add-on options, where they would sit in plain text in a

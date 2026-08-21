@@ -60,7 +60,18 @@ class RenderError(RuntimeError):
 
 _environment = Environment(
     loader=FileSystemLoader(TEMPLATES),
-    autoescape=select_autoescape(["html"]),
+    # ``j2`` has to be in the list and the default has to be True. Measured
+    # 2026-08-21 (Jinja 3.1.6): ``select_autoescape`` matches with ``endswith``,
+    # not by file extension — ``photos.html.j2`` ends in ``.j2``, so the previous
+    # ``select_autoescape(["html"])`` left autoescaping **off for every template
+    # in this add-on**. Harmless while the only variable was a ``file://`` URL;
+    # not harmless from the error page on, which puts exception text — the one
+    # string nobody controls — into the markup.
+    autoescape=select_autoescape(
+        enabled_extensions=("html", "htm", "xml", "j2"),
+        default_for_string=True,
+        default=True,
+    ),
     # A missing variable must break the run loudly. A silently empty wall image
     # is the one failure mode nobody notices until they walk past the display.
     undefined=StrictUndefined,

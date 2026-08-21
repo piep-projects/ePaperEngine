@@ -1,0 +1,99 @@
+{#
+  The error view (FSD §8.5, §12). "Kein Modus, sondern das Ergebnis von
+  Kapitel 12: eine schlichte, gut lesbare Seite mit Fehlertext und Zeitpunkt."
+
+  Shape [Festlegung P11, 2026-08-21]: **sentence · time · one technical line.**
+  The sentence carries the message across the room, the time says how long the
+  wall has been standing still, and the technical line is what saves a walk to
+  the computer — it names the view and the exception, nothing more. Everything
+  else stays in the status sensor and the add-on log.
+
+  Layout follows FSD §7 and stays far inside it: nothing below 32 px, no rule
+  thinner than 3 px, no gradient. Flat white with black text on purpose — white
+  and black are two of the six Spectra primaries, so this page carries **no
+  dither raster at all** and is the most legible surface the panel can show.
+  The red is the palette's own red (220,30,30) rather than a chosen one; any
+  other red would only be dithered back into this one.
+
+  Deliberately dependency-free: no photo, no file:// subresource, no font
+  beyond DejaVu. This page must render when everything else has failed.
+#}<!doctype html>
+<html lang="{{ language }}">
+  <head>
+    <meta charset="utf-8" />
+    <title>ePaperEngine</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 2560px;
+        height: 1440px;
+        overflow: hidden;
+        background: #fff;
+        color: #000;
+        font-family: "DejaVu Sans", sans-serif;
+      }
+      main {
+        box-sizing: border-box;
+        width: 2560px;
+        height: 1440px;
+        /* The 80 px margin FSD §7 measured its type sizes against. */
+        padding: 160px 160px 120px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+      .mark {
+        font-size: 40px;
+        font-weight: bold;
+        letter-spacing: 6px;
+        text-transform: uppercase;
+        color: #dc1e1e;
+      }
+      .rule {
+        height: 6px;
+        background: #dc1e1e;
+        margin: 28px 0 64px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 104px;
+        font-weight: bold;
+        line-height: 1.15;
+      }
+      .since {
+        margin-top: 40px;
+        font-size: 56px;
+      }
+      .technical {
+        margin-top: 80px;
+        padding-top: 36px;
+        border-top: 3px solid #000;
+        font-family: "DejaVu Sans Mono", monospace;
+        font-size: 36px;
+        line-height: 1.4;
+        /* Three lines is the budget. An exception message can be arbitrarily
+           long, and a page that grows until it overflows the canvas would push
+           the sentence off the top — the one part that has to be readable. */
+        max-height: 151px;
+        overflow: hidden;
+        word-break: break-word;
+      }
+      .hint {
+        margin-top: 64px;
+        font-size: 36px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="mark">ePaperEngine</div>
+      <div class="rule"></div>
+      <h1>{{ t("error.headline") }}</h1>
+      {% if since %}<div class="since">{{ t("error.since", at=since) }}</div>{% endif %}
+      <div class="technical">{{ technical }}</div>
+      <div class="hint">{{ t("error.hint") }}</div>
+    </main>
+  </body>
+</html>

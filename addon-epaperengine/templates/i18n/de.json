@@ -1,0 +1,7 @@
+{
+  "format.datetime": "%d.%m.%Y, %H:%M",
+  "error.headline": "ePaperEngine kann die Wand gerade nicht rendern",
+  "error.since": "seit {at}",
+  "error.idle": "Kein Fehler verzeichnet.",
+  "error.hint": "Einzelheiten in Home Assistant unter ePaperEngine."
+}
