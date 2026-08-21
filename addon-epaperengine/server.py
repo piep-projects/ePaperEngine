@@ -31,11 +31,12 @@ CONTENT_PATH = DATA_DIR / "content.json"
 
 SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN", "")
 
-# With ``host_network: true`` the container shares the host namespace, so the
-# internal ``supervisor`` DNS name may not resolve. The gateway address of the
-# hassio network is the documented fallback; try both and remember what worked
-# instead of hard-coding a guess.
-API_BASES = ("http://supervisor/core/api", "http://172.30.32.1/core/api")
+# ``host_network: true`` does **not** cut the add-on off from the supervisor:
+# Supervisor writes ``172.30.32.2 supervisor`` into the container's /etc/hosts,
+# and that entry survives the host namespace [measured 2026-08-21 on the test
+# instance]. The literal address is kept only as a fallback — and it is .2, the
+# supervisor itself; .1 is the bridge gateway and refuses the connection.
+API_BASES = ("http://supervisor/core/api", "http://172.30.32.2/core/api")
 
 
 class Engine:
@@ -53,7 +54,11 @@ class Engine:
     ) -> Any:
         """POST to the HA core API through the supervisor proxy."""
         bases = [self._api_base] if self._api_base else list(API_BASES)
-        last: Exception | None = None
+        # Collect *every* failure, not just the last one. Keeping only the last
+        # made a real outage unreadable: the message named the fallback address
+        # while the actual problem was on the first base, and the first error was
+        # logged at DEBUG where nobody sees it.
+        failures: list[str] = []
         for base in bases:
             try:
                 async with session.post(
@@ -64,15 +69,18 @@ class Engine:
                 ) as resp:
                     body = await resp.text()
                     if resp.status >= 400:
-                        raise RuntimeError(f"HTTP {resp.status}: {body[:200]}")
+                        raise RuntimeError(f"HTTP {resp.status}: {body[:300]}")
                     if self._api_base != base:
                         self._api_base = base
                         _LOGGER.info("Home Assistant API reachable at %s", base)
                     return json.loads(body) if body else None
             except Exception as exc:  # noqa: BLE001 - try the next base
-                last = exc
-                _LOGGER.debug("API base %s failed: %s", base, exc)
-        raise RuntimeError(f"no HA API base reachable: {last}")
+                detail = f"{base} -> {type(exc).__name__}: {exc}"
+                failures.append(detail)
+                _LOGGER.warning("API base unusable: %s", detail)
+        # A base that worked before and fails now must not stay pinned.
+        self._api_base = None
+        raise RuntimeError("no HA API base reachable; " + " | ".join(failures))
 
     async def get_render_data(self, session: aiohttp.ClientSession) -> dict[str, Any]:
         """Pull the render document (FSD §6.2 step 1).
