@@ -1,0 +1,20 @@
+name: ePaperEngine
+version: "0.1.0"
+slug: epaperengine
+description: Renders the wall views for a Samsung EM32DX e-paper panel and pushes them over MDC.
+url: https://github.com/piep-projects/ePaperEngine
+arch:
+  - amd64
+init: false
+# Supplies SUPERVISOR_TOKEN, so the add-on needs no long-lived token of its own.
+homeassistant_api: true
+# The display pulls content.json and the image from :8099 over the LAN, and
+# wake-on-LAN in phase 7 needs a broadcast the bridge network would swallow.
+host_network: true
+# The whole image store lives under Home Assistant's media directory.
+map:
+  - media:rw
+ports:
+  "8099/tcp": 8099
+ports_description:
+  "8099/tcp": Manifest and image, fetched by the display itself
