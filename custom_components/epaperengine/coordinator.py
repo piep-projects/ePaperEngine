@@ -125,6 +125,22 @@ class EPaperEngineCoordinator:
             "generated_at": dt_util.utcnow().isoformat(),
             # Phase 3: hard-wired. Phase 4 replaces this with the resolved view.
             "view": VIEW_PHOTOS,
+            # The MDC PIN travels **here and nowhere else**. FSD §4 hands secrets
+            # to the add-on *on request over the HA API* rather than copying them
+            # into the add-on options, where they would sit in plain text in a
+            # file the user can open from the Supervisor UI. The price is that
+            # the PIN shows up in the response of a service anyone with HA access
+            # can call — acceptable, because that same access already reaches the
+            # display through this integration.
+            "display": {
+                "host": cfg["display"].get("host"),
+                "mdc_pin": cfg["display"].get("mdc_pin"),
+                "mac": cfg["display"].get("mac"),
+            },
+            # Root of the image store (FSD §3.4). ``None`` means the add-on falls
+            # back to ``/media/epaperengine`` — see the note in ``store.py`` for
+            # why this is configuration rather than a constant.
+            "media": {"root": cfg["media"].get("root")},
             "photos": {
                 "source_folder": cfg["photos"].get("source_folder"),
                 "rotation_interval_min": cfg["photos"].get("rotation_interval_min"),

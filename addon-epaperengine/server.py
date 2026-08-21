@@ -4,10 +4,16 @@
 One process, one port, one log: the display fetches ``/content.json`` and
 ``/image`` from here, and Home Assistant triggers a run through ``/render``.
 
-State of this version (phase 3, steps 1–3): the server, the queue and the
-conversation with Home Assistant are in place. The renderer itself — Jinja,
-Chromium, dithering, MDC push — is still missing; a run therefore reports
-``render_failed`` with a plain-text reason rather than pretending to work.
+Phase 3 is complete in this version — the full vertical slice of FSD §6.2:
+pull the state from Home Assistant, keep the photo cache, fill a Jinja template,
+shoot it with Chromium at 2560×1440, dither it onto the six Spectra primaries,
+compare the hash, serve it, push it over MDC, copy it to the media tree, report
+the outcome. The work itself lives in the four modules next to this one; what is
+here is the server, the queue and the order of the steps.
+
+The pipeline is blocking — Pillow, Chromium and Node all are — so it runs in a
+worker thread and the event loop stays free to answer ``/image`` while the
+display is fetching it.
 """
 
 from __future__ import annotations
@@ -16,11 +22,19 @@ import asyncio
 import json
 import logging
 import os
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import aiohttp
 from aiohttp import web
+
+import delivery
+import imaging
+import paths as media_layout
+import renderer
+from photocache import PhotoCache
 
 _LOGGER = logging.getLogger("epaperengine")
 
@@ -28,6 +42,17 @@ PORT = 8099
 DATA_DIR = Path("/data")
 IMAGE_PATH = DATA_DIR / "current.png"
 CONTENT_PATH = DATA_DIR / "content.json"
+PREVIEW_PATH = DATA_DIR / "preview.jpg"
+STATE_PATH = DATA_DIR / "state.json"
+HASH_MEMO_PATH = DATA_DIR / "photo_hashes.json"
+WORK_DIR = DATA_DIR / "render"
+
+# Result tokens of ``sensor.epaperengine_status``. Kept in step with the
+# integration's ``const.py``; the sensor is an ENUM and rejects anything else.
+RESULT_PUSHED = "pushed"
+RESULT_UNCHANGED = "unchanged"
+RESULT_PUSH_FAILED = "push_failed"
+RESULT_RENDER_FAILED = "render_failed"
 
 # Empty unless the entrypoint ran through ``with-contenv`` (see run.sh) — s6
 # does not pass the container environment to its services on its own.
@@ -41,6 +66,29 @@ SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN", "")
 API_BASES = ("http://supervisor/core/api", "http://172.30.32.2/core/api")
 
 
+@dataclass
+class Outcome:
+    """What one run produced. Travels straight into ``report_run``."""
+
+    result: str
+    view: str
+    image_hash: str | None = None
+    pushed: bool = False
+    error: str | None = None
+    warning: str | None = None
+    detail: dict[str, Any] = field(default_factory=dict)
+
+    def as_report(self) -> dict[str, Any]:
+        return {
+            "result": self.result,
+            "view": self.view,
+            "image_hash": self.image_hash,
+            "pushed": self.pushed,
+            "error": self.error,
+            "warning": self.warning,
+        }
+
+
 class Engine:
     """Owns the run queue and the conversation with Home Assistant."""
 
@@ -48,7 +96,11 @@ class Engine:
         self._queue: asyncio.Queue[str] = asyncio.Queue(maxsize=1)
         self._api_base: str | None = None
         self.last_run: dict[str, Any] | None = None
+        self.last_cache: dict[str, Any] | None = None
         self.runs = 0
+        # Proof that the display actually came and took it. The MDC call only
+        # says the panel accepted the order, not that it fetched anything.
+        self.last_fetch: dict[str, Any] | None = None
 
     # --- Home Assistant -------------------------------------------------------
     async def _call(
@@ -138,22 +190,171 @@ class Engine:
 
     async def _run_once(self, session: aiohttp.ClientSession, reason: str) -> None:
         self.runs += 1
+        started = time.monotonic()
         document = await self.get_render_data(session)
         view = str(document.get("view") or "error")
-        _LOGGER.info(
-            "Run %d (%s): view=%s photo slot=%s",
-            self.runs, reason, view, (document.get("photos") or {}).get("slot"),
-        )
-        self.last_run = {"reason": reason, "view": view, "document": document}
 
-        # Honest placeholder: the renderer does not exist yet. Reporting success
-        # here would put a lie into the status sensor.
-        await self.report_run(
-            session,
-            result="render_failed",
-            view=view,
-            error="renderer not implemented yet (phase 3, steps 5-9)",
+        try:
+            # Blocking from here to the end of the pipeline: Pillow, Chromium and
+            # Node. In a thread, so ``/image`` stays answerable — the display
+            # fetches it while this very run is still finishing.
+            outcome = await asyncio.to_thread(run_pipeline, document, view, self)
+        except Exception as exc:  # noqa: BLE001 - a bad run is a reported run
+            _LOGGER.exception("Pipeline failed")
+            outcome = Outcome(
+                result=RESULT_RENDER_FAILED, view=view, error=f"{type(exc).__name__}: {exc}"
+            )
+
+        seconds = time.monotonic() - started
+        self.last_run = {
+            "reason": reason,
+            "at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "seconds": round(seconds, 2),
+            **outcome.as_report(),
+            **outcome.detail,
+        }
+        _LOGGER.info(
+            "Run %d (%s): %s in %.1fs%s",
+            self.runs,
+            reason,
+            outcome.result,
+            seconds,
+            f" — {outcome.error}" if outcome.error else "",
         )
+        await self.report_run(session, **outcome.as_report())
+
+
+def _read_state() -> dict[str, Any]:
+    try:
+        return dict(json.loads(STATE_PATH.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_state(state: dict[str, Any]) -> None:
+    STATE_PATH.write_text(json.dumps(state, indent=1), encoding="utf-8")
+
+
+def run_pipeline(document: dict[str, Any], view: str, engine: Engine) -> Outcome:
+    """FSD §6.2, steps 2 to 9. Blocking; called through ``asyncio.to_thread``."""
+    if view != "photos":
+        # Phase 3 builds one view. Saying so beats rendering a blank wall.
+        return Outcome(
+            result=RESULT_RENDER_FAILED,
+            view=view,
+            error=f"view '{view}' has no template yet (phase 5)",
+        )
+
+    photos_cfg = document.get("photos") or {}
+    display_cfg = document.get("display") or {}
+    layout = media_layout.media_paths((document.get("media") or {}).get("root"))
+    layout.ensure()
+
+    # --- steps 5 and 6: the photo cache --------------------------------------
+    source = media_layout.source_folder(layout, photos_cfg.get("source_folder"))
+    cache = PhotoCache(
+        source=source,
+        processed=layout.processed_photos,
+        preview=layout.preview_photos,
+        memo_path=HASH_MEMO_PATH,
+    )
+    report = cache.refresh()
+    engine.last_cache = {
+        "folder": str(source),
+        "total": report.total,
+        "added": report.added,
+        "removed": report.removed,
+        "unreadable": report.unreadable,
+    }
+    photo = cache.pick(int(photos_cfg.get("slot") or 0))
+
+    # --- steps 3 and 4: template and screenshot ------------------------------
+    html = renderer.render_html(
+        view,
+        {"photo_url": photo.crop.as_uri(), "photo_name": photo.source},
+        WORK_DIR,
+    )
+    shot = renderer.screenshot(html, WORK_DIR / "shot.png", WORK_DIR)
+
+    # --- step 5 of §6.2: dithering -------------------------------------------
+    final = imaging.dither_spectra(shot)
+
+    # --- step 6: has anything changed? ---------------------------------------
+    digest = delivery.fingerprint(final)
+    state = _read_state()
+    detail = {"photo": photo.source, "photos_total": report.total}
+    if state.get("image_hash") == digest and IMAGE_PATH.exists():
+        # The normal outcome, not an error (FSD §11). A standing error page
+        # suppresses its own repeat pushes through exactly this branch.
+        return Outcome(
+            result=RESULT_UNCHANGED, view=view, image_hash=digest, detail=detail
+        )
+
+    # --- steps 7 and 8: serve from /data -------------------------------------
+    # Local, never from the media tree: a NAS reboot must not make the display
+    # reach into thin air while fetching (FSD §3.4).
+    imaging.save_png(final, IMAGE_PATH)
+    preview = imaging.preview_bytes(final, imaging.PREVIEW_CURRENT)
+    PREVIEW_PATH.write_bytes(preview)
+
+    host = display_cfg.get("host")
+    pin = display_cfg.get("mdc_pin")
+    if not host or not pin:
+        _write_state({**state, "image_hash": digest})
+        return Outcome(
+            result=RESULT_PUSH_FAILED,
+            view=view,
+            image_hash=digest,
+            error="display.host or display.mdc_pin is not configured",
+            detail=detail,
+        )
+
+    local_ip = delivery.local_ip_towards(str(host))
+    CONTENT_PATH.write_bytes(
+        delivery.build_content_json(
+            image_url=f"http://{local_ip}:{PORT}/image",
+            image_size=IMAGE_PATH.stat().st_size,
+        )
+    )
+
+    # --- step 9 of the plan: MDC ---------------------------------------------
+    try:
+        delivery.push(
+            host=str(host),
+            pin=str(pin),
+            url=f"http://{local_ip}:{PORT}/content.json",
+            mac=str(display_cfg["mac"]) if display_cfg.get("mac") else None,
+        )
+    except RuntimeError as exc:
+        # The image is rendered and served; only the display stayed mute. The
+        # hash is stored anyway — the next run would otherwise re-push an
+        # identical picture forever (FSD §12: try again on the next run).
+        _write_state({**state, "image_hash": digest})
+        return Outcome(
+            result=RESULT_PUSH_FAILED,
+            view=view,
+            image_hash=digest,
+            error=str(exc),
+            detail={**detail, "local_ip": local_ip},
+        )
+
+    _write_state({**state, "image_hash": digest, "pushed_at": time.time()})
+
+    # --- step 10: the copies for the frontend, best effort -------------------
+    warning = delivery.copy_to_media(
+        [
+            (IMAGE_PATH.read_bytes(), layout.wall / "current.png"),
+            (preview, layout.preview / "current.jpg"),
+        ]
+    )
+    return Outcome(
+        result=RESULT_PUSHED,
+        view=view,
+        image_hash=digest,
+        pushed=True,
+        warning=warning,
+        detail={**detail, "local_ip": local_ip},
+    )
 
 
 engine = Engine()
@@ -166,8 +367,11 @@ async def handle_health(_request: web.Request) -> web.Response:
             "runs": engine.runs,
             "queued": engine._queue.qsize(),
             "api_base": engine._api_base,
-            "renderer": "not implemented",
+            "chromium": Path(renderer.CHROMIUM).exists(),
+            "has_image": IMAGE_PATH.exists(),
+            "photo_cache": engine.last_cache,
             "last_run": engine.last_run,
+            "last_fetch": engine.last_fetch,
         }
     )
 
@@ -179,21 +383,43 @@ async def handle_render(request: web.Request) -> web.Response:
     return web.json_response({"queued": True}, status=202)
 
 
-async def handle_content(_request: web.Request) -> web.Response:
+def _note_fetch(request: web.Request, what: str) -> None:
+    """Record who came for the file — the only proof the display took it."""
+    engine.last_fetch = {
+        "what": what,
+        "from": request.remote,
+        "at": time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    _LOGGER.info("Display fetched %s from %s", what, request.remote)
+
+
+async def handle_content(request: web.Request) -> web.Response:
     if not CONTENT_PATH.exists():
         return web.json_response({"error": "no content yet"}, status=404)
+    _note_fetch(request, "content.json")
+    # Served as raw bytes: the document carries escaped slashes that must reach
+    # the panel exactly as written (FSD §10.1).
     return web.Response(body=CONTENT_PATH.read_bytes(), content_type="application/json")
 
 
-async def handle_image(_request: web.Request) -> web.Response:
+async def handle_image(request: web.Request) -> web.Response:
     if not IMAGE_PATH.exists():
         return web.json_response({"error": "no image yet"}, status=404)
+    _note_fetch(request, "image")
     return web.Response(body=IMAGE_PATH.read_bytes(), content_type="image/png")
+
+
+async def handle_preview(_request: web.Request) -> web.Response:
+    """Small JPEG of the current wall image — for eyeballing during development."""
+    if not PREVIEW_PATH.exists():
+        return web.json_response({"error": "no preview yet"}, status=404)
+    return web.Response(body=PREVIEW_PATH.read_bytes(), content_type="image/jpeg")
 
 
 async def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    WORK_DIR.mkdir(parents=True, exist_ok=True)
     if not SUPERVISOR_TOKEN:
         _LOGGER.error(
             "SUPERVISOR_TOKEN is empty — every call to Home Assistant will answer "
@@ -205,6 +431,7 @@ async def main() -> None:
     app.router.add_post("/render", handle_render)
     app.router.add_get("/content.json", handle_content)
     app.router.add_get("/image", handle_image)
+    app.router.add_get("/preview", handle_preview)
 
     runner = web.AppRunner(app)
     await runner.setup()

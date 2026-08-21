@@ -1,0 +1,41 @@
+{#
+  The photos view (FSD §8.3). One picture, edge to edge — the panel shows
+  2560×1440 exactly 1:1, so the layout may bleed to the border.
+
+  This template is deliberately pointless work: the cached crop could be pushed
+  to the display without ever touching Chromium. It goes through the template
+  anyway, because the purpose of phase 3 is to prove *this whole path*, not to
+  get a photo onto the wall (entwicklungsprozess.md §8).
+
+  The image comes in through a file:// URL from the media tree and is already
+  exactly 2560×1440; ``object-fit: cover`` is only insurance against a cached
+  crop from an older format.
+#}<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>{{ photo_name }}</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 2560px;
+        height: 1440px;
+        overflow: hidden;
+        /* Black, so a failed image load is unmistakable rather than a subtle
+           off-white that could pass for a bright photo. */
+        background: #000;
+      }
+      img {
+        display: block;
+        width: 2560px;
+        height: 1440px;
+        object-fit: cover;
+      }
+    </style>
+  </head>
+  <body>
+    <img src="{{ photo_url }}" alt="" />
+  </body>
+</html>

@@ -44,6 +44,15 @@ def default_config() -> dict[str, Any]:
             "mac": None,
             "renderer_url": None,  # add-on address, FSD §3.2
         },
+        # Where the image store lives (FSD §3.4). A *configured* path, not the
+        # constant the specification writes, and the reason is measured: Home
+        # Assistant mounts network storage as a **subdirectory** of ``/media``
+        # (``/media/<mount-name>/``) [measured 2026-08-21 on ha-test1, CIFS mount
+        # ``media_test_ocean3``]. The literal ``/media/epaperengine`` would
+        # therefore land on the local disk of the HA machine, not on the NAS that
+        # §3.4 asks for — and the mount name differs between test and production.
+        # ``None`` keeps the specification's path as the fallback.
+        "media": {"root": None},
         "views": {
             "priority": list(DEFAULT_PRIORITY),  # ordered, sortable in the panel
             "manual_timeout_h": DEFAULT_MANUAL_TIMEOUT_H,  # 0 = never fall back
