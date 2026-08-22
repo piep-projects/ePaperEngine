@@ -75,7 +75,13 @@ RECIPE_FIELDS = (
     "ingredients",
     "directions",
     "servings",
+    # FSD §9.2 names ``total_time``; the wall shows the two halves as well
+    # [Festlegung 2026-08-22] — "20 min Vorbereitung, 40 min Kochen" tells the
+    # cook something the sum does not, and Paprika keeps all three.
+    "prep_time",
+    "cook_time",
     "total_time",
+    "difficulty",
     "categories",
 )
 
@@ -145,7 +151,16 @@ def trim_recipe(raw: Any) -> dict[str, Any] | None:
     # The service's own checksum, kept so the next sync can skip this recipe.
     recipe["hash"] = raw.get("hash")
     recipe[TRASH_FIELD] = bool(raw.get(TRASH_FIELD))
-    for field in ("name", "ingredients", "directions", "servings", "total_time"):
+    for field in (
+        "name",
+        "ingredients",
+        "directions",
+        "servings",
+        "prep_time",
+        "cook_time",
+        "total_time",
+        "difficulty",
+    ):
         value = recipe.get(field)
         recipe[field] = "" if value is None else str(value)
     return recipe

@@ -91,6 +91,13 @@ class TestTemplateMatchesTheModel(unittest.TestCase):
         )
         self.assertEqual(px(".column + .column::before", "width", self.css), 2)
 
+    def test_the_meta_line_is_drawn_from_the_parts(self) -> None:
+        """Each part carries a mark, and the marks are inline SVG: the add-on
+        image has DejaVu Sans and no emoji font to fall back on."""
+        self.assertIn("column.meta_parts", self.css)
+        self.assertIn("{{ mark(part.icon) }}", self.css)
+        self.assertIn("<svg viewBox=\"0 0 24 24\"", self.css)
+
     def test_the_directions_carry_their_own_size(self) -> None:
         """They may be set one step below the column (CRAMPED_PX), and the
         model measured them at that size."""

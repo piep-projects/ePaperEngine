@@ -10,8 +10,9 @@
     title     32 px bold in Spectra blue at the column top, advance 46 px per
               wrapped line (the mockup's 40 px black cost three lines on a real
               recipe name; blue is [zur Ansicht], green was the step before)
-    meta      26 px in #555555, advance 48 px
-    rule      3 px black under the head, 24 px of air below it
+    meta      26 px in #555555, advance 48 px, with **blue** marks — a 2 px
+              stroke in grey dithers into a speckle (measured)
+    rule      3 px Spectra blue under the head, 24 px of air below it
     heading   32 px bold in Spectra green (#1e8c46), block height 52 px —
               no underline: the rule under the head is the only one
     body      28 / 26 / 24 px, line advance 40 / 37 / 34
@@ -37,7 +38,27 @@
 
   Layout follows FSD §7: no rule thinner than 2 px, no gradient. `pre-wrap`
   for the directions: they are multi-line free text at Paprika [belegt].
-#}<!doctype html>
+#}{#
+  The marks of the meta line. Inline SVG rather than characters or emoji: the
+  add-on image carries DejaVu Sans and nothing else, an emoji font would not be
+  there to fall back on, and a colour emoji is the last thing to hand a
+  six-colour panel. Drawn at a 24-unit grid with 2-unit strokes, which is ~2 px
+  at the 26 px this line is set in — the minimum FSD §7 allows for a line.
+#}
+{%- macro mark(kind) -%}
+  {%- if kind == "servings" -%}
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/></svg>
+  {%- elif kind == "prep" -%}
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 3v8a3 3 0 0 0 6 0V3"/><path d="M9 11v10"/><path d="M18 3c-1.5 2-2 4-2 6s.5 3 2 3v9"/></svg>
+  {%- elif kind == "cook" -%}
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 9h20"/><path d="M4.5 9v8a3 3 0 0 0 3 3h9a3 3 0 0 0 3-3V9"/><path d="M9 5.5c0-1 1-1.5 1-2.5M14 5.5c0-1 1-1.5 1-2.5"/></svg>
+  {%- elif kind == "time" -%}
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 6.5V12l3.5 2.5"/></svg>
+  {%- else -%}
+    <svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="14" width="4.5" height="7" rx="1"/><rect x="9.75" y="9" width="4.5" height="12" rx="1"/><rect x="16.5" y="4" width="4.5" height="17" rx="1"/></svg>
+  {%- endif -%}
+{%- endmacro -%}
+<!doctype html>
 <html lang="{{ language }}">
   <head>
     <meta charset="utf-8" />
@@ -114,10 +135,36 @@
         font-size: 26px;
         line-height: 48px;
         color: #555555;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0 10px;
+      }
+      .meta .sep {
+        color: #555555;
+      }
+      .meta svg {
+        /* **Blue, not grey.** The marks are 2 px strokes, and a 2 px stroke in
+           #aaaaaa was measured coming off this panel as 67 % black pixels in one
+           column and 33 % in the next — a speckle, not a line. Blue is a Spectra
+           primary and comes out solid, and it ties the marks to the title and
+           the rule. The *text* stays the mockup's grey. */
+        width: 1em;
+        height: 1em;
+        vertical-align: -0.12em;
+        color: #1e3cb4;
+        flex: none;
+      }
+      .meta .part {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        white-space: nowrap;
       }
       .rule {
         height: 3px;
-        background: #000;
+        /* Spectra blue with the title [Festlegung 2026-08-22]. */
+        background: #1e3cb4;
         margin-bottom: 24px;
       }
       .heading {
@@ -189,7 +236,14 @@
         <div class="column" style="width: {{ column.width }}px; font-size: {{ column.font_px }}px; line-height: {{ column.line_px }}px">
          <div class="inner">
           <div class="title">{{ column.name }}</div>
-          {% if column.meta %}<div class="meta">{{ column.meta }}</div>{% endif %}
+          {% if column.meta_parts %}
+            <div class="meta">
+              {% for part in column.meta_parts %}
+                {% if not loop.first %}<span class="sep">·</span>{% endif %}
+                <span class="part">{{ mark(part.icon) }}{{ part.text }}</span>
+              {% endfor %}
+            </div>
+          {% endif %}
           <div class="rule"></div>
           <div class="body" style="column-count: {{ column.body_columns }}">
           {% if column.ingredients %}

@@ -90,7 +90,9 @@ CHAR_RATIO = 0.531
 # two lines, and it is still the largest type on the page.
 TITLE_PX = 32
 TITLE_LINE = 46  # advance per wrapped title line (56 at the mockup's 40 px)
+META_PX = 26     # the mockup's meta size
 META_LINE = 48   # meta line plus the gap to the rule
+META_SEPARATOR = " · "
 RULE_GAP = 24    # rule under the head, plus the gap to the first heading
 
 HEADING_PX = 32
@@ -154,7 +156,9 @@ class Column:
     """One recipe, measured and ready for the template."""
 
     name: str
-    meta: str
+    meta: str  # the plain text, joined — what the head was measured with
+    # ``[{"icon": "servings"|"prep"|"cook"|"time"|"difficulty", "text": …}, …]``
+    meta_parts: list[dict[str, str]] = field(default_factory=list)
     ingredients: list[str] = field(default_factory=list)  # source lines, "" = a gap
     directions: str = ""  # plain text, markers stripped — what was measured
     direction_lines: list[list[dict[str, Any]]] = field(default_factory=list)
@@ -172,6 +176,7 @@ class Column:
         return {
             "name": self.name,
             "meta": self.meta,
+            "meta_parts": self.meta_parts,
             "ingredients": self.ingredients,
             "directions": self.directions,
             "direction_lines": self.direction_lines,
@@ -232,19 +237,32 @@ def sub_columns(count: int) -> int:
     return SUB_COLUMNS.get(max(count, 1), 1)
 
 
-def head_lines(name: str, has_meta: bool, width: int = COLUMN_W) -> int:
+def head_lines(name: str, meta: str | bool, width: int = COLUMN_W) -> int:
     """Height of title + meta + rule, in pixels.
 
     The head spans the recipe's **full** width — the body flows in sub-columns
     below it, the title does not.
+
+    ``meta`` is the joined meta text, and it is **wrapped like everything else**:
+    since it carries preparation time, cooking time and difficulty next to the
+    servings, it is no longer guaranteed to be one line, and a head measured one
+    line short is text quietly missing from the bottom of the column. A bare
+    ``True``/``False`` is still accepted, for the tests that only care whether a
+    meta line exists at all.
     """
     title = max(len(wrap(name, chars_per_line(TITLE_PX, width))), 1)
-    return title * TITLE_LINE + (META_LINE if has_meta else 0) + RULE_GAP
+    if isinstance(meta, str):
+        # Each icon takes about two characters of room next to its text.
+        padded = meta + " " * (2 * meta.count(META_SEPARATOR))
+        meta_lines = len(wrap(padded, chars_per_line(META_PX, width))) if meta else 0
+    else:
+        meta_lines = 1 if meta else 0
+    return title * TITLE_LINE + meta_lines * META_LINE + RULE_GAP
 
 
 def body_room(
     name: str,
-    has_meta: bool,
+    meta: str | bool,
     line_px: int,
     width: int = COLUMN_W,
     reserve: int = 0,
@@ -255,7 +273,7 @@ def body_room(
     than the ingredients, two line heights are in play and a line count would
     have to pick one of them. ``line_px`` is only used for the safety margin.
     """
-    room = COLUMN_H - head_lines(name, has_meta, width) - reserve
+    room = COLUMN_H - head_lines(name, meta, width) - reserve
     return max(room - SAFETY_LINES * line_px, 0)
 
 
@@ -365,6 +383,40 @@ def plain(text: str) -> str:
     return text.replace(MARKUP, "")
 
 
+def build_meta(recipe: dict[str, Any], servings_label: str = "{value}") -> list[dict[str, str]]:
+    """The line under the title: servings, times, difficulty — each with a mark.
+
+    [Festlegung 2026-08-22] Preparation and cooking time are shown **separately**
+    where Paprika has them: "20 min Vorbereitung, 40 min Kochen" tells a cook
+    something the sum does not. Only when neither is filled in does the total
+    stand in for both, which is the common case in an imported collection.
+
+    Every value is printed as the user typed it — these are free-text fields.
+    The one exception is a ``servings`` that is nothing but a number: a lone "4"
+    under a title says nothing, so it gets its word from the wall catalog.
+    """
+    def text(key: str) -> str:
+        return str(recipe.get(key) or "").strip()
+
+    servings = text("servings")
+    if servings.isdigit():
+        servings = servings_label.format(value=servings)
+
+    parts: list[dict[str, str]] = []
+    if servings:
+        parts.append({"icon": "servings", "text": servings})
+    prep, cook, total = text("prep_time"), text("cook_time"), text("total_time")
+    if prep:
+        parts.append({"icon": "prep", "text": prep})
+    if cook:
+        parts.append({"icon": "cook", "text": cook})
+    if not prep and not cook and total:
+        parts.append({"icon": "time", "text": total})
+    if text("difficulty"):
+        parts.append({"icon": "difficulty", "text": text("difficulty")})
+    return parts
+
+
 # --- building the column ------------------------------------------------------
 def build_column(
     recipe: dict[str, Any],
@@ -383,12 +435,8 @@ def build_column(
     name = str(recipe.get("name") or "").strip()
     ingredients_text = str(recipe.get("ingredients") or "").strip()
     directions_text = str(recipe.get("directions") or "").strip()
-    servings = str(recipe.get("servings") or "").strip()
-    if servings.isdigit():
-        servings = servings_label.format(value=servings)
-    meta = " · ".join(
-        part for part in (servings, str(recipe.get("total_time") or "").strip()) if part
-    )
+    meta_parts = build_meta(recipe, servings_label)
+    meta = META_SEPARATOR.join(part["text"] for part in meta_parts)
     items = [line.rstrip() for line in ingredients_text.split("\n")] if ingredients_text else []
 
     chrome = chrome_px(bool(items), bool(directions_text))
@@ -401,7 +449,7 @@ def build_column(
             + cost * line_px
             + len(wrap(directions_text, chars_per_line(dir_px, width // columns))) * dir_line
         )
-        room = body_room(name, bool(meta), line_px, width)
+        room = body_room(name, meta, line_px, width)
         return -(-total // columns) <= room, item_columns
 
     # The ladder: 28 → 26 → 24 for the whole column (FSD §8.2), and then one more
@@ -415,6 +463,7 @@ def build_column(
             return Column(
                 name,
                 meta,
+                meta_parts,
                 items,
                 plain(directions_text),
                 as_lines(directions_text),
@@ -432,7 +481,7 @@ def build_column(
     # The directions stay at the smaller size — more of them survive the cut.
     limit = chars_per_line(CRAMPED_PX, width // columns)
     # A shortened column carries the marker that says so, and it needs room.
-    room = body_room(name, bool(meta), FLOOR_LINE, width, reserve=CUT_BLOCK) * columns
+    room = body_room(name, meta, FLOOR_LINE, width, reserve=CUT_BLOCK) * columns
     available = max(room - chrome, 0)
     cost, item_columns = ingredient_layout(items, FLOOR_PX, width, columns)
     # The ingredients are protected, but not without limit: a column that is
@@ -451,6 +500,7 @@ def build_column(
     return Column(
         name,
         meta,
+        meta_parts,
         items,
         plain(directions_text),
         as_lines(directions_text),

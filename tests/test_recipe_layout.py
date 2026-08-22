@@ -336,6 +336,58 @@ class TestServings(unittest.TestCase):
         self.assertEqual(rl.build_column(recipe()).meta, "")
 
 
+class TestMeta(unittest.TestCase):
+    """The line under the title: servings, times, difficulty, each with a mark
+    [Festlegung 2026-08-22]."""
+
+    def test_preparation_and_cooking_are_shown_apart(self) -> None:
+        """"20 min Vorbereitung, 40 min Kochen" tells a cook something the sum
+        does not."""
+        parts = rl.build_meta(
+            {"servings": "4", "prep_time": "20 min", "cook_time": "40 min"},
+            "{value} Portionen",
+        )
+        self.assertEqual(
+            [(p["icon"], p["text"]) for p in parts],
+            [("servings", "4 Portionen"), ("prep", "20 min"), ("cook", "40 min")],
+        )
+
+    def test_the_total_stands_in_when_neither_half_is_filled_in(self) -> None:
+        """The common case in an imported collection."""
+        parts = rl.build_meta({"total_time": "1 h"})
+        self.assertEqual([(p["icon"], p["text"]) for p in parts], [("time", "1 h")])
+
+    def test_the_total_is_dropped_once_the_halves_are_there(self) -> None:
+        parts = rl.build_meta({"prep_time": "20 min", "total_time": "1 h"})
+        self.assertNotIn("time", [p["icon"] for p in parts])
+
+    def test_difficulty_comes_last(self) -> None:
+        parts = rl.build_meta({"servings": "2", "difficulty": "Mittel"})
+        self.assertEqual(parts[-1], {"icon": "difficulty", "text": "Mittel"})
+
+    def test_a_bare_number_gets_its_word_and_anything_else_is_left_alone(self) -> None:
+        self.assertEqual(
+            rl.build_meta({"servings": "4"}, "{value} Portionen")[0]["text"], "4 Portionen"
+        )
+        self.assertEqual(
+            rl.build_meta({"servings": "2 Gläser"}, "{value} Portionen")[0]["text"], "2 Gläser"
+        )
+
+    def test_an_empty_recipe_has_no_meta_line(self) -> None:
+        self.assertEqual(rl.build_meta({}), [])
+
+    def test_a_long_meta_line_costs_a_second_line_of_head(self) -> None:
+        """It is no longer guaranteed to be one line, and a head measured one
+        line short is text quietly missing from the bottom of the column."""
+        short = rl.head_lines("Suppe", "4 Portionen", rl.COLUMN_W)
+        long = rl.head_lines(
+            "Suppe",
+            "4 Portionen · 25 Minuten Vorbereitung · 90 Minuten Kochzeit · anspruchsvoll",
+            rl.COLUMN_W,
+        )
+        self.assertEqual(long - short, rl.META_LINE)
+
+
 class TestColumns(unittest.TestCase):
     def test_three_is_the_ceiling(self) -> None:
         """Belt and braces behind the integration's own clamp — the layout is
@@ -352,6 +404,7 @@ class TestColumns(unittest.TestCase):
         )
         self.assertEqual(rl.build_column(recipe(servings="4")).meta, "4")
         self.assertEqual(rl.build_column(recipe()).meta, "")
+        self.assertEqual(rl.build_column(recipe()).meta_parts, [])
 
     def test_the_ingredients_reach_the_template_as_source_lines(self) -> None:
         """The template bullets them one by one, and a blank line is a group

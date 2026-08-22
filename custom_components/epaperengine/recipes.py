@@ -59,7 +59,10 @@ SEARCH_LIMIT = 40
 #   2 — recipes in Paprika's trash are no longer cached (measured 2026-08-22:
 #       the sync API answers them like any other recipe, and a collection with
 #       three deleted drafts showed each of them in the search).
-CACHE_FORMAT = 2
+#   3 — ``prep_time``, ``cook_time`` and ``difficulty`` join the cached fields.
+#       Cached recipes have the *right* text and a *missing* line; the hash
+#       matches, so nothing short of a refetch would ever fill it in.
+CACHE_FORMAT = 3
 
 # What FSD §8.2 allows on the wall at once. The panel enforces it too, but the
 # store is where it has to hold: three columns is a layout constant, not a
