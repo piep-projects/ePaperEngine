@@ -15,7 +15,8 @@
     heading   32 px bold in Spectra green (#1e8c46), block height 52 px —
               no underline: the rule under the head is the only one
     body      28 / 26 / 24 px, line advance 40 / 37 / 34
-    gutter    a 2 px #aaaaaa rule down the middle of the 40 px gap
+    gutter    a 2 px **black** rule down the middle of the 40 px gap — the
+              mockup's #aaaaaa dithered into a dotted trail (measured)
     bullets   ingredients are "· " per item
     emphasis  Paprika's **markers** become bold runs, one element per line
 
@@ -92,9 +93,19 @@
         background: #000;
       }
       .title {
-        font-size: 40px;
+        /* 32 px, not the mockup's 40 [Festlegung 2026-08-22]: a real recipe
+           name — "Blumenkohl aus der Tajine mit gehobeltem Trüffel und
+           Erbsenmousseline", 69 characters — was three lines and 168 px of a
+           1.280 px column at 40 px, before a word of recipe.
+           **These two numbers are load-bearing:** recipe_layout.TITLE_PX and
+           TITLE_LINE measure the head with them, and a page that sets something
+           else here silently mis-measures every column. */
+        font-size: 32px;
         font-weight: bold;
-        line-height: 56px;
+        line-height: 46px;
+        /* The same Spectra green as the section headings. A palette primary, so
+           it carries no dither raster of its own. */
+        color: #1e8c46;
       }
       .meta {
         font-size: 26px;
