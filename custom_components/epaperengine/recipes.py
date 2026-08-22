@@ -110,6 +110,8 @@ def search(
                 # the binding decision about type size and truncation is the
                 # add-on's (``recipe_layout.py``).
                 "chars": recipe_length(recipe),
+                # What the wall is expected to do with it (see ``forecast``).
+                "fit": forecast(recipe),
             }
         )
     hits.sort(key=lambda hit: fold(hit["name"]))
@@ -122,6 +124,47 @@ def recipe_length(recipe: dict[str, Any]) -> int:
         len(str(recipe.get(field) or ""))
         for field in ("name", "ingredients", "directions")
     )
+
+
+# --- the forecast for the panel -----------------------------------------------
+# **The add-on decides, this only warns.** ``recipe_layout.py`` measures the
+# column properly when it renders; what happens here is a coarse copy of the
+# same model, so the panel can say "this one will be cut" *before* somebody
+# picks it and waits a minute for the wall.
+#
+# Coarse, but not in characters. A character budget is what got the first
+# version wrong: an ingredient list of nineteen short items is 285 characters
+# and nineteen lines, and the wall sets lines. So this counts lines too — the
+# ingredient lines as they are written, the directions as wrapped prose, and
+# the title at the size it wraps at.
+_CHARS_PER_LINE = {28: 52, 26: 56, 24: 61}  # FSD §7, 773 px column
+_LINE_PX = {28: 40, 26: 37, 24: 34}
+_TITLE_CHARS = 36  # 40 px title in a 773 px column
+_COLUMN_PX = 1280  # 1440 minus the 80 px margins
+_CHROME_PX = 176   # meta, rule, both headings, the gap between the blocks
+
+
+def _wrapped(text: str, limit: int) -> int:
+    """Lines a block of free text costs — every source line at least one."""
+    total = 0
+    for line in str(text or "").split("\n"):
+        total += max(-(-len(line) // limit), 1)
+    return total
+
+
+def forecast(recipe: dict[str, Any]) -> str:
+    """``"28"``, ``"26"``, ``"24"`` or ``"cut"`` — what the wall will do with it."""
+    name = str(recipe.get("name") or "")
+    ingredients = str(recipe.get("ingredients") or "").strip()
+    directions = str(recipe.get("directions") or "").strip()
+    title_lines = max(-(-len(name) // _TITLE_CHARS), 1)
+    head = title_lines * 56 + _CHROME_PX
+    for size in (28, 26, 24):
+        limit = _CHARS_PER_LINE[size]
+        available = (_COLUMN_PX - head) // _LINE_PX[size] - 1
+        if _wrapped(ingredients, limit) + _wrapped(directions, limit) <= available:
+            return str(size)
+    return "cut"
 
 
 def selected(document: dict[str, Any], uids: list[str]) -> list[dict[str, Any]]:

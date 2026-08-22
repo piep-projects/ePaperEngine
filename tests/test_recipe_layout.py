@@ -1,10 +1,14 @@
-"""How a recipe is fitted into its column (FSD §7, §8.2).
+"""How a recipe is fitted into its column (FSD §7, §8.2, Mockup 09).
 
-The interesting cases here are the ones nobody would catch by looking at the
-wall: the step *between* two type sizes, and what exactly gets thrown away when
-a recipe is longer than the panel can carry at 24 px. FSD §8.2 says "in the
-example set every second recipe" is over that line — so truncation is the
-normal case, not the exotic one, and it deserves a test rather than a glance.
+This file exists because the first version got it wrong in a way that was
+invisible to every test it had: the column was budgeted in **characters**, FSD
+§7's own figure, and the first real recipe ran off the bottom of the canvas and
+was clipped in silence. Nineteen ingredients of fifteen characters are 285
+characters — five lines by that model, nineteen lines on the wall.
+
+So the load-bearing test here is ``TestItFits``: build the column, measure it
+the way the page will be set, and assert it is inside 1.280 px. Everything else
+is detail around that.
 
 Pure stdlib, like ``test_outage.py``: ``recipe_layout.py`` carries no Pillow and
 no aiohttp precisely so this runs where nothing is installed.
@@ -19,118 +23,214 @@ import unittest
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "addon-epaperengine"))
 
-import recipe_layout  # noqa: E402
+import recipe_layout as rl  # noqa: E402
 
 
 def recipe(name: str = "Test", ingredients: str = "", directions: str = "", **extra):
     return {"name": name, "ingredients": ingredients, "directions": directions, **extra}
 
 
+def height(column) -> int:
+    """The height the template will set this column at, in pixels.
+
+    Mirrors the CSS of ``recipes.html.j2`` — head, both headings, the gap, and
+    the wrapped body — so a change to one without the other shows up here.
+    """
+    total = rl.head_lines(column.name, bool(column.meta))
+    limit = rl.chars_per_line(column.font_px)
+    if column.ingredients:
+        cost, columns = rl.ingredient_layout(column.ingredients, column.font_px)
+        total += rl.HEADING_BLOCK + cost * column.line_px
+        assert columns == column.ingredient_columns, "sub-column count drifted"
+    if column.directions:
+        total += rl.HEADING_BLOCK + len(rl.wrap(column.directions, limit)) * column.line_px
+    if column.ingredients and column.directions:
+        total += rl.GROUP_GAP
+    if column.truncated:
+        total += rl.CUT_BLOCK
+    return total
+
+
+# A real one: 69-character title (three lines at 40 px), 19 short ingredient
+# lines, 1.500 characters of directions. Before the line model this rendered at
+# 24 px and was cut off by the canvas edge with nothing to show for it.
+LONG_TITLE = "Blumenkohl aus der Tajine mit gehobeltem Trüffel und Erbsenmousseline"
+MANY_ITEMS = "\n".join(
+    [
+        "1 Blumenkohl", "6 Schalotten", "400 g Champignons", "400 g Sellerie",
+        "125 g Butter", "1 Dose Trüffelfond", "Etwas Olivenöl", "Salz", "Pfeffer",
+        "Muskat", "1 kleiner Sommertrüffel", "", "250 g Erbsen", "200 g Butter",
+        "Salz", "Zucker", "Zitronensaft", "Pfeffer",
+    ]
+)
+
+
+class TestMeasuring(unittest.TestCase):
+    def test_characters_per_line_reproduces_the_fsd_table(self) -> None:
+        """FSD §7: 52 characters per 773 px column at 28 px, 45 at 32, 40 at 36."""
+        self.assertEqual(rl.chars_per_line(28), 52)
+        self.assertEqual(rl.chars_per_line(32), 45)
+        self.assertEqual(rl.chars_per_line(36), 40)
+        # …and the figure the mockup generator writes down for the smallest
+        # step ("28 px → ~52 Zeichen je Spalte, 24 px → ~61").
+        self.assertEqual(rl.chars_per_line(24), 61)
+
+    def test_a_source_line_costs_a_line_however_short_it_is(self) -> None:
+        """The whole reason the character budget failed."""
+        self.assertEqual(len(rl.wrap("Salz\nPfeffer\nMuskat", 60)), 3)
+
+    def test_a_blank_source_line_keeps_its_line(self) -> None:
+        self.assertEqual(rl.wrap("a\n\nb", 60), ["a", "", "b"])
+
+    def test_prose_wraps_greedily_at_the_limit(self) -> None:
+        lines = rl.wrap("aaa bbb ccc ddd", 7)
+        self.assertEqual(lines, ["aaa bbb", "ccc ddd"])
+
+    def test_a_wrapping_title_eats_into_the_body(self) -> None:
+        """A 69-character name is three lines of 56 px before a word of recipe."""
+        short = rl.head_lines("Suppe", True)
+        long = rl.head_lines(LONG_TITLE, True)
+        self.assertEqual(long - short, 2 * rl.TITLE_LINE)
+        self.assertLess(rl.body_lines(LONG_TITLE, True, 34), rl.body_lines("Suppe", True, 34))
+
+
 class TestTypeSize(unittest.TestCase):
+    def test_the_steps_are_the_ones_the_panel_was_measured_with(self) -> None:
+        """28 → 26 → 24 and nothing in between (FSD §7, Festlegung 2026-08-20)."""
+        self.assertEqual([size for size, _ in rl.STEPS], [28, 26, 24])
+
     def test_a_short_recipe_gets_the_largest_size(self) -> None:
-        column = recipe_layout.build_column(recipe(directions="x" * 100))
+        column = rl.build_column(recipe("Suppe", "Salz\nPfeffer", "Kochen."))
         self.assertEqual(column.font_px, 28)
         self.assertFalse(column.truncated)
 
-    def test_the_steps_are_the_ones_the_panel_was_measured_with(self) -> None:
-        """28 → 26 → 24 and nothing in between (FSD §7, Festlegung 2026-08-20)."""
-        self.assertEqual([size for size, _ in recipe_layout.STEPS], [28, 26, 24])
-
-    def test_each_step_holds_up_to_its_budget_and_not_one_character_more(self) -> None:
-        for size, budget in recipe_layout.STEPS:
-            self.assertEqual(recipe_layout.font_for(budget), size, f"{size} px at {budget}")
-        self.assertEqual(recipe_layout.font_for(951), 26)
-        self.assertEqual(recipe_layout.font_for(1151), 24)
+    def test_it_steps_down_before_it_shortens(self) -> None:
+        """Shrinking is what the type steps are for; cutting is the last resort."""
+        column = rl.build_column(recipe("Suppe", "Salz", "Wort " * 260))
+        self.assertLess(column.font_px, 28)
+        self.assertFalse(column.truncated)
 
     def test_below_the_floor_it_stays_at_24(self) -> None:
         """24 px is the floor — colour stops carrying below it (FSD §7)."""
-        column = recipe_layout.build_column(recipe(directions="x" * 4000))
+        column = rl.build_column(recipe("Suppe", "Salz", "Wort " * 900))
         self.assertEqual(column.font_px, 24)
+        self.assertTrue(column.truncated)
 
     def test_one_long_recipe_does_not_shrink_the_short_one_beside_it(self) -> None:
         """The whole reason the step is decided per column (FSD §8.2)."""
-        columns = recipe_layout.build_columns(
-            [recipe("Short", directions="x" * 200), recipe("Long", directions="x" * 1300)]
+        columns = rl.build_columns(
+            [recipe("Kurz", "Salz", "Kochen."), recipe("Lang", "Salz", "Wort " * 400)]
         )
-        self.assertEqual([column.font_px for column in columns], [28, 24])
+        self.assertEqual(columns[0].font_px, 28)
+        self.assertEqual(columns[1].font_px, 24)
+
+
+class TestItFits(unittest.TestCase):
+    """The regression that started all of this: a column must never be taller
+    than the space it is set in. The page clips with ``overflow: hidden``, so
+    the failure mode is silent — half a recipe, no marker, nothing in the log."""
+
+    CASES = {
+        "the recipe that was clipped": recipe(LONG_TITLE, MANY_ITEMS, "Schritt. " * 170),
+        "nothing but ingredients": recipe("Einkauf", "\n".join(["Zutat"] * 60), ""),
+        "nothing but directions": recipe("Text", "", "Wort " * 900),
+        "one enormous word": recipe("Lang", "x" * 400, "y" * 4000),
+        "a title of its own length": recipe("Sehr langer Name " * 6, "Salz", "Kochen."),
+        "empty": recipe("Leer", "", ""),
+        "the longest in the collection": recipe("Rezept", MANY_ITEMS, "Satz. " * 1600),
+    }
+
+    def test_every_column_stays_inside_the_canvas(self) -> None:
+        for label, data in self.CASES.items():
+            with self.subTest(label):
+                column = rl.build_column(data)
+                self.assertLessEqual(
+                    height(column),
+                    rl.COLUMN_H,
+                    f"{label}: {height(column)} px in a {rl.COLUMN_H} px column",
+                )
+
+    def test_what_does_not_fit_says_so(self) -> None:
+        """FSD §8.2: "wird gekürzt und das sichtbar vermerkt"."""
+        column = rl.build_column(self.CASES["the recipe that was clipped"])
+        self.assertTrue(column.truncated)
+
+
+class TestIngredients(unittest.TestCase):
+    def test_a_long_list_of_short_items_goes_into_two_columns(self) -> None:
+        """Nineteen items down to ten lines — that is where the room for the
+        directions comes from."""
+        items = MANY_ITEMS.split("\n")
+        cost, columns = rl.ingredient_layout(items, 24)
+        self.assertEqual(columns, 2)
+        self.assertLess(cost, len(items))
+
+    def test_a_short_list_stays_in_one(self) -> None:
+        cost, columns = rl.ingredient_layout(["Salz", "Pfeffer", "Muskat"], 28)
+        self.assertEqual((cost, columns), (3, 1))
+
+    def test_long_items_stay_in_one_because_halving_only_rewraps_them(self) -> None:
+        items = ["Eine ziemlich lange Zutatenzeile mit vielen Wörtern darin"] * 8
+        _cost, columns = rl.ingredient_layout(items, 28)
+        self.assertEqual(columns, 1)
+
+    def test_no_ingredients_costs_nothing(self) -> None:
+        self.assertEqual(rl.ingredient_layout([], 28), (0, 1))
 
 
 class TestShortening(unittest.TestCase):
-    def test_nothing_is_cut_while_it_fits(self) -> None:
-        column = recipe_layout.build_column(
-            recipe(ingredients="a" * 300, directions="b" * 900)
-        )
-        self.assertFalse(column.truncated)
-        self.assertEqual(len(column.directions), 900)
-
     def test_the_ingredients_survive_and_the_directions_give_way(self) -> None:
         """You cannot cook from directions whose ingredient list was cut off."""
-        column = recipe_layout.build_column(
-            recipe(ingredients="a" * 400, directions="b" * 2000)
-        )
+        column = rl.build_column(recipe("Suppe", MANY_ITEMS, "Satz. " * 400))
         self.assertTrue(column.truncated)
-        self.assertEqual(column.ingredients, "a" * 400)
-        self.assertLess(len(column.directions), 2000)
+        self.assertEqual(len(column.ingredients), len(MANY_ITEMS.split("\n")))
+        self.assertLess(len(column.directions), 400 * 6)
 
     def test_the_title_is_never_cut(self) -> None:
-        name = "A recipe with a deliberately long name"
-        column = recipe_layout.build_column(recipe(name, directions="x" * 3000))
-        self.assertEqual(column.name, name)
+        column = rl.build_column(recipe(LONG_TITLE, MANY_ITEMS, "Satz. " * 400))
+        self.assertEqual(column.name, LONG_TITLE)
 
     def test_a_monstrous_ingredient_list_still_leaves_room_for_directions(self) -> None:
         """Otherwise a column shows no directions at all and reads as broken."""
-        column = recipe_layout.build_column(
-            recipe(ingredients="a " * 1500, directions="b " * 800)
-        )
+        column = rl.build_column(recipe("Einkauf", "\n".join(["Zutat"] * 80), "Satz. " * 60))
         self.assertTrue(column.directions.strip(), "no directions left")
         self.assertTrue(column.truncated)
 
-    def test_the_column_stays_inside_the_floor_budget(self) -> None:
-        column = recipe_layout.build_column(
-            recipe("Name", ingredients="a " * 900, directions="b " * 900)
-        )
-        total = recipe_layout.length(column.name, column.ingredients, column.directions)
-        self.assertLessEqual(total, recipe_layout.FLOOR_BUDGET)
-
-    def test_shortening_is_marked_so_it_is_visible_on_the_wall(self) -> None:
-        """FSD §8.2: "wird gekürzt und das sichtbar vermerkt"."""
-        column = recipe_layout.build_column(recipe(directions="x" * 3000))
-        self.assertTrue(column.truncated)
-        self.assertTrue(column.directions.endswith(recipe_layout.ELLIPSIS))
-
-
-class TestShorten(unittest.TestCase):
-    def test_it_cuts_at_a_word_boundary(self) -> None:
-        text, cut = recipe_layout.shorten("alpha beta gamma delta", 14)
+    def test_whole_steps_are_kept_rather_than_half_sentences(self) -> None:
+        """A recipe that stops after a step reads as shortened; one that stops
+        mid-word reads as broken."""
+        text = "\n".join(f"Schritt {i} mit etwas Text dahinter." for i in range(60))
+        kept, cut = rl.cut_to_lines(text, 60, 10)
         self.assertTrue(cut)
-        self.assertFalse(text.replace(recipe_layout.ELLIPSIS, "").endswith(" "))
-        self.assertLessEqual(len(text), 14)
+        self.assertEqual(len(kept.split("\n")), 10)
+        self.assertTrue(kept.endswith("."))
 
-    def test_a_single_long_word_does_not_empty_the_column(self) -> None:
-        text, _ = recipe_layout.shorten("a" * 200, 50)
-        self.assertGreater(len(text), 40)
-
-    def test_no_room_means_nothing_rather_than_a_lone_ellipsis(self) -> None:
-        self.assertEqual(recipe_layout.shorten("abcdef", 1), ("", True))
+    def test_no_room_at_all_is_empty_rather_than_a_lone_ellipsis(self) -> None:
+        self.assertEqual(rl.cut_to_lines("abc", 60, 0), ("", True))
 
 
 class TestColumns(unittest.TestCase):
     def test_three_is_the_ceiling(self) -> None:
         """Belt and braces behind the integration's own clamp — the layout is
         where a fourth column would actually break something."""
-        columns = recipe_layout.build_columns([recipe(f"R{i}") for i in range(5)])
-        self.assertEqual(len(columns), 3)
+        self.assertEqual(len(rl.build_columns([recipe(f"R{i}") for i in range(5)])), 3)
 
     def test_no_selection_is_no_columns_and_not_a_failure(self) -> None:
-        self.assertEqual(recipe_layout.build_columns([]), [])
+        self.assertEqual(rl.build_columns([]), [])
 
     def test_the_meta_line_joins_what_is_there(self) -> None:
         self.assertEqual(
-            recipe_layout.build_column(recipe(servings="4", total_time="1 h")).meta,
-            "4 · 1 h",
+            rl.build_column(recipe(servings="4 Portionen", total_time="1 h")).meta,
+            "4 Portionen · 1 h",
         )
-        self.assertEqual(recipe_layout.build_column(recipe(servings="4")).meta, "4")
-        self.assertEqual(recipe_layout.build_column(recipe()).meta, "")
+        self.assertEqual(rl.build_column(recipe(servings="4")).meta, "4")
+        self.assertEqual(rl.build_column(recipe()).meta, "")
+
+    def test_the_ingredients_reach_the_template_as_source_lines(self) -> None:
+        """The template bullets them one by one, and a blank line is a group
+        break the height model already paid for."""
+        column = rl.build_column(recipe("R", "Salz\n\nPfeffer", "Kochen."))
+        self.assertEqual(column.ingredients, ["Salz", "", "Pfeffer"])
 
 
 if __name__ == "__main__":

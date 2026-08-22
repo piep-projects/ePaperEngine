@@ -42,15 +42,6 @@ const SEARCH_DEBOUNCE_MS = 250;
 // 773 px), and how many characters each type size carries (FSD §7, measured at
 // 1 m on the real panel).
 const RECIPE_SLOTS = 3;
-// A **forecast**, not the decision: the add-on measures and sets the size per
-// column when it renders (`recipe_layout.py`). Shown here because picking a
-// 2.000-character recipe and only finding out at the wall is the one thing this
-// page can save its user.
-const RECIPE_FIT = [
-  [950, "28"],
-  [1150, "26"],
-  [1350, "24"],
-];
 
 // ---------------------------------------------------------------------------
 // i18n — same mechanism and the same catalogs as the card (i18n concept §4/§7).
@@ -184,20 +175,17 @@ function fmtTime(iso) {
   }
 }
 
-/** Characters a recipe puts into its column — the number FSD §8.2 budgets. */
-function recipeChars(recipe) {
-  return ["name", "ingredients", "directions"].reduce(
-    (sum, field) => sum + String(recipe[field] || "").length,
-    0,
-  );
-}
-
-/** "fits at 28 px" … "too long — will be shortened". A forecast, see RECIPE_FIT. */
-function fitLabel(chars) {
-  const step = RECIPE_FIT.find(([budget]) => chars <= budget);
-  return step
-    ? `${t(`panel.recipes.fit.${step[1]}`)} · ${t("panel.recipes.chars", { count: fmtNum(chars) })}`
-    : `${t("panel.recipes.fit.cut")} · ${t("panel.recipes.chars", { count: fmtNum(chars) })}`;
+/**
+ * "fits at 28 px" … "too long — will be shortened", plus the character count.
+ *
+ * The verdict comes from the integration (`recipes.forecast`), not from a
+ * threshold here: the wall sets **lines**, and an ingredient list of nineteen
+ * short items is nineteen lines and 285 characters. A rule of thumb in this
+ * file would be a second, wronger model of the same thing.
+ */
+function fitLabel(hit) {
+  const verdict = t(`panel.recipes.fit.${hit.fit || "cut"}`);
+  return `${verdict} · ${t("panel.recipes.chars", { count: fmtNum(hit.chars || 0) })}`;
 }
 
 function fmtDuration(ms) {
@@ -219,6 +207,7 @@ class EPaperEnginePanel extends HTMLElement {
     this._photos = null;
     this._recipes = null; // { hits, total, cache } of the last search
     this._picked = []; // the selected recipes in full, for the slot cards
+    this._forecast = new Map(); // uid → {fit, chars}, filled from the searches
     this._query = "";
     this._syncedAt = null; // last sync the recipe page was drawn for
     this._syncing = false;
@@ -420,6 +409,7 @@ class EPaperEnginePanel extends HTMLElement {
       this._recipes = found;
       this._picked = picked.recipes || [];
       this._syncedAt = (found.cache || {}).synced_at || null;
+      this._rememberForecasts(found.hits);
       this._error = null;
     } catch (err) {
       this._recipes = { hits: [], total: 0, error: this._message(err) };
@@ -445,8 +435,20 @@ class EPaperEnginePanel extends HTMLElement {
       } catch (err) {
         this._recipes = { hits: [], total: 0, error: this._message(err) };
       }
+      this._rememberForecasts(this._recipes.hits);
       this._renderHits();
     }, SEARCH_DEBOUNCE_MS);
+  }
+
+  /**
+   * Keep the verdict for every recipe the search has ever shown.
+   *
+   * A picked recipe drops out of the hit list as soon as the query moves on,
+   * and its slot still has to say whether it will be shortened. Cheap: one
+   * small object per recipe, thrown away with the page.
+   */
+  _rememberForecasts(hits) {
+    for (const hit of hits || []) this._forecast.set(hit.uid, { fit: hit.fit, chars: hit.chars });
   }
 
   /** Repaint the hit list alone, so the search field keeps focus and caret. */
@@ -1010,12 +1012,12 @@ class EPaperEnginePanel extends HTMLElement {
       .map((uid, index) => {
         const recipe = byUid.get(uid);
         const name = recipe ? recipe.name : uid;
-        const chars = recipe ? recipeChars(recipe) : null;
+        const forecast = recipe ? this._forecast.get(uid) : null;
         return `<div class="sortrow">
           <div class="grow">
             <div class="name">${esc(name)}</div>
             <div class="why">${esc(t("panel.recipes.slot", { n: index + 1 }))}${
-              chars === null ? "" : ` · ${esc(fitLabel(chars))}`
+              forecast ? ` · ${esc(fitLabel(forecast))}` : ""
             }</div>
           </div>
           <div class="rank">
@@ -1054,7 +1056,7 @@ class EPaperEnginePanel extends HTMLElement {
         return `<tr>
           <td>${esc(hit.name)}</td>
           <td class="muted">${esc((hit.categories || []).join(" · "))}</td>
-          <td class="muted" style="white-space:nowrap">${esc(fitLabel(hit.chars))}</td>
+          <td class="muted" style="white-space:nowrap">${esc(fitLabel(hit))}</td>
           <td style="width:1%">
             ${
               picked
