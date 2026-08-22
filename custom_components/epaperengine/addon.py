@@ -10,6 +10,11 @@ Three calls, all over plain HTTP on the configured ``display.renderer_url``:
     MDC reachability, the honest kind — the add-on opens TLS:1515, hands over the
     PIN and asks the panel a real question [Festlegung 2026-08-21]. A TCP connect
     from here would have called a display with a wrong PIN "reachable".
+``GET /backgrounds``
+    the guest backgrounds (FSD §8.4), refreshed on the spot. Asked of the add-on
+    rather than read out of the media tree, because the panel has to offer a
+    picture *before* the first guest render has ever built an index — and only
+    the add-on knows how to crop, hash and thumbnail one.
 ``GET /health``
     is the add-on there at all, and which version.
 
@@ -30,6 +35,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
+    ADDON_BACKGROUNDS_PATH,
     ADDON_DISPLAY_PATH,
     ADDON_HEALTH_PATH,
     ADDON_RENDER_PATH,
@@ -45,6 +51,10 @@ RENDER_TIMEOUT_S = 15
 # The probe runs a TLS handshake and an MDC round trip on the other side, and the
 # add-on caps it at 20 s itself.
 PROBE_TIMEOUT_S = 30
+# Listing the backgrounds *refreshes the cache*, which means reading the folder
+# off the NAS and cropping whatever is new — seconds, not milliseconds, the first
+# time somebody drops a handful of pictures in.
+BACKGROUNDS_TIMEOUT_S = 120
 
 
 class AddonError(RuntimeError):
@@ -113,6 +123,21 @@ class AddonClient:
         data = dict(result or {})
         data["addon"] = True
         return data
+
+    async def async_backgrounds(self) -> dict[str, Any]:
+        """Refresh and list the guest backgrounds (FSD §8.4).
+
+        Never raises: an unreachable add-on is an *empty picker with a reason*,
+        not a broken panel page. The rest of the guest settings — name, greeting,
+        type size — stay editable while the NAS or the add-on is away.
+        """
+        try:
+            result = await self._request(
+                "GET", ADDON_BACKGROUNDS_PATH, BACKGROUNDS_TIMEOUT_S
+            )
+        except AddonError as exc:
+            return {"total": 0, "backgrounds": [], "error": str(exc)}
+        return dict(result or {})
 
     async def async_health(self) -> dict[str, Any]:
         """Is the add-on there. Raises :class:`AddonError` when it is not."""

@@ -8,5 +8,6 @@
   "recipes.directions": "Zubereitung",
   "recipes.truncated": "Gekürzt — es passte nicht in die Spalte",
   "recipes.empty": "Kein Rezept gewählt.",
-  "recipes.servings": "{value} Portionen"
+  "recipes.servings": "{value} Portionen",
+  "guests.empty": "Noch kein Gruß hinterlegt — er wird im ePaperEngine-Panel gesetzt."
 }

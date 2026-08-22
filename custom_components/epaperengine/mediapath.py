@@ -46,6 +46,7 @@ SUBDIR_BACKGROUNDS = "backgrounds"
 SUBDIR_WALL = "wall"
 SUBDIR_PREVIEW = "preview"
 SUBDIR_PREVIEW_PHOTOS = "preview/photos"
+SUBDIR_PREVIEW_BACKGROUNDS = "preview/backgrounds"
 
 WALL_CURRENT = "wall/current.png"
 PREVIEW_CURRENT = "preview/current.jpg"

@@ -39,6 +39,7 @@ from aiohttp import web
 from PIL import Image
 
 import delivery
+import guest_layout
 import imaging
 import outage
 import paths as media_layout
@@ -56,6 +57,11 @@ CONTENT_PATH = DATA_DIR / "content.json"
 PREVIEW_PATH = DATA_DIR / "preview.jpg"
 STATE_PATH = DATA_DIR / "state.json"
 HASH_MEMO_PATH = DATA_DIR / "photo_hashes.json"
+# The guest backgrounds get their own memo. Same file format, separate file:
+# the memo is keyed by absolute path, so one shared file would work — but the
+# two caches are refreshed on different occasions, and a single file written
+# from both would lose entries whenever they overlapped.
+BACKGROUND_MEMO_PATH = DATA_DIR / "background_hashes.json"
 WORK_DIR = DATA_DIR / "render"
 
 # Result tokens of ``sensor.epaperengine_status``. Kept in step with the
@@ -319,6 +325,7 @@ def _write_state(state: dict[str, Any]) -> None:
 # side (FSD §3.0a). The add-on only ever sees them, never a label.
 VIEW_PHOTOS = "photos"
 VIEW_RECIPES = "recipes"
+VIEW_GUESTS = "guests"
 VIEW_ERROR = "error"
 
 # The failure policy itself lives in ``outage.py``: counting and timing are the
@@ -351,6 +358,8 @@ def _render_view(
         return _render_photos(document, engine)
     if view == VIEW_RECIPES:
         return _render_recipes(document, text)
+    if view == VIEW_GUESTS:
+        return _render_guests(document, text)
     if view == VIEW_ERROR:
         # Somebody pinned the error view by hand (FSD §5 allows it — ``error`` is
         # one of the five tokens). Show the outage on record; if there is none,
@@ -437,6 +446,74 @@ def _render_recipes(
         "recipes": [column.name for column in columns],
         "font_px": [column.font_px for column in columns],
         "truncated": sum(1 for column in columns if column.truncated),
+    }
+
+
+def _background_cache(document: dict[str, Any]) -> PhotoCache:
+    """The guest backgrounds, cached exactly like the photos are (FSD §8.3/§8.4).
+
+    Same class, another folder. Curation is still "put the file in", identity is
+    still the content hash, and the panel's picker reads the same ``index.json``
+    — which is why the background is stored as a digest rather than a filename:
+    renaming a file must not silently change which picture greets the visitors.
+    """
+    layout = media_layout.media_paths((document.get("media") or {}).get("root"))
+    layout.ensure()
+    return PhotoCache(
+        source=layout.backgrounds,
+        processed=layout.processed_backgrounds,
+        preview=layout.preview_backgrounds,
+        memo_path=BACKGROUND_MEMO_PATH,
+    )
+
+
+def _render_guests(
+    document: dict[str, Any], text: wall_text.WallText
+) -> tuple[Image.Image, dict[str, Any]]:
+    """The guest view (FSD §8.4) — name and greeting on a chosen background.
+
+    **A missing background costs the picture, not the run.** The file may have
+    been deleted from the NAS between two runs, and a greeting on flat white is
+    a far better answer to that than an error page: the visitors are standing in
+    the hall.
+    """
+    guests_cfg = document.get("guests") or {}
+    wanted = str(guests_cfg.get("background") or "")
+
+    background_url: str | None = None
+    detail: dict[str, Any] = {}
+    if wanted:
+        cache = _background_cache(document)
+        report = cache.refresh()
+        detail["backgrounds"] = report.total
+        picture = cache.find(wanted)
+        if picture is None:
+            detail["background"] = "missing"
+            _LOGGER.warning("Guest background %s is no longer in the folder", wanted[:12])
+        else:
+            background_url = picture.crop.as_uri()
+            detail["background"] = picture.source
+
+    plan = guest_layout.plan(guests_cfg, background_url)
+    html = renderer.render_html(
+        VIEW_GUESTS,
+        {
+            "language": text.language,
+            "t": text,
+            "plan": plan.as_dict(),
+            "band_grey": guest_layout.BAND_GREY,
+            "band_pad_y": guest_layout.BAND_PAD_Y,
+            "block_gap": guest_layout.BLOCK_GAP,
+            "line_height": guest_layout.LINE_HEIGHT,
+        },
+        WORK_DIR,
+    )
+    shot = renderer.screenshot(html, WORK_DIR / "guests.png", WORK_DIR)
+    return imaging.dither_spectra(shot), {
+        **detail,
+        "name_px": plan.name.font_px,
+        "greeting_px": plan.greeting.font_px,
+        "band": plan.band,
     }
 
 
@@ -691,6 +768,38 @@ async def handle_display(request: web.Request) -> web.Response:
     return web.json_response(result)
 
 
+async def handle_backgrounds(request: web.Request) -> web.Response:
+    """The guest backgrounds, refreshed and listed (FSD §8.4).
+
+    The panel needs the list *before* the first guest render has ever run —
+    otherwise picking a background would require having rendered the very page
+    that needs one. So this refreshes the cache on the spot rather than reading
+    whatever a previous run happened to leave behind, and the integration hands
+    the answer straight to the picker.
+    """
+    try:
+        async with aiohttp.ClientSession() as session:
+            document = await engine.get_render_data(session)
+        cache = await asyncio.to_thread(_background_cache, document)
+        report = await asyncio.to_thread(cache.refresh)
+    except (OSError, RuntimeError) as exc:
+        return web.json_response(
+            {"total": 0, "backgrounds": [], "error": f"{type(exc).__name__}: {exc}"}
+        )
+    return web.json_response(
+        {
+            "total": report.total,
+            "unreadable": report.unreadable,
+            # Digest and source name only. The panel builds the thumbnail path
+            # itself from the media root it already knows — the add-on has no
+            # business knowing how Home Assistant serves its media directory.
+            "backgrounds": [
+                {"digest": photo.digest, "name": photo.source} for photo in cache.photos
+            ],
+        }
+    )
+
+
 def _note_fetch(request: web.Request, what: str) -> None:
     """Record who came for the file — the only proof the display took it.
 
@@ -745,6 +854,7 @@ async def main() -> None:
     app.router.add_get("/health", handle_health)
     app.router.add_post("/render", handle_render)
     app.router.add_get("/display", handle_display)
+    app.router.add_get("/backgrounds", handle_backgrounds)
     app.router.add_get("/content.json", handle_content)
     app.router.add_get("/image", handle_image)
     app.router.add_get("/preview", handle_preview)

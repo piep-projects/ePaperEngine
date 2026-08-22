@@ -37,7 +37,23 @@ RUN apk add --no-cache \
 
 COPY *.py push.mjs probe.mjs /opt/epaperengine/
 COPY templates/ /opt/epaperengine/templates/
+COPY fonts/ /opt/epaperengine/fonts/
 COPY run.sh /run.sh
-RUN chmod a+x /run.sh
+
+# The script faces for the guest view (FSD §8.4). They ship *with the add-on*
+# rather than coming from apk: no Alpine package carries a script face, and
+# downloading them at build time would make a build that runs on the Home
+# Assistant host depend on somebody else's server. All three are SIL OFL; the
+# licence files sit next to them and are copied along.
+#
+# Installed into the system font path **and** kept under /opt: Chromium finds
+# them through fontconfig by family name, while Pillow opens the very same file
+# from /opt to measure how wide a name is (``guest_layout.py``). Two consumers,
+# one set of bytes — a font Chromium draws that Pillow never measured is exactly
+# the mismatch that would push a greeting off the edge of the panel.
+RUN mkdir -p /usr/share/fonts/epaperengine \
+ && cp /opt/epaperengine/fonts/*.ttf /usr/share/fonts/epaperengine/ \
+ && (fc-cache -f || echo "no fc-cache — fontconfig builds its own at runtime") \
+ && chmod a+x /run.sh
 
 CMD [ "/run.sh" ]

@@ -1,6 +1,6 @@
 """Services for ePaperEngine (FSD §3.1).
 
-Five. Two of them are the whole conversation between the integration and the
+Six. Two of them are the whole conversation between the integration and the
 add-on, two are for automations — the front-ends use the WebSocket API instead
 (``websocket_api.py``), because the browser is already connected there.
 
@@ -21,6 +21,12 @@ add-on, two are for automations — the front-ends use the WebSocket API instead
 ``set_view``
     pin a view by hand, with the timeout of FSD §5. Calling it without a view
     hands control back to the automatic resolution.
+
+``set_guests``
+    switch guest mode on or off (FSD §8.4). A service rather than a ``switch``
+    entity: FSD §3.1 fixes the entity list, and a sixth entity would be a second
+    place where the same state lives. An automation — an NFC tag at the door, a
+    button in the hall — calls this.
 
 ``sync_recipes``
     pull the collection from Paprika now (FSD §9.2). ``SupportsResponse
@@ -44,6 +50,7 @@ from .const import (
     SERVICE_GET_RENDER_DATA,
     SERVICE_RENDER,
     SERVICE_REPORT_RUN,
+    SERVICE_SET_GUESTS,
     SERVICE_SET_VIEW,
     SERVICE_SYNC_RECIPES,
     VIEWS,
@@ -58,6 +65,11 @@ RENDER_SCHEMA = vol.Schema({vol.Optional("force", default=False): cv.boolean})
 # automatic". The card's "Automatic" chip sends exactly this, and giving it its
 # own service would mean two names for one decision.
 SET_VIEW_SCHEMA = vol.Schema({vol.Optional("view"): vol.In(VIEWS)})
+
+# ``active`` is required: "call set_guests and see what happens" is not a wish
+# anybody has, and a toggle that flips on an empty call is the kind of automation
+# that turns guest mode on at three in the morning.
+SET_GUESTS_SCHEMA = vol.Schema({vol.Required("active"): cv.boolean})
 
 REPORT_RUN_SCHEMA = vol.Schema(
     {
@@ -104,6 +116,9 @@ def async_register_services(hass: HomeAssistant) -> None:
     async def _set_view(call: ServiceCall) -> None:
         await _coordinator(hass).async_set_view(call.data.get("view"))
 
+    async def _set_guests(call: ServiceCall) -> None:
+        await _coordinator(hass).async_set_guests(bool(call.data["active"]))
+
     async def _sync_recipes(call: ServiceCall) -> ServiceResponse:
         return await _coordinator(hass).async_sync_recipes()
 
@@ -125,6 +140,10 @@ def async_register_services(hass: HomeAssistant) -> None:
         hass.services.async_register(
             DOMAIN, SERVICE_SET_VIEW, _set_view, schema=SET_VIEW_SCHEMA
         )
+    if not hass.services.has_service(DOMAIN, SERVICE_SET_GUESTS):
+        hass.services.async_register(
+            DOMAIN, SERVICE_SET_GUESTS, _set_guests, schema=SET_GUESTS_SCHEMA
+        )
     if not hass.services.has_service(DOMAIN, SERVICE_SYNC_RECIPES):
         hass.services.async_register(
             DOMAIN,
@@ -142,6 +161,7 @@ def async_unregister_services(hass: HomeAssistant) -> None:
         SERVICE_REPORT_RUN,
         SERVICE_RENDER,
         SERVICE_SET_VIEW,
+        SERVICE_SET_GUESTS,
         SERVICE_SYNC_RECIPES,
     ):
         hass.services.async_remove(DOMAIN, service)

@@ -1,0 +1,122 @@
+{#
+  The guest view (FSD §8.4, Mockup 11-wand-gaeste).
+
+  "Name + Grußzeile aus HA, gesetzt im Panel, dargestellt in großer
+  Schreibschrift auf einem Hintergrundbild." [Festlegung C13]
+
+  Everything that could be decided has been decided already, in
+  ``guest_layout.py``: which face, at which size, broken into which lines, and
+  how tall the band behind them is. This file only draws it. That split is the
+  lesson from the first recipe image — CSS re-wrapping what Python had budgeted
+  for is how text runs off a canvas nobody is watching.
+
+  The band is the first of the three remedies FSD §8.4 names against the dither
+  raster of the photo (band → quiet picture area → outline). Grey 200, flat and
+  several hundred pixels tall: the measured failure of grey was a 2 px rule
+  breaking up into dots, which a large area does not do. It is dropped when
+  there is no picture — on flat white it would be a grey stripe for nothing, and
+  grey on white is the one pairing that carries a visible raster right where the
+  text sits.
+
+  Dependency-free apart from the two file:// URLs it is given (the picture and
+  the font file). Both are already on local disk when this renders.
+#}<!doctype html>
+<html lang="{{ language }}">
+  <head>
+    <meta charset="utf-8" />
+    <title>ePaperEngine</title>
+    <style>
+      @font-face {
+        font-family: "epaperengine-script";
+        src: url("{{ plan.font_url }}");
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 2560px;
+        height: 1440px;
+        overflow: hidden;
+        /* White rather than black: a guest page whose picture failed to load
+           should read as a plain greeting card, not as a fault. The photo view
+           uses black for the opposite reason — there, a missing picture *is*
+           the failure. */
+        background: #fff;
+        color: #000;
+      }
+      .stage {
+        position: relative;
+        width: 2560px;
+        height: 1440px;
+      }
+      .stage img {
+        display: block;
+        width: 2560px;
+        height: 1440px;
+        object-fit: cover;
+      }
+      .band {
+        position: absolute;
+        left: 0;
+        width: 2560px;
+        background: rgb({{ band_grey }}, {{ band_grey }}, {{ band_grey }});
+      }
+      .text {
+        position: absolute;
+        left: 0;
+        width: 2560px;
+        box-sizing: border-box;
+        padding: 0 160px;
+        text-align: center;
+        /* The family is named *and* declared through @font-face above; the two
+           are the same file. "cursive" is the last resort and would be visible
+           at a glance, which is the point of naming it rather than sans-serif. */
+        font-family: "{{ plan.font_family }}", "epaperengine-script", cursive;
+        font-weight: {{ plan.font_weight }};
+      }
+      .line {
+        white-space: nowrap;
+      }
+      .name .line {
+        font-size: {{ plan.name.font_px }}px;
+        line-height: {{ line_height }};
+      }
+      .greeting .line {
+        font-size: {{ plan.greeting.font_px }}px;
+        line-height: {{ line_height }};
+      }
+      /* Nothing typed yet. Not an error — the section exists from the first
+         start — so it says so quietly in the one font that is always there. */
+      .empty {
+        font-family: "DejaVu Sans", sans-serif;
+        font-size: 56px;
+        color: #555;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      {% if plan.background_url %}<img src="{{ plan.background_url }}" alt="" />{% endif %}
+      {% if plan.band %}
+      <div class="band" style="top: {{ plan.band_top }}px; height: {{ plan.band_height }}px"></div>
+      {% endif %}
+      <div class="text" style="top: {{ plan.band_top + band_pad_y }}px">
+        {% if plan.name.lines or plan.greeting.lines %}
+        <div class="name">
+          {% for line in plan.name.lines %}<div class="line">{{ line }}</div>{% endfor %}
+        </div>
+        {% if plan.greeting.lines %}
+        {# The gap only exists between two blocks. Hard-coding it as a margin
+           would add 48 px that ``guest_layout`` did not put into the band when
+           only one of the two fields is filled. #}
+        <div class="greeting" style="margin-top: {{ block_gap if plan.name.lines else 0 }}px">
+          {% for line in plan.greeting.lines %}<div class="line">{{ line }}</div>{% endfor %}
+        </div>
+        {% endif %}
+        {% else %}
+        <div class="empty">{{ t("guests.empty") }}</div>
+        {% endif %}
+      </div>
+    </div>
+  </body>
+</html>

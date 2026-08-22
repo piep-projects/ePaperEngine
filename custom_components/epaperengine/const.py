@@ -87,6 +87,8 @@ WS_DISPLAY_TEST: Final = f"{DOMAIN}/display/test"
 WS_RECIPES_SEARCH: Final = f"{DOMAIN}/recipes/search"
 WS_RECIPES_GET: Final = f"{DOMAIN}/recipes/get"
 WS_RECIPES_SYNC: Final = f"{DOMAIN}/recipes/sync"
+WS_GUESTS_SET: Final = f"{DOMAIN}/guests/set"
+WS_GUESTS_BACKGROUNDS: Final = f"{DOMAIN}/guests/backgrounds"
 
 # --- Services (FSD §3.1) ------------------------------------------------------
 SERVICE_GET_RENDER_DATA: Final = "get_render_data"
@@ -94,6 +96,7 @@ SERVICE_REPORT_RUN: Final = "report_run"
 SERVICE_RENDER: Final = "render"
 SERVICE_SET_VIEW: Final = "set_view"
 SERVICE_SYNC_RECIPES: Final = "sync_recipes"
+SERVICE_SET_GUESTS: Final = "set_guests"
 
 # --- Priority resolution (FSD §5) ---------------------------------------------
 # Candidates of the ordered priority list. ``manual``/``schedule``/``fallback``
@@ -148,11 +151,40 @@ DISPLAY_PROBE_INTERVAL_MIN: Final = 15
 # somebody actually wants it now.
 DEFAULT_RECIPE_SYNC_INTERVAL_H: Final = 24
 
+# --- Guests (FSD §8.4) --------------------------------------------------------
+# The script faces the add-on ships (``addon-epaperengine/fonts/``). Listed here
+# because the panel builds its dropdown from them and the store keeps the token;
+# ``tests/test_guest_layout.py`` fails if this tuple, the add-on's ``FONTS`` and
+# the panel's dropdown drift apart, or if a face loses its label.
+#
+# English tokens like every other stored identifier (FSD §3.0a) — the family
+# names themselves are proper nouns and are not translated.
+GUEST_FONT_DANCING_SCRIPT: Final = "dancing_script"
+GUEST_FONT_CAVEAT: Final = "caveat"
+GUEST_FONT_GREAT_VIBES: Final = "great_vibes"
+
+GUEST_FONTS: Final[tuple[str, ...]] = (
+    GUEST_FONT_DANCING_SCRIPT,
+    GUEST_FONT_CAVEAT,
+    GUEST_FONT_GREAT_VIBES,
+)
+DEFAULT_GUEST_FONT: Final = GUEST_FONT_DANCING_SCRIPT
+
+# The type sizes of the mockup (11-wand-gaeste). Wishes, not commitments: a long
+# name shrinks until it fits, which is what ``guest_layout.py`` in the add-on is
+# for. Kept here as well because the panel offers them as the starting values.
+DEFAULT_GUEST_NAME_PX: Final = 180
+DEFAULT_GUEST_GREETING_PX: Final = 72
+
 # Add-on endpoints (FSD §3.2). The base address is configuration
 # (``display.renderer_url``) because the add-on may run on another host.
 ADDON_RENDER_PATH: Final = "/render"
 ADDON_DISPLAY_PATH: Final = "/display"
 ADDON_HEALTH_PATH: Final = "/health"
+# Refreshes the background cache and answers the list. Asked on demand rather
+# than read out of the media tree: the panel has to offer a background *before*
+# the first guest render has ever produced an index (FSD §8.4).
+ADDON_BACKGROUNDS_PATH: Final = "/backgrounds"
 DEFAULT_RENDERER_URL: Final = "http://homeassistant.local:8099"
 
 # --- Frontend translation catalogs (i18n concept §6) --------------------------

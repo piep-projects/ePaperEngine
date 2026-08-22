@@ -108,6 +108,16 @@
     "sync_recipes": {
       "name": "Sync recipes",
       "description": "Pulls the recipe collection from Paprika into the local cache. Only what has changed is fetched. Do not call this per render run — the API is documented to ban by IP; that is what the sync interval is for."
+    },
+    "set_guests": {
+      "name": "Set guest mode",
+      "description": "Switches guest mode on or off. While it is on, the wall shows the guest greeting — name, greeting line and the chosen background — and it stays on until it is switched off; unlike a view pinned by hand, it does not lapse after a few hours.",
+      "fields": {
+        "active": {
+          "name": "Guest mode",
+          "description": "On when visitors are in the house, off when they have left."
+        }
+      }
     }
   }
 }

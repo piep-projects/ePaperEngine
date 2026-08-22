@@ -33,6 +33,8 @@ from .const import (
     WS_CONFIG_GET,
     WS_CONFIG_SET,
     WS_DISPLAY_TEST,
+    WS_GUESTS_BACKGROUNDS,
+    WS_GUESTS_SET,
     WS_PHOTOS_LIST,
     WS_RECIPES_GET,
     WS_RECIPES_SEARCH,
@@ -65,6 +67,8 @@ def async_register(hass: HomeAssistant) -> None:
         ws_recipes_search,
         ws_recipes_get,
         ws_recipes_sync,
+        ws_guests_set,
+        ws_guests_backgrounds,
     ):
         websocket_api.async_register_command(hass, handler)
 
@@ -302,3 +306,47 @@ async def ws_recipes_sync(hass, connection, msg) -> None:
         connection.send_error(msg["id"], "not_loaded", "ePaperEngine is not set up")
         return
     connection.send_result(msg["id"], await coordinator.async_sync_recipes())
+
+
+# --- guests (FSD §8.4) --------------------------------------------------------
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): WS_GUESTS_SET, vol.Required("active"): cv.boolean}
+)
+@websocket_api.async_response
+async def ws_guests_set(hass, connection, msg) -> None:
+    """Switch guest mode on or off (FSD §5, §8.4).
+
+    **Not administrator-only**, and deliberately so: it is the same kind of act
+    as ``set_view`` — somebody in the house decides what the wall shows right
+    now — and pinning the guest view already switches the mode on for anybody
+    who can press a chip. Making the *off* switch the only administrator half of
+    that pair would leave the household able to start a visit and unable to end
+    it. What stays administrator-only is the greeting itself: the name, the text
+    and the picture are configuration and go through ``config/set``.
+    """
+    coordinator = _coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_loaded", "ePaperEngine is not set up")
+        return
+    await coordinator.async_set_guests(msg["active"])
+    connection.send_result(msg["id"], coordinator.status_document())
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({vol.Required("type"): WS_GUESTS_BACKGROUNDS})
+@websocket_api.async_response
+async def ws_guests_backgrounds(hass, connection, msg) -> None:
+    """The guest backgrounds, refreshed and listed (FSD §8.4).
+
+    Administrator-only, unlike the photo list: this one *does work* on the other
+    side — it walks the folder on the NAS, hashes what is new and writes crops
+    and thumbnails. That is a button worth keeping behind the same line as "Test
+    connection", and picking the background is configuration anyway.
+    """
+    coordinator = _coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_loaded", "ePaperEngine is not set up")
+        return
+    connection.send_result(msg["id"], await coordinator.async_background_list())

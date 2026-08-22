@@ -39,6 +39,9 @@ from homeassistant.util import dt as dt_util
 from . import mediapath
 from .addon import AddonClient, AddonError
 from .const import (
+    DEFAULT_GUEST_FONT,
+    DEFAULT_GUEST_GREETING_PX,
+    DEFAULT_GUEST_NAME_PX,
     DEFAULT_RECIPE_SYNC_INTERVAL_H,
     DISPLAY_PROBE_INTERVAL_MIN,
     RENDER_DEBOUNCE_S,
@@ -66,6 +69,30 @@ WRITABLE_SECTIONS = frozenset(
 # does not — it changes where the image goes, not what it shows.
 RENDER_RELEVANT = frozenset({"views", "schedule", "calendar", "recipes", "photos", "guests", "media"})
 
+# The guest fields that must never reach the renderer as ``None``.
+#
+# Phase 4 stored ``font: null`` and had no size keys at all, so an installation
+# that predates the guest view carries a section the add-on would have to guess
+# at. The add-on *does* guess sanely — ``guest_layout.plan`` treats every missing
+# field as its default — but the **panel** would show an unselected dropdown and
+# empty size fields, and a Save from that page would write the nulls straight
+# back. Filling them in once, here, is the difference between a page that opens
+# ready to use and one that has to be repaired before it can be used.
+GUEST_DEFAULTS: dict[str, Any] = {
+    "font": DEFAULT_GUEST_FONT,
+    "name_px": DEFAULT_GUEST_NAME_PX,
+    "greeting_px": DEFAULT_GUEST_GREETING_PX,
+    "band": True,
+}
+
+
+def _normalise_guests(config: dict[str, Any]) -> None:
+    """Fill the guest fields that carry a default, in place."""
+    guests = config.setdefault("guests", {})
+    for key, default in GUEST_DEFAULTS.items():
+        if guests.get(key) is None:
+            guests[key] = default
+
 
 class EPaperEngineCoordinator:
     """Holds the config and state documents and serves the render document."""
@@ -83,6 +110,7 @@ class EPaperEngineCoordinator:
         self.store = store
         self.config = config
         self.state = state
+        _normalise_guests(self.config)
 
         self.addon = AddonClient(hass)
         self.addon.set_base((config.get("display") or {}).get("renderer_url"))
@@ -399,6 +427,9 @@ class EPaperEngineCoordinator:
             # would otherwise need two controls for one intention.
             if view == VIEW_GUESTS:
                 self.state["guests_active"] = True
+                self.state.setdefault("guests_since", None)
+                if not self.state["guests_since"]:
+                    self.state["guests_since"] = now.isoformat()
 
         await self.store.async_save_state(self.state)
         self._async_arm_manual_timer()
@@ -407,6 +438,70 @@ class EPaperEngineCoordinator:
             # user just pressed should still put the current picture up.
             self._async_notify()
             self.async_request_render("set_view")
+
+    # --- guest mode (FSD §8.4) ------------------------------------------------
+    async def async_set_guests(self, active: bool) -> None:
+        """Switch guest mode on or off.
+
+        **On** is all it takes to put the greeting up: ``guests`` is a candidate
+        of the priority list (FSD §5) and stands above the schedule, so no manual
+        pin is needed and none is set — that is what keeps the visit exempt from
+        the four-hour fallback without a special case in the timer.
+
+        **Off** also drops a manual pin that happens to be on the guest view.
+        Without that the wall would keep the greeting up with guest mode
+        switched off, and the panel would show a switch that changed nothing:
+        pinning the view *is* switching the mode on (``async_set_view``), so the
+        two have to come apart again together.
+        """
+        active = bool(active)
+        if active == bool(self.state.get("guests_active")):
+            return
+        now = dt_util.utcnow()
+        self.state["guests_active"] = active
+        self.state["guests_since"] = now.isoformat() if active else None
+        manual = self.manual
+        if not active and manual and manual.get("view") == VIEW_GUESTS:
+            self.state["manual"] = None
+
+        await self.store.async_save_state(self.state)
+        self._async_arm_manual_timer()
+        _LOGGER.info("Guest mode %s", "on" if active else "off")
+        if not self._async_refresh_target():
+            # The wall was not showing guests anyway (something above it in the
+            # priority list wins) — the switch still has to be visible, and the
+            # greeting itself may have changed while it was off.
+            self._async_notify()
+            self.async_request_render("guests")
+
+    async def async_background_list(self) -> dict[str, Any]:
+        """The guest backgrounds with their thumbnail paths (FSD §8.4).
+
+        The add-on refreshes and lists; the paths are built here, because only
+        the integration knows ``media.root`` and how Home Assistant serves its
+        media directories. Unsigned — the panel signs them right before it sets
+        ``src`` (``mediapath.py``).
+        """
+        answer = await self.addon.async_backgrounds()
+        root = mediapath.media_root(self.config)
+        backgrounds = [
+            {
+                "digest": entry.get("digest"),
+                "name": entry.get("name"),
+                "thumb": mediapath.media_url_path(
+                    self.hass, f"{root}/{mediapath.SUBDIR_PREVIEW_BACKGROUNDS}/{entry.get('digest')}.jpg"
+                ),
+            }
+            for entry in (answer.get("backgrounds") or [])
+            if entry.get("digest")
+        ]
+        return {
+            "total": answer.get("total", len(backgrounds)),
+            "backgrounds": backgrounds,
+            "root": root,
+            "folder": f"{root}/{mediapath.SUBDIR_BACKGROUNDS}",
+            "error": answer.get("error"),
+        }
 
     # --- configuration --------------------------------------------------------
     async def async_set_config(self, patch: dict[str, Any]) -> dict[str, Any]:
@@ -438,6 +533,8 @@ class EPaperEngineCoordinator:
             for uid, value in (recipes_cfg.get("servings") or {}).items()
             if uid in recipes_cfg["selection"]
         }
+
+        _normalise_guests(self.config)
 
         await self.store.async_save_config(self.config)
         self.addon.set_base((self.config.get("display") or {}).get("renderer_url"))
@@ -638,6 +735,7 @@ class EPaperEngineCoordinator:
             "last_push": self.state.get("last_push"),
             "manual": self.manual,
             "guests_active": bool(self.state.get("guests_active")),
+            "guests_since": self.state.get("guests_since"),
             "next_change": next_change.isoformat() if next_change else None,
             "display": self.display,
             # Small and fixed in size — the collection itself goes over

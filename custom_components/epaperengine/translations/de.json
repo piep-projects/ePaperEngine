@@ -108,6 +108,16 @@
     "sync_recipes": {
       "name": "Rezepte abgleichen",
       "description": "Holt die Rezeptsammlung von Paprika in den lokalen Cache. Abgerufen wird nur, was sich geändert hat. Nicht pro Render-Lauf aufrufen — die API sperrt dokumentiert nach IP; genau dafür gibt es das Sync-Intervall."
+    },
+    "set_guests": {
+      "name": "Gästemodus setzen",
+      "description": "Schaltet den Gästemodus ein oder aus. Solange er an ist, zeigt die Wand den Gästegruß — Name, Grußzeile und das gewählte Hintergrundbild — und er bleibt an, bis er ausgeschaltet wird; anders als eine von Hand festgehaltene Ansicht läuft er nicht nach ein paar Stunden ab.",
+      "fields": {
+        "active": {
+          "name": "Gästemodus",
+          "description": "An, solange Besuch im Haus ist; aus, wenn er wieder weg ist."
+        }
+      }
     }
   }
 }

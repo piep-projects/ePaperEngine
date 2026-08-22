@@ -31,7 +31,7 @@ const ICON = "mdi:image-frame"; // const.py PANEL_ICON
 // cache state. It also draws the permission line in one place instead of half way
 // down three pages.
 const TABS = ["overview", "views", "calendar", "recipes", "photos", "guests", "settings"];
-const TABS_PENDING = new Set(["calendar", "guests"]);
+const TABS_PENDING = new Set(["calendar"]);
 
 const VIEWS = ["calendar", "recipes", "photos", "guests", "error"];
 // What may be pinned by hand. ``error`` is a system state, not a choice.
@@ -47,6 +47,12 @@ const SEARCH_DEBOUNCE_MS = 250;
 // 773 px), and how many characters each type size carries (FSD §7, measured at
 // 1 m on the real panel).
 const RECIPE_SLOTS = 3;
+
+// The script faces the add-on ships (const.py GUEST_FONTS, and the FONTS table
+// of the add-on's guest_layout.py). The three are kept in step by
+// tests/test_guest_layout.py; the labels are the family names and are the same
+// in every catalog, because a typeface is a proper noun.
+const GUEST_FONTS = ["dancing_script", "caveat", "great_vibes"];
 
 // ---------------------------------------------------------------------------
 // i18n — same mechanism and the same catalogs as the card (i18n concept §4/§7).
@@ -235,6 +241,7 @@ class EPaperEnginePanel extends HTMLElement {
     this._config = null;
     this._status = null;
     this._photos = null;
+    this._backgrounds = null; // { total, backgrounds, folder } of the guest page
     this._recipes = null; // { hits, total, cache } of the last search
     this._picked = []; // the selected recipes in full, for the slot cards
     this._forecast = new Map(); // uid → {fit, chars}, filled from the searches
@@ -433,6 +440,57 @@ class EPaperEnginePanel extends HTMLElement {
     this._render();
   }
 
+  // --- guests (FSD §8.4) ----------------------------------------------------
+  /**
+   * The backgrounds, listed by the add-on.
+   *
+   * The add-on *rescans the folder* for this, rather than the integration
+   * reading whatever a previous run left behind: a picture has to be pickable
+   * before the first guest render has ever happened, and only the add-on can
+   * crop, hash and thumbnail one. Slow enough to say so — a folder full of
+   * 20-megapixel photographs is cropped here, once.
+   */
+  async _loadBackgrounds() {
+    this._backgrounds = this._backgrounds || { loading: true, backgrounds: [] };
+    try {
+      const answer = await this._call({ type: "epaperengine/guests/backgrounds" });
+      answer.backgrounds = await Promise.all(
+        answer.backgrounds.map(async (item) => ({ ...item, url: await this._sign(item.thumb) })),
+      );
+      this._backgrounds = answer;
+    } catch (err) {
+      this._backgrounds = { total: 0, backgrounds: [], error: this._message(err) };
+    }
+    this._render();
+  }
+
+  /** Switch guest mode on or off. State, not configuration — no Save button. */
+  async _setGuests(active) {
+    try {
+      this._status = await this._call({ type: "epaperengine/guests/set", active: !!active });
+      this._error = null;
+    } catch (err) {
+      this._error = this._message(err);
+    }
+    this._render();
+  }
+
+  /**
+   * Pick a background, or clear it.
+   *
+   * Committed straight away, like the recipe selection and for the same reason:
+   * it is a decision about what hangs on the wall tonight, it triggers a render
+   * (FSD §6.1), and a draft nobody saved would mean clicking a picture and
+   * staring at an unchanged display. The text fields of the page are collected
+   * along with it — somebody who typed a name and then chose a picture meant
+   * both.
+   */
+  async _pickBackground(digest) {
+    this._collect();
+    this._draft.guests.background = digest || null;
+    await this._save(["guests"]);
+  }
+
   // --- recipes (FSD §9) -----------------------------------------------------
   /** Search the cache and fetch the picked recipes — one screen, two calls. */
   async _loadRecipes() {
@@ -562,6 +620,9 @@ class EPaperEnginePanel extends HTMLElement {
     this._tab = tab;
     this._probe = null;
     if (tab === "photos" && !this._photos) this._loadPhotos();
+    // The background list is an administrator command (it rescans the folder),
+    // so a household member is not sent into a guaranteed "unauthorized".
+    if (tab === "guests" && !this._backgrounds && this.isAdmin) this._loadBackgrounds();
     if (tab === "recipes") this._loadRecipes();
     this._render();
   }
@@ -668,6 +729,14 @@ class EPaperEnginePanel extends HTMLElement {
                      object-fit: cover; background: var(--secondary-background-color); }
         .thumb .cap { font-size: 0.75rem; color: var(--secondary-text-color);
                       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .thumb.pick { cursor: pointer; padding: 4px; border: 2px solid transparent; border-radius: 10px; }
+        .thumb.pick.on { border-color: var(--primary-color); }
+        .thumb.blank { display: flex; align-items: center; justify-content: center;
+                       aspect-ratio: 16/9; border-radius: 6px; font-size: 0.8rem;
+                       text-align: center; color: var(--secondary-text-color);
+                       background: var(--secondary-background-color); }
+        .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .row label { margin: 0; }
         .preview { width: 100%; border-radius: 8px; display: block; aspect-ratio: 16/9;
                    object-fit: contain; background: var(--secondary-background-color); }
         .muted { color: var(--secondary-text-color); font-size: 0.85rem; }
@@ -743,6 +812,7 @@ class EPaperEnginePanel extends HTMLElement {
       views: () => this._pageViews(),
       recipes: () => this._pageRecipes(),
       photos: () => this._pagePhotos(),
+      guests: () => this._pageGuests(),
       settings: () => this._pageSettings(),
     }[this._tab];
     return this._banner() + `<div class="grid">${body ? body() : ""}</div>`;
@@ -1196,6 +1266,114 @@ class EPaperEnginePanel extends HTMLElement {
     `;
   }
 
+  // --- page: guests ---------------------------------------------------------
+  // The mockup (06-panel-gaeste) in four cards: the switch, the text, the type,
+  // the picture. The switch is **state** and commits on the click; everything
+  // else is configuration and waits for Save — except picking a picture, which
+  // is a decision about tonight (see ``_pickBackground``).
+  _pageGuests() {
+    const guests = this._draft.guests || {};
+    const status = this._status || {};
+    const active = !!status.guests_active;
+    const since = fmtDateTime(status.guests_since);
+    const admin = this.isAdmin;
+    const lock = admin ? "" : "disabled";
+    const cache = this._backgrounds;
+
+    const fontOptions = GUEST_FONTS.map(
+      (id) =>
+        `<option value="${esc(id)}" ${guests.font === id ? "selected" : ""}>${esc(t(`guests.font.${id}`))}</option>`,
+    ).join("");
+
+    const blank = `<div class="thumb pick ${guests.background ? "" : "on"}" data-background="">
+        <div class="blank">${esc(t("panel.guests.background.none"))}</div>
+        <div class="cap">&nbsp;</div>
+      </div>`;
+
+    let tiles = "";
+    if (!admin) tiles = `<div class="muted">${esc(t("error.no_admin"))}</div>`;
+    else if (cache && cache.loading) tiles = `<div class="muted">${esc(t("common.loading"))}</div>`;
+    else if (cache && cache.error)
+      tiles = `<div class="note bad">${esc(t("panel.guests.background.error", { msg: cache.error }))}</div>`;
+    else if (cache)
+      tiles = `<div class="thumbs">${blank}${(cache.backgrounds || [])
+        .map(
+          (item) => `<div class="thumb pick ${guests.background === item.digest ? "on" : ""}" data-background="${esc(item.digest)}">
+             <img loading="lazy" src="${esc(item.url || "")}" alt="${esc(item.name)}">
+             <div class="cap" title="${esc(item.name)}">${esc(item.name)}</div>
+           </div>`,
+        )
+        .join("")}</div>`;
+    if (admin && cache && !cache.error && !cache.loading && !(cache.backgrounds || []).length)
+      tiles += `<div class="muted">${esc(t("panel.guests.background.empty"))}</div>`;
+
+    return `
+      ${admin ? "" : `<div class="card" style="grid-column: 1 / -1"><div class="note warn">${esc(t("error.no_admin"))}</div></div>`}
+
+      <div class="card">
+        <h2>${esc(t("panel.guests.mode"))}</h2>
+        <div class="row">
+          <button class="${active ? "primary" : "plain"}" id="toggle-guests">${esc(
+            active ? t("panel.guests.mode.turn_off") : t("panel.guests.mode.turn_on"),
+          )}</button>
+          <span class="${active ? "" : "muted"}">${esc(
+            active
+              ? since
+                ? t("panel.guests.mode.on", { time: since })
+                : t("panel.guests.mode.on.unknown")
+              : t("panel.guests.mode.off"),
+          )}</span>
+        </div>
+        <div class="muted">${esc(t("panel.guests.mode.hint"))}</div>
+        <div class="muted">${esc(t("panel.guests.mode.priority"))}</div>
+      </div>
+
+      <div class="card">
+        <h2>${esc(t("panel.guests.text"))}</h2>
+        <label>${esc(t("panel.guests.name"))}</label>
+        <input id="guest-name" value="${esc(guests.name || "")}" ${lock}>
+        <label>${esc(t("panel.guests.greeting"))}</label>
+        <input id="guest-greeting" value="${esc(guests.greeting || "")}" ${lock}>
+        <div class="actions"><button class="primary" data-save="guests" ${lock}>${esc(t("common.save"))}</button></div>
+      </div>
+
+      <div class="card">
+        <h2>${esc(t("panel.guests.font"))}</h2>
+        <label>${esc(t("panel.guests.font.face"))}</label>
+        <select id="guest-font" ${lock}>${fontOptions}</select>
+        <label>${esc(t("panel.guests.font.name_px"))}</label>
+        <div class="inline">
+          <input id="guest-name-px" value="${esc(fmtNum(guests.name_px ?? 180))}" ${lock}>
+          <span class="unit">${esc(t("panel.guests.font.px"))}</span>
+        </div>
+        <label>${esc(t("panel.guests.font.greeting_px"))}</label>
+        <div class="inline">
+          <input id="guest-greeting-px" value="${esc(fmtNum(guests.greeting_px ?? 72))}" ${lock}>
+          <span class="unit">${esc(t("panel.guests.font.px"))}</span>
+        </div>
+        <div class="muted">${esc(t("panel.guests.font.hint"))}</div>
+        <div class="row" style="margin-top:12px">
+          <input type="checkbox" id="guest-band" ${guests.band ? "checked" : ""} ${lock}>
+          <label for="guest-band">${esc(t("panel.guests.band"))}</label>
+        </div>
+        <div class="muted">${esc(t("panel.guests.band.hint"))}</div>
+        <div class="actions"><button class="primary" data-save="guests" ${lock}>${esc(t("common.save"))}</button></div>
+      </div>
+
+      <div class="card" style="grid-column: 1 / -1">
+        <h2>${esc(t("panel.guests.background"))}</h2>
+        <div class="hint">${esc(
+          cache && cache.folder ? t("panel.guests.background.folder", { path: cache.folder }) : t("common.loading"),
+        )}</div>
+        ${tiles}
+        <div class="actions">
+          <button class="plain" id="reload-backgrounds" ${lock}>${esc(t("panel.guests.background.reload"))}</button>
+        </div>
+        <div class="note warn">${esc(t("panel.guests.check.hint"))}</div>
+      </div>
+    `;
+  }
+
   // --- page: settings -------------------------------------------------------
   // Everything an administrator sets once and then forgets: the display, the
   // Paprika account, the image paths [Festlegung 2026-08-22]. It is also the
@@ -1426,6 +1604,18 @@ class EPaperEnginePanel extends HTMLElement {
     // --- photos
     on("#reload-photos", () => this._loadPhotos());
 
+    // --- guests
+    on("#toggle-guests", () => this._setGuests(!(this._status || {}).guests_active));
+    on("#reload-backgrounds", () => {
+      this._backgrounds = { loading: true, backgrounds: [] };
+      this._render();
+      this._loadBackgrounds();
+    });
+    root.querySelectorAll("[data-background]").forEach((tile) => {
+      if (!this.isAdmin) return;
+      tile.onclick = () => this._pickBackground(tile.dataset.background);
+    });
+
     // --- save buttons: read the inputs of the page, then commit the sections
     root.querySelectorAll("[data-save]").forEach((button) => {
       button.onclick = () => {
@@ -1473,6 +1663,22 @@ class EPaperEnginePanel extends HTMLElement {
       this._draft.photos.rotation_interval_min = number(
         "#rotation",
         this._draft.photos.rotation_interval_min,
+      );
+    }
+    if (this._tab === "guests") {
+      const font = root.querySelector("#guest-font");
+      const band = root.querySelector("#guest-band");
+      this._draft.guests.name = value("#guest-name") || null;
+      this._draft.guests.greeting = value("#guest-greeting") || null;
+      if (font) this._draft.guests.font = font.value;
+      // A checkbox is read from ``checked``; ``value`` on one is the literal
+      // string "on" whether or not it is ticked, which would store a truthy
+      // band that can never be switched off again.
+      if (band) this._draft.guests.band = !!band.checked;
+      this._draft.guests.name_px = number("#guest-name-px", this._draft.guests.name_px);
+      this._draft.guests.greeting_px = number(
+        "#guest-greeting-px",
+        this._draft.guests.greeting_px,
       );
     }
     if (this._tab === "settings") {

@@ -64,3 +64,11 @@ set_view:
 
 sync_recipes:
   fields: {}
+
+set_guests:
+  fields:
+    active:
+      required: true
+      example: true
+      selector:
+        boolean:

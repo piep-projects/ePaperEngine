@@ -8,5 +8,6 @@
   "recipes.directions": "Directions",
   "recipes.truncated": "Shortened — it did not fit the column",
   "recipes.empty": "No recipe picked.",
-  "recipes.servings": "{value} servings"
+  "recipes.servings": "{value} servings",
+  "guests.empty": "No greeting set yet — the ePaperEngine panel is where it goes."
 }

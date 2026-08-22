@@ -368,8 +368,8 @@ class EPaperEngineCard extends HTMLElement {
 
     const status = this._status;
     body.innerHTML = head + this._faultStrip(status) + this._manualStrip(status) +
-      this._wallBlock(status) + this._nextBlock(status) + this._previewBlock(status) +
-      this._chips(status);
+      this._wallBlock(status) + this._nextBlock(status) + this._guestStrip(status) +
+      this._previewBlock(status) + this._chips(status);
     this._wire();
   }
 
@@ -451,6 +451,36 @@ class EPaperEngineCard extends HTMLElement {
     </div>`;
   }
 
+  /**
+   * Guest mode, and the one control that ends it.
+   *
+   * The card's rule is "no control that only triggers what the system does
+   * anyway" (FSD §3.1) — this is not one of those. Guest mode is deliberately
+   * exempt from the manual fallback (FSD §5), so nothing ends it on its own,
+   * and pressing the Guests chip switches it *on* for anybody in the house.
+   * Without the counterpart, the greeting would be a thing the household can
+   * start and only an administrator can stop.
+   */
+  _guestStrip(status) {
+    if (!status.guests_active) return "";
+    const since = fmtTime(status.guests_since);
+    return `<div class="block">
+      <div class="headline">${esc(t("card.guests.on"))}${
+        since ? " · " + esc(t("card.guests.since", { time: since })) : ""
+      }</div>
+      <button class="action" id="guests-off">${esc(t("card.guests.end"))}</button>
+    </div>`;
+  }
+
+  async _setGuests(active) {
+    try {
+      this._status = await this._call({ type: "epaperengine/guests/set", active: !!active });
+    } catch (err) {
+      this._error = (err && err.message) || t("error.unknown");
+    }
+    this._render();
+  }
+
   _chips(status) {
     const manual = status.manual && status.manual.view;
     const chips = [
@@ -474,6 +504,8 @@ class EPaperEngineCard extends HTMLElement {
     if (preview) preview.onclick = () => this._togglePreview();
     const auto = root.querySelector("#auto");
     if (auto) auto.onclick = () => this._setView(null);
+    const guestsOff = root.querySelector("#guests-off");
+    if (guestsOff) guestsOff.onclick = () => this._setGuests(false);
     root.querySelectorAll(".chip").forEach((chip) => {
       chip.onclick = () => this._setView(chip.dataset.view || null);
     });

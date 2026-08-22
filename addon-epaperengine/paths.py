@@ -42,6 +42,22 @@ class MediaPaths:
         return self.root / "backgrounds"
 
     @property
+    def processed_backgrounds(self) -> Path:
+        """Cropped 16:9 guest backgrounds, ready for the template.
+
+        The same shape as ``processed_photos`` because it is the same machinery:
+        ``PhotoCache`` is pointed at another source folder and writes another
+        pair of directories. A second implementation of "crop, hash, thumbnail,
+        prune" would be the same code with different bugs.
+        """
+        return self.root / "processed" / "backgrounds"
+
+    @property
+    def preview_backgrounds(self) -> Path:
+        """Thumbnails for the background picker in the panel (phase 5)."""
+        return self.root / "preview" / "backgrounds"
+
+    @property
     def processed_photos(self) -> Path:
         """Cropped 16:9 sources, ready for the template."""
         return self.root / "processed" / "photos"
@@ -68,6 +84,8 @@ class MediaPaths:
             self.backgrounds,
             self.processed_photos,
             self.preview_photos,
+            self.processed_backgrounds,
+            self.preview_backgrounds,
             self.wall,
             self.preview,
         ):

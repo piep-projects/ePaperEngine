@@ -201,6 +201,19 @@ class PhotoCache:
     def photos(self) -> list[Photo]:
         return list(self._photos)
 
+    def find(self, digest: str) -> Photo | None:
+        """The entry with this content hash, or ``None`` if it is gone.
+
+        What the guest view picks by (FSD §8.4): a background is *chosen* in the
+        panel, not rotated, so it is addressed by its identity rather than by a
+        counter. ``None`` is an answer, not a failure — a background whose file
+        was deleted must cost the greeting its picture, never the whole run.
+        """
+        for photo in self._photos:
+            if photo.digest == digest:
+                return photo
+        return None
+
     def pick(self, slot: int) -> Photo:
         """Map the integration's deterministic counter onto a file (FSD §5).
 

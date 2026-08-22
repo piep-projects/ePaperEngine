@@ -21,6 +21,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from .const import (
+    DEFAULT_GUEST_FONT,
+    DEFAULT_GUEST_GREETING_PX,
+    DEFAULT_GUEST_NAME_PX,
     DEFAULT_MANUAL_TIMEOUT_H,
     DEFAULT_PRIORITY,
     DEFAULT_RECIPE_SYNC_INTERVAL_H,
@@ -88,11 +91,25 @@ def default_config() -> dict[str, Any]:
             "rotation_interval_min": 60,
             "cache_state": None,
         },
+        # FSD §4 writes ``font (Schreibschrift-Font, Grad)`` as one entry. It
+        # is split into three flat keys here, and the reason is the merge right
+        # below: ``async_load_config`` merges *sections*, one level deep. A
+        # nested ``font`` object would be taken from the store whole, so adding a
+        # size later would leave every existing installation without it and with
+        # no default to fall back on.
         "guests": {
             "name": None,
             "greeting": None,
-            "background": None,  # from /media/epaperengine/backgrounds/
-            "font": None,        # script font + size
+            # The **content hash** of a cached background, not a filename
+            # (FSD §8.4 / §8.3): renaming a file on the NAS must not silently
+            # change which picture greets the visitors. ``None`` = flat white.
+            "background": None,
+            "font": DEFAULT_GUEST_FONT,  # one of const.GUEST_FONTS
+            "name_px": DEFAULT_GUEST_NAME_PX,
+            "greeting_px": DEFAULT_GUEST_GREETING_PX,
+            # The lightened band behind the text — the first of the three
+            # remedies FSD §8.4 names against the dither raster of the photo.
+            "band": True,
         },
     }
 
@@ -103,7 +120,12 @@ def default_state() -> dict[str, Any]:
         "manual": None,      # {"view": ..., "until": <iso>} or None
         "last_run": None,    # {"view", "at", "result", "error"}
         "last_push": None,   # {"at", "hash"}
+        # Guest mode is **state, not configuration** (FSD §5): it is switched on
+        # when the doorbell rings and off when the visitors leave, it survives a
+        # restart, and it is exempt from the manual timeout — hence its own
+        # ``since`` rather than borrowing the manual override's.
         "guests_active": False,
+        "guests_since": None,
     }
 
 
