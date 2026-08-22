@@ -165,6 +165,10 @@ class RecipeCacheSensor(EPaperEngineEntity, SensorEntity):
             # budget (FSD §9.2 — the endpoint bans by IP). They arrive with the
             # next one; a number standing still here is worth looking at.
             "pending": status["pending"],
+            # Recipes in Paprika's trash. They answer the sync API like any
+            # other recipe, so this is the number that explains why the count
+            # is smaller than the collection looks in the app.
+            "trashed": status["trashed"],
             "selected": len(self.coordinator.config["recipes"].get("selection") or []),
             "error": status["error"],
         }

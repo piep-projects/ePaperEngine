@@ -14,9 +14,12 @@ that enforces that is ``recipes.py``; this module only makes the calls cheap
 enough to obey it — the recipe list is one request, and a detail request only
 happens for a uid whose ``hash`` actually changed.
 
-**The endpoint facts** [recherchiert 2026-08-22, ``johnwbyrd/kappari``
-``authentication.md``/``endpoints.md`` and the ``mattdsteele`` gist —
-**nicht selbst gegen den Dienst gemessen**]:
+**The endpoint facts** — researched from ``johnwbyrd/kappari``
+(``authentication.md``/``endpoints.md``) and the ``mattdsteele`` gist, then
+**confirmed against the live account on 2026-08-22**: the v1 login, the Bearer
+token on the v2 sync endpoints, the ``result`` envelope and the recipe fields
+all behave as written here. 57 recipes and 21 categories came back on the first
+run:
 
 * ``POST /api/v1/account/login/`` takes ``email`` and ``password`` as
   *multipart* fields and answers ``{"result": {"token": …}}``. The v1 endpoint
@@ -24,7 +27,11 @@ happens for a uid whose ``hash`` actually changed.
   password-only login with *"Invalid purchase receipt."* unless the request
   looks like a licensed mobile client, and this add-on has no license blob to
   send. The token it hands back is accepted by the v2 sync endpoints.
-* ``GET /api/v2/sync/recipes/`` answers ``{"result": [{"uid", "hash"}, …]}``.
+* ``GET /api/v2/sync/recipes/`` answers ``{"result": [{"uid", "hash"}, …]}`` —
+  **including the recipes in Paprika's trash.** Measured 2026-08-22 against the
+  live account: a deleted recipe keeps its uid, keeps answering, and carries
+  ``in_trash: true``. Nothing but that flag tells it apart, and the collection
+  it came from had three entries under one name because of it.
 * ``GET /api/v2/sync/recipe/{uid}/`` answers ``{"result": {…recipe…}}``.
 * ``GET /api/v2/sync/categories/`` answers ``{"result": [{"uid", "name"}, …]}``.
 * Bodies may arrive gzip-compressed. ``aiohttp`` unwraps a proper
@@ -71,6 +78,12 @@ RECIPE_FIELDS = (
     "total_time",
     "categories",
 )
+
+# Not a wall field — a verdict. Carried out of ``trim_recipe`` so the cache can
+# drop the recipe without a second request, and named here rather than inlined
+# because "the answer contains deleted recipes" is the kind of fact that gets
+# lost in a nested ``get``.
+TRASH_FIELD = "in_trash"
 
 
 class PaprikaError(RuntimeError):
@@ -119,6 +132,11 @@ def trim_recipe(raw: Any) -> dict[str, Any] | None:
     the whole sync down with it. ``ingredients`` and ``directions`` stay
     **multi-line free text**: they are not structured lists at Paprika [belegt],
     so portion scaling would need parsing and is not in scope (FSD §8.2).
+
+    ``in_trash`` rides along, and the caller is expected to act on it: a
+    recipe in the trash still answers with its full text, so without the flag
+    a deleted draft sits in the search looking exactly like the recipe that
+    replaced it [gemessen 2026-08-22].
     """
     if not isinstance(raw, dict) or not raw.get("uid"):
         return None
@@ -126,6 +144,7 @@ def trim_recipe(raw: Any) -> dict[str, Any] | None:
     recipe["categories"] = [str(c) for c in (raw.get("categories") or []) if c]
     # The service's own checksum, kept so the next sync can skip this recipe.
     recipe["hash"] = raw.get("hash")
+    recipe[TRASH_FIELD] = bool(raw.get(TRASH_FIELD))
     for field in ("name", "ingredients", "directions", "servings", "total_time"):
         value = recipe.get(field)
         recipe[field] = "" if value is None else str(value)

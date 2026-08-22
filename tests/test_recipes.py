@@ -256,7 +256,7 @@ class TestTrim(unittest.TestCase):
             }
         )
         self.assertEqual(
-            set(trimmed), {*paprika.RECIPE_FIELDS, "hash"}
+            set(trimmed), {*paprika.RECIPE_FIELDS, "hash", paprika.TRASH_FIELD}
         )
         self.assertNotIn("photo", trimmed)
 
@@ -270,6 +270,28 @@ class TestTrim(unittest.TestCase):
     def test_something_that_is_not_a_recipe_is_skipped(self) -> None:
         for junk in ({}, {"name": "no uid"}, "string", None, 42):
             self.assertIsNone(paprika.trim_recipe(junk), junk)
+
+
+class TestTrash(unittest.TestCase):
+    """Measured 2026-08-22 against the live account: a deleted recipe keeps its
+    uid, answers the sync API with its full text, and is told apart from a live
+    one by ``in_trash`` alone. The collection that found this had three entries
+    under one name — one real, two deleted drafts — and all three sat in the
+    search looking identical."""
+
+    def test_the_flag_survives_the_trim(self) -> None:
+        self.assertTrue(paprika.trim_recipe({"uid": "u", "in_trash": True})[paprika.TRASH_FIELD])
+
+    def test_a_live_recipe_says_so_explicitly(self) -> None:
+        """Absent must mean False, not missing — the caller reads it as a verdict."""
+        self.assertEqual(paprika.trim_recipe({"uid": "u"})[paprika.TRASH_FIELD], False)
+
+    def test_the_cache_format_is_raised_so_old_caches_are_refetched(self) -> None:
+        """The entries are *wrong*, not missing: their hashes match, so nothing
+        short of dropping the collection would ever notice."""
+        self.assertGreaterEqual(recipes.CACHE_FORMAT, 2)
+        self.assertEqual(recipes.empty_document()["format"], recipes.CACHE_FORMAT)
+        self.assertEqual(recipes.empty_document()["trashed"], {})
 
 
 class TestIndex(unittest.TestCase):

@@ -38,7 +38,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .const import STORAGE_VERSION, STORE_RECIPES
-from .paprika import PaprikaClient, PaprikaError
+from .paprika import TRASH_FIELD, PaprikaClient, PaprikaError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,6 +50,15 @@ DETAIL_PAUSE_S = 0.15
 DETAIL_LIMIT = 400
 
 SEARCH_LIMIT = 40
+
+# Layout of the cached document. Raised when the *meaning* of what is stored
+# changes, not when a field is added: the cache is then dropped and refetched,
+# which costs one sync and is the only way to fix a document whose entries are
+# wrong rather than missing.
+#   2 — recipes in Paprika's trash are no longer cached (measured 2026-08-22:
+#       the sync API answers them like any other recipe, and a collection with
+#       three deleted drafts showed each of them in the search).
+CACHE_FORMAT = 2
 
 # What FSD §8.2 allows on the wall at once. The panel enforces it too, but the
 # store is where it has to hold: three columns is a layout constant, not a
@@ -134,9 +143,15 @@ def selected(document: dict[str, Any], uids: list[str]) -> list[dict[str, Any]]:
 def empty_document() -> dict[str, Any]:
     """The cache before the first sync."""
     return {
+        "format": CACHE_FORMAT,
         "synced_at": None,
         "recipes": {},
         "categories": {},
+        # ``{uid: hash}`` of the recipes in Paprika's trash. Remembered rather
+        # than merely skipped: without it every sync would re-fetch every
+        # deleted recipe forever, and the request budget is the one thing this
+        # module exists to protect (FSD §9.2).
+        "trashed": {},
         "error": None,
         "pending": 0,
     }
@@ -159,7 +174,20 @@ class RecipeCache:
 
     async def async_load(self) -> None:
         stored = await self._store.async_load() or {}
-        self.document = {**empty_document(), **stored}
+        if stored and int(stored.get("format") or 1) < CACHE_FORMAT:
+            # The entries are wrong, not missing — no amount of hash comparison
+            # would notice, because the hashes match. Dropping the collection
+            # makes the next sync refetch it; at ~0,15 s per recipe that is
+            # seconds, and it happens once.
+            _LOGGER.info(
+                "Recipe cache format %s → %s: dropping the cached collection so "
+                "the next sync refetches it",
+                stored.get("format") or 1,
+                CACHE_FORMAT,
+            )
+            stored = {k: v for k, v in stored.items() if k not in ("recipes", "trashed")}
+            stored["synced_at"] = None
+        self.document = {**empty_document(), **stored, "format": CACHE_FORMAT}
 
     async def _async_save(self) -> None:
         await self._store.async_save(self.document)
@@ -183,6 +211,9 @@ class RecipeCache:
             "synced_at": self.synced_at,
             "count": self.count,
             "pending": int(self.document.get("pending") or 0),
+            # Not a failure and not a gap — the number that explains why the
+            # count is smaller than the collection looks in the Paprika app.
+            "trashed": len(self.document.get("trashed") or {}),
             "error": self.error,
             "configured": bool(self._login()),
         }
@@ -233,44 +264,63 @@ class RecipeCache:
         index = await client.async_index()
 
         recipes: dict[str, Any] = dict(self.document.get("recipes") or {})
+        trashed: dict[str, str] = dict(self.document.get("trashed") or {})
         # Gone from the collection means gone from the cache. Doing this before
         # the fetches keeps a deleted recipe from surviving a sync that hits the
         # request ceiling half way through.
         removed = [uid for uid in recipes if uid not in index]
         for uid in removed:
             recipes.pop(uid, None)
+        for uid in [uid for uid in trashed if uid not in index]:
+            trashed.pop(uid, None)
 
         stale = [
             uid
             for uid, digest in index.items()
-            if uid not in recipes or str((recipes[uid] or {}).get("hash") or "") != digest
+            if trashed.get(uid) != digest
+            and (uid not in recipes or str((recipes[uid] or {}).get("hash") or "") != digest)
         ]
         pending = max(len(stale) - DETAIL_LIMIT, 0)
         fetched = 0
+        binned = 0
         for uid in stale[:DETAIL_LIMIT]:
             recipe = await client.async_recipe(uid)
             if recipe is not None:
-                recipe["hash"] = index[uid]
-                recipes[uid] = recipe
-                fetched += 1
+                if recipe.pop(TRASH_FIELD, False):
+                    # A recipe in Paprika's trash answers with its full text
+                    # like any other. Remembering its hash is what keeps the
+                    # next sync from asking again; emptying the trash removes
+                    # the uid from the index and the entry above with it.
+                    trashed[uid] = index[uid]
+                    recipes.pop(uid, None)
+                    binned += 1
+                else:
+                    recipe["hash"] = index[uid]
+                    recipes[uid] = recipe
+                    fetched += 1
             if DETAIL_PAUSE_S:
                 await asyncio.sleep(DETAIL_PAUSE_S)
 
         categories = await client.async_categories()
 
         self.document = {
+            "format": CACHE_FORMAT,
             "synced_at": dt_util.utcnow().isoformat(),
             "recipes": recipes,
+            "trashed": trashed,
             # An empty answer must not wipe names that already work.
             "categories": categories or self.document.get("categories") or {},
             "error": None,
             "pending": pending,
         }
         _LOGGER.info(
-            "Recipe sync: %d in the collection, %d fetched, %d removed, %d pending",
+            "Recipe sync: %d in the collection, %d fetched, %d removed, "
+            "%d in the trash (%d newly), %d pending",
             len(recipes),
             fetched,
             len(removed),
+            len(trashed),
+            binned,
             pending,
         )
-        return {"fetched": fetched, "removed": len(removed)}
+        return {"fetched": fetched, "removed": len(removed), "trashed": binned}
