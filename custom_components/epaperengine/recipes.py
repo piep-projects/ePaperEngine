@@ -77,7 +77,10 @@ def fold(text: str) -> str:
 
 
 def search(
-    document: dict[str, Any], query: str, limit: int = SEARCH_LIMIT
+    document: dict[str, Any],
+    query: str,
+    limit: int = SEARCH_LIMIT,
+    slots: int = MAX_SELECTION,
 ) -> list[dict[str, Any]]:
     """Full-text search over the cache — name and categories (FSD §9.3).
 
@@ -111,7 +114,7 @@ def search(
                 # add-on's (``recipe_layout.py``).
                 "chars": recipe_length(recipe),
                 # What the wall is expected to do with it (see ``forecast``).
-                "fit": forecast(recipe),
+                "fit": forecast(recipe, slots),
             }
         )
     hits.sort(key=lambda hit: fold(hit["name"]))
@@ -134,14 +137,27 @@ def recipe_length(recipe: dict[str, Any]) -> int:
 #
 # Coarse, but not in characters. A character budget is what got the first
 # version wrong: an ingredient list of nineteen short items is 285 characters
-# and nineteen lines, and the wall sets lines. So this counts lines too — the
-# ingredient lines as they are written, the directions as wrapped prose, and
-# the title at the size it wraps at.
-_CHARS_PER_LINE = {28: 52, 26: 56, 24: 61}  # FSD §7, 773 px column
+# and nineteen lines, and the wall sets lines.
+#
+# The verdict depends on **how many recipes share the screen** — one recipe gets
+# the whole 2.400 px in three sub-columns, two get 1.180 px each, three get
+# 773 px. So the forecast is made for "what happens if you add this one to what
+# is already picked", which is the question somebody looking at the hit list is
+# actually asking.
+_SLOT_WIDTH = {1: 2400, 2: 1180, 3: 773}
+_SUB_COLUMNS = {1: 3, 2: 1, 3: 1}
 _LINE_PX = {28: 40, 26: 37, 24: 34}
-_TITLE_CHARS = 36  # 40 px title in a 773 px column
-_COLUMN_PX = 1280  # 1440 minus the 80 px margins
-_CHROME_PX = 176   # meta, rule, both headings, the gap between the blocks
+_CHAR_RATIO = 0.531
+_TITLE_PX = 32
+_TITLE_LINE = 46
+_HEAD_CHROME = 72   # meta line plus the rule and its gap
+_HEADING = 52
+_GROUP_GAP = 20
+_COLUMN_PX = 1280   # 1440 minus the 80 px margins
+
+
+def _chars(px: int, width: int) -> int:
+    return max(round(width / (_CHAR_RATIO * px)), 1)
 
 
 def _wrapped(text: str, limit: int) -> int:
@@ -152,17 +168,26 @@ def _wrapped(text: str, limit: int) -> int:
     return total
 
 
-def forecast(recipe: dict[str, Any]) -> str:
-    """``"28"``, ``"26"``, ``"24"`` or ``"cut"`` — what the wall will do with it."""
+def forecast(recipe: dict[str, Any], slots: int = MAX_SELECTION) -> str:
+    """``"28"``, ``"26"``, ``"24"`` or ``"cut"`` — what the wall will do with it.
+
+    ``slots`` is how many recipes will be sharing the screen.
+    """
+    slots = min(max(int(slots or 1), 1), MAX_SELECTION)
+    width = _SLOT_WIDTH[slots]
+    columns = _SUB_COLUMNS[slots]
     name = str(recipe.get("name") or "")
     ingredients = str(recipe.get("ingredients") or "").strip()
     directions = str(recipe.get("directions") or "").strip()
-    title_lines = max(-(-len(name) // _TITLE_CHARS), 1)
-    head = title_lines * 56 + _CHROME_PX
+
+    title_lines = max(-(-len(name) // _chars(_TITLE_PX, width)), 1)
+    head = title_lines * _TITLE_LINE + _HEAD_CHROME
     for size in (28, 26, 24):
-        limit = _CHARS_PER_LINE[size]
-        available = (_COLUMN_PX - head) // _LINE_PX[size] - 1
-        if _wrapped(ingredients, limit) + _wrapped(directions, limit) <= available:
+        line_px = _LINE_PX[size]
+        limit = _chars(size, width // columns)
+        available = ((_COLUMN_PX - head) // line_px - 1) * columns
+        chrome = -(-_HEADING // line_px) * 2 + -(-_GROUP_GAP // line_px)
+        if _wrapped(ingredients, limit) + _wrapped(directions, limit) + chrome <= available:
             return str(size)
     return "cut"
 
@@ -261,8 +286,10 @@ class RecipeCache:
             "configured": bool(self._login()),
         }
 
-    def search(self, query: str, limit: int = SEARCH_LIMIT) -> list[dict[str, Any]]:
-        return search(self.document, query, limit)
+    def search(
+        self, query: str, limit: int = SEARCH_LIMIT, slots: int = MAX_SELECTION
+    ) -> list[dict[str, Any]]:
+        return search(self.document, query, limit, slots)
 
     def get(self, uids: list[str]) -> list[dict[str, Any]]:
         recipes = self.document.get("recipes") or {}

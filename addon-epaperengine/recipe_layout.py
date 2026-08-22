@@ -46,10 +46,36 @@ from dataclasses import dataclass, field
 from typing import Any
 
 # --- the canvas, 1:1 with the mockup ------------------------------------------
+CANVAS_W = 2560
 CANVAS_H = 1440
 MARGIN = 80
+GUTTER = 40
+CONTENT_W = CANVAS_W - 2 * MARGIN  # 2400
+COLUMN_H = CANVAS_H - 2 * MARGIN   # 1280
+
+# The base column of FSD §8.2 and the mockup: 773 px, the width the character
+# figures in FSD §7 were measured at.
 COLUMN_W = 773
-COLUMN_H = CANVAS_H - 2 * MARGIN  # 1280
+
+# **The whole screen is used, whatever the number of recipes**
+# [Festlegung 2026-08-22]. Two recipes get half the canvas each, one gets all of
+# it — the earlier version kept 773 px columns and centred the row, which left a
+# third of a 32" display white.
+#
+# How the width is *used* is the craft part, and it is not "one line across
+# 2.400 px": FSD §7 measures that as ~161 characters a line, and a line that
+# long is hard to return from at cooking distance however large the type. So a
+# recipe that is given more than one base column's worth of width flows its body
+# in sub-columns of roughly 773 px.
+#
+#   3 recipes → 773 px each, one sub-column   (unchanged, the mockup)
+#   2 recipes → 1.180 px each, one sub-column (79 characters a line; wide, but
+#               a second sub-column of 570 px would be 37 and choppy for prose)
+#   1 recipe  → 2.400 px, three sub-columns of 773 px
+#
+# The side effect is the point: a column of 1.180 px carries about twice the
+# text, and 58 % of this household's recipes were over the three-column budget.
+SUB_COLUMNS = {1: 3, 2: 1, 3: 1}
 
 # Character width of DejaVu Sans as a fraction of the type size. Derived from
 # FSD §7's own table — 52 characters per 773 px at 28 px — and it reproduces the
@@ -57,8 +83,13 @@ COLUMN_H = CANVAS_H - 2 * MARGIN  # 1280
 # generator uses).
 CHAR_RATIO = 0.531
 
-TITLE_PX = 40
-TITLE_LINE = 56  # advance per wrapped title line (mockup: title at M, meta at M+56)
+# The mockup sets the recipe title at 40 px. **32 px** [Festlegung 2026-08-22]:
+# the real collection has names like "Blumenkohl aus der Tajine mit gehobeltem
+# Trüffel und Erbsenmousseline" — 69 characters, three lines and 168 px of a
+# 1.280 px column at 40 px, before a word of recipe. At 32 px the same name is
+# two lines, and it is still the largest type on the page.
+TITLE_PX = 32
+TITLE_LINE = 46  # advance per wrapped title line (56 at the mockup's 40 px)
 META_LINE = 48   # meta line plus the gap to the rule
 RULE_GAP = 24    # rule under the head, plus the gap to the first heading
 
@@ -106,6 +137,8 @@ class Column:
     line_px: int = FLOOR_LINE
     ingredient_columns: int = 1
     truncated: bool = False
+    width: int = COLUMN_W
+    body_columns: int = 1
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -118,6 +151,8 @@ class Column:
             "line_px": self.line_px,
             "ingredient_columns": self.ingredient_columns,
             "truncated": self.truncated,
+            "width": self.width,
+            "body_columns": self.body_columns,
         }
 
 
@@ -156,35 +191,80 @@ def wrap(text: str, limit: int) -> list[str]:
     return lines
 
 
-def head_lines(name: str, has_meta: bool) -> int:
-    """Height of title + meta + rule, in pixels."""
-    title = max(len(wrap(name, chars_per_line(TITLE_PX))), 1)
+def slot_width(count: int) -> int:
+    """How wide one recipe is when ``count`` of them share the canvas."""
+    count = max(count, 1)
+    return (CONTENT_W - (count - 1) * GUTTER) // count
+
+
+def sub_columns(count: int) -> int:
+    """How many text columns one recipe's body flows in."""
+    return SUB_COLUMNS.get(max(count, 1), 1)
+
+
+def head_lines(name: str, has_meta: bool, width: int = COLUMN_W) -> int:
+    """Height of title + meta + rule, in pixels.
+
+    The head spans the recipe's **full** width — the body flows in sub-columns
+    below it, the title does not.
+    """
+    title = max(len(wrap(name, chars_per_line(TITLE_PX, width))), 1)
     return title * TITLE_LINE + (META_LINE if has_meta else 0) + RULE_GAP
 
 
-def body_lines(name: str, has_meta: bool, line_px: int, reserve: int = 0) -> int:
-    """How many body lines are left once head, both headings and the gap are off.
+def body_lines(
+    name: str,
+    has_meta: bool,
+    line_px: int,
+    width: int = COLUMN_W,
+    columns: int = 1,
+    reserve: int = 0,
+) -> int:
+    """Total body lines available, across all sub-columns.
 
-    ``reserve`` is extra pixels the caller knows it will need — the "shortened"
-    marker, which only exists on a column that had to be cut.
+    Counted in lines rather than in reserved pixels because the two headings
+    now travel **inside** the flow: with three sub-columns, "Directions" may
+    start half way down the second one, and a fixed pixel reserve at the top
+    would be measuring a layout that no longer exists.
     """
-    room = COLUMN_H - head_lines(name, has_meta) - 2 * HEADING_BLOCK - GROUP_GAP - reserve
-    return max(room // line_px - SAFETY_LINES, 0)
+    room = COLUMN_H - head_lines(name, has_meta, width) - reserve
+    per_column = max(room // line_px - SAFETY_LINES, 0)
+    return per_column * max(columns, 1)
 
 
-def ingredient_layout(items: list[str], font_px: int) -> tuple[int, int]:
-    """``(lines the block costs, number of sub-columns)``.
+def chrome_lines(line_px: int, has_ingredients: bool, has_directions: bool) -> int:
+    """What the two headings and the gap between the blocks cost, in lines."""
+    cost = 0
+    if has_ingredients:
+        cost += -(-HEADING_BLOCK // line_px)
+    if has_directions:
+        cost += -(-HEADING_BLOCK // line_px)
+    if has_ingredients and has_directions:
+        cost += -(-GROUP_GAP // line_px)
+    return cost
+
+
+def ingredient_layout(
+    items: list[str], font_px: int, width: int = COLUMN_W, columns: int = 1
+) -> tuple[int, int]:
+    """``(lines the block costs, number of sub-columns for the list)``.
 
     Two columns when the items are short enough to survive half the width —
-    that is the difference between nineteen lines and ten for a real
-    ingredient list, and it is where the room for the directions comes from.
+    the difference between nineteen lines and ten for a real ingredient list,
+    and where the room for the directions comes from.
+
+    Only when the body itself is a single column: once the recipe already flows
+    in three sub-columns of 773 px, splitting the list again would give 386 px
+    of item, and nesting a second multi-column inside the first is a layout
+    neither this model nor the browser would agree on.
     """
     if not items:
         return 0, 1
-    full = len(wrap("\n".join(items), chars_per_line(font_px)))
-    if len(items) < TWO_COLUMN_MIN_ITEMS:
+    text = "\n".join(items)
+    full = len(wrap(text, chars_per_line(font_px, width)))
+    if columns > 1 or len(items) < TWO_COLUMN_MIN_ITEMS:
         return full, 1
-    half = len(wrap("\n".join(items), chars_per_line(font_px, COLUMN_W // 2)))
+    half = len(wrap(text, chars_per_line(font_px, width // 2)))
     if half > full * TWO_COLUMN_WRAP_TOLERANCE:
         # The items are long enough that halving the width only re-wraps them.
         return full, 1
@@ -248,7 +328,12 @@ def plain(text: str) -> str:
 
 
 # --- building the column ------------------------------------------------------
-def build_column(recipe: dict[str, Any], servings_label: str = "{value}") -> Column:
+def build_column(
+    recipe: dict[str, Any],
+    servings_label: str = "{value}",
+    width: int = COLUMN_W,
+    columns: int = 1,
+) -> Column:
     """Turn one recipe from the render document into a fitted column.
 
     ``servings_label`` carries the word for the number: Paprika stores
@@ -269,10 +354,14 @@ def build_column(recipe: dict[str, Any], servings_label: str = "{value}") -> Col
     items = [line.rstrip() for line in ingredients_text.split("\n")] if ingredients_text else []
 
     for font_px, line_px in STEPS:
-        limit = chars_per_line(font_px)
-        available = body_lines(name, bool(meta), line_px)
-        cost, columns = ingredient_layout(items, font_px)
-        needed = cost + len(wrap(directions_text, limit))
+        limit = chars_per_line(font_px, width // columns)
+        available = body_lines(name, bool(meta), line_px, width, columns)
+        cost, item_columns = ingredient_layout(items, font_px, width, columns)
+        needed = (
+            cost
+            + len(wrap(directions_text, limit))
+            + chrome_lines(line_px, bool(items), bool(directions_text))
+        )
         if needed <= available:
             return Column(
                 name,
@@ -282,25 +371,30 @@ def build_column(recipe: dict[str, Any], servings_label: str = "{value}") -> Col
                 as_lines(directions_text),
                 font_px,
                 line_px,
-                columns,
+                item_columns,
                 False,
+                width,
+                columns,
             )
 
     # The floor, and it still does not fit: shorten (FSD §8.2, Festlegung P13).
-    limit = chars_per_line(FLOOR_PX)
+    limit = chars_per_line(FLOOR_PX, width // columns)
     # A shortened column carries the marker that says so, and it needs room.
-    available = body_lines(name, bool(meta), FLOOR_LINE, reserve=CUT_BLOCK)
-    cost, columns = ingredient_layout(items, FLOOR_PX)
+    available = body_lines(
+        name, bool(meta), FLOOR_LINE, width, columns, reserve=CUT_BLOCK
+    ) - chrome_lines(FLOOR_LINE, bool(items), bool(directions_text))
+    available = max(available, 0)
+    cost, item_columns = ingredient_layout(items, FLOOR_PX, width, columns)
     # The ingredients are protected, but not without limit: a column that is
     # nothing but an ingredient list shows no directions at all, which reads as
     # broken rather than as shortened.
     ingredient_budget = max(int(available * 0.6), 1)
     cut_ingredients = False
     if cost > ingredient_budget:
-        keep = ingredient_budget * columns
+        keep = ingredient_budget * item_columns
         cut_ingredients = len(items) > keep
         items = items[:keep]
-        cost, columns = ingredient_layout(items, FLOOR_PX)
+        cost, item_columns = ingredient_layout(items, FLOOR_PX, width, columns)
     directions_text, cut_directions = cut_to_lines(
         directions_text, limit, available - cost
     )
@@ -312,20 +406,27 @@ def build_column(recipe: dict[str, Any], servings_label: str = "{value}") -> Col
         as_lines(directions_text),
         FLOOR_PX,
         FLOOR_LINE,
-        columns,
+        item_columns,
         cut_ingredients or cut_directions,
+        width,
+        columns,
     )
 
 
 def build_columns(
     recipes: list[dict[str, Any]], slots: int = 3, servings_label: str = "{value}"
 ) -> list[Column]:
-    """The selected recipes as columns, at most ``slots`` of them.
+    """The selected recipes, sharing the whole canvas between them.
 
     The cap is belt and braces — the integration already clamps the selection
     (``recipes.MAX_SELECTION``) — but the layout is where a fourth column would
     actually break something, so it is refused here too.
     """
+    chosen = (recipes or [])[:slots]
+    if not chosen:
+        return []
+    width = slot_width(len(chosen))
+    columns = sub_columns(len(chosen))
     return [
-        build_column(recipe, servings_label) for recipe in (recipes or [])[:slots]
+        build_column(recipe, servings_label, width, columns) for recipe in chosen
     ]

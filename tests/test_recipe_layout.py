@@ -33,19 +33,27 @@ def recipe(name: str = "Test", ingredients: str = "", directions: str = "", **ex
 def height(column) -> int:
     """The height the template will set this column at, in pixels.
 
-    Mirrors the CSS of ``recipes.html.j2`` — head, both headings, the gap, and
-    the wrapped body — so a change to one without the other shows up here.
+    Mirrors the CSS of ``recipes.html.j2``: the head spans the recipe's full
+    width, the body flows in ``body_columns`` sub-columns below it, and the two
+    headings travel inside that flow. A change to one without the other shows
+    up here.
     """
-    total = rl.head_lines(column.name, bool(column.meta))
-    limit = rl.chars_per_line(column.font_px)
+    body = column.body_columns
+    limit = rl.chars_per_line(column.font_px, column.width // body)
+    lines = rl.chrome_lines(column.line_px, bool(column.ingredients), bool(column.directions))
     if column.ingredients:
-        cost, columns = rl.ingredient_layout(column.ingredients, column.font_px)
-        total += rl.HEADING_BLOCK + cost * column.line_px
-        assert columns == column.ingredient_columns, "sub-column count drifted"
+        cost, columns = rl.ingredient_layout(
+            column.ingredients, column.font_px, column.width, body
+        )
+        assert columns == column.ingredient_columns, "ingredient sub-columns drifted"
+        lines += cost
     if column.directions:
-        total += rl.HEADING_BLOCK + len(rl.wrap(column.directions, limit)) * column.line_px
-    if column.ingredients and column.directions:
-        total += rl.GROUP_GAP
+        lines += len(rl.wrap(column.directions, limit))
+    # Balanced across the sub-columns, rounded up — the tallest one is what the
+    # canvas has to hold.
+    tallest = -(-lines // body)
+    total = rl.head_lines(column.name, bool(column.meta), column.width)
+    total += tallest * column.line_px
     if column.truncated:
         total += rl.CUT_BLOCK
     return total
@@ -87,11 +95,17 @@ class TestMeasuring(unittest.TestCase):
         self.assertEqual(lines, ["aaa bbb", "ccc ddd"])
 
     def test_a_wrapping_title_eats_into_the_body(self) -> None:
-        """A 69-character name is three lines of 56 px before a word of recipe."""
+        """The reason the title came down to 32 px: at 40 px this name was
+        three lines and 168 px of a 1.280 px column."""
         short = rl.head_lines("Suppe", True)
         long = rl.head_lines(LONG_TITLE, True)
-        self.assertEqual(long - short, 2 * rl.TITLE_LINE)
+        self.assertGreater(long, short)
         self.assertLess(rl.body_lines(LONG_TITLE, True, 34), rl.body_lines("Suppe", True, 34))
+
+    def test_the_title_is_the_largest_type_on_the_page(self) -> None:
+        self.assertEqual(rl.TITLE_PX, 32)
+        self.assertGreaterEqual(rl.TITLE_PX, rl.HEADING_PX)
+        self.assertGreater(rl.TITLE_PX, rl.STEPS[0][0])
 
 
 class TestTypeSize(unittest.TestCase):
@@ -119,7 +133,7 @@ class TestTypeSize(unittest.TestCase):
     def test_one_long_recipe_does_not_shrink_the_short_one_beside_it(self) -> None:
         """The whole reason the step is decided per column (FSD §8.2)."""
         columns = rl.build_columns(
-            [recipe("Kurz", "Salz", "Kochen."), recipe("Lang", "Salz", "Wort " * 400)]
+            [recipe("Kurz", "Salz", "Kochen."), recipe("Lang", "Salz", "Wort " * 900)]
         )
         self.assertEqual(columns[0].font_px, 28)
         self.assertEqual(columns[1].font_px, 24)
@@ -141,19 +155,53 @@ class TestItFits(unittest.TestCase):
     }
 
     def test_every_column_stays_inside_the_canvas(self) -> None:
+        """At every recipe count — the width and the sub-columns change with it."""
         for label, data in self.CASES.items():
-            with self.subTest(label):
-                column = rl.build_column(data)
-                self.assertLessEqual(
-                    height(column),
-                    rl.COLUMN_H,
-                    f"{label}: {height(column)} px in a {rl.COLUMN_H} px column",
-                )
+            for count in (1, 2, 3):
+                with self.subTest(f"{label} · {count} recipes"):
+                    column = rl.build_columns([data] * count)[0]
+                    self.assertLessEqual(
+                        height(column),
+                        rl.COLUMN_H,
+                        f"{label} at {count}: {height(column)} px in {rl.COLUMN_H} px",
+                    )
 
     def test_what_does_not_fit_says_so(self) -> None:
         """FSD §8.2: "wird gekürzt und das sichtbar vermerkt"."""
-        column = rl.build_column(self.CASES["the recipe that was clipped"])
+        column = rl.build_columns([self.CASES["the recipe that was clipped"]] * 3)[0]
         self.assertTrue(column.truncated)
+
+
+class TestTheWholeScreen(unittest.TestCase):
+    """[Festlegung 2026-08-22] Two recipes get half the canvas each, one gets
+    all of it. The earlier version kept 773 px columns and centred the row,
+    which left a third of a 32" display white."""
+
+    def test_the_recipes_fill_the_canvas(self) -> None:
+        for count in (1, 2, 3):
+            used = count * rl.slot_width(count) + (count - 1) * rl.GUTTER
+            self.assertGreaterEqual(used, rl.CONTENT_W - count, f"{count} recipes")
+            self.assertLessEqual(used, rl.CONTENT_W, f"{count} recipes")
+
+    def test_the_widths_are_the_mockup_generator_s_own(self) -> None:
+        """COL3 = 773 and COL2 = 1180 are defined in tools/mockup-gen."""
+        self.assertEqual(rl.slot_width(3), 773)
+        self.assertEqual(rl.slot_width(2), 1180)
+        self.assertEqual(rl.slot_width(1), 2400)
+
+    def test_one_recipe_flows_in_three_sub_columns(self) -> None:
+        """Not one line 160 characters wide (FSD §7)."""
+        column = rl.build_columns([recipe("Suppe", "Salz", "Kochen.")])[0]
+        self.assertEqual(column.body_columns, 3)
+        self.assertLessEqual(rl.chars_per_line(28, column.width // column.body_columns), 60)
+
+    def test_the_extra_width_is_what_stops_the_shortening(self) -> None:
+        """The point of the change: a recipe that had to be cut into a third of
+        the screen fits when it gets half or all of it."""
+        data = recipe(LONG_TITLE, MANY_ITEMS, "Schritt für Schritt. " * 60)
+        self.assertTrue(rl.build_columns([data] * 3)[0].truncated)
+        self.assertFalse(rl.build_columns([data] * 2)[0].truncated)
+        self.assertFalse(rl.build_columns([data])[0].truncated)
 
 
 class TestIngredients(unittest.TestCase):

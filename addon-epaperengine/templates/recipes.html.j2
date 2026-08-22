@@ -7,7 +7,8 @@
   `tools/mockup-gen/pages_wand.py`), and the numbers are the ones that file
   uses, not new ones:
 
-    title     40 px bold at the column top, advance 56 px per wrapped line
+    title     32 px bold at the column top, advance 46 px per wrapped line
+              (the mockup's 40 px cost three lines on a real recipe name)
     meta      26 px in #555555, advance 48 px
     rule      3 px black under the head, 24 px of air below it
     heading   32 px bold in Spectra green (#1e8c46), block height 52 px —
@@ -23,10 +24,12 @@
   where CSS wrapped what Python had budgeted in characters — ran off the bottom
   of the canvas and was clipped without a word.
 
-  **Three columns of 773 px, and the width is fixed even when only one recipe
-  is up.** Spreading a single recipe across the full 2400 px would give lines
-  of ~160 characters (FSD §7) — unreadable at cooking distance long before the
-  type size becomes the problem. The row is centred instead.
+  **The whole canvas is used, whatever the number of recipes**
+  [Festlegung 2026-08-22]: two share it half and half, one gets all of it. The
+  width and the number of sub-columns arrive from `recipe_layout.py` — one
+  recipe flows its body in three columns of 773 px rather than setting a single
+  line 160 characters wide (FSD §7), which no type size makes returnable at
+  cooking distance.
 
   Layout follows FSD §7: no rule thinner than 2 px, no gradient. `pre-wrap`
   for the directions: they are multi-line free text at Paprika [belegt].
@@ -58,7 +61,6 @@
         align-items: stretch;
       }
       .column {
-        width: 773px;
         flex: none;
         position: relative;
       }
@@ -110,6 +112,19 @@
         height: 52px;
         line-height: 32px;
       }
+      .body {
+        /* The two headings travel inside this flow, so a single recipe reads
+           down column one and on into column two — the height model counts
+           them as lines for the same reason. */
+        column-gap: 40px;
+      }
+      .heading,
+      .group {
+        /* A heading at the foot of a sub-column with its list in the next one
+           is the one break this layout must not make. */
+        break-inside: avoid;
+        break-after: avoid;
+      }
       .group {
         margin-bottom: 20px;
       }
@@ -149,11 +164,12 @@
         <div class="empty">{{ t("recipes.empty") }}</div>
       {% endif %}
       {% for column in columns %}
-        <div class="column" style="font-size: {{ column.font_px }}px; line-height: {{ column.line_px }}px">
+        <div class="column" style="width: {{ column.width }}px; font-size: {{ column.font_px }}px; line-height: {{ column.line_px }}px">
          <div class="inner">
           <div class="title">{{ column.name }}</div>
           {% if column.meta %}<div class="meta">{{ column.meta }}</div>{% endif %}
           <div class="rule"></div>
+          <div class="body" style="column-count: {{ column.body_columns }}">
           {% if column.ingredients %}
             <div class="heading">{{ t("recipes.ingredients") }}</div>
             <div class="group" style="column-count: {{ column.ingredient_columns }}; column-gap: 24px">
@@ -168,6 +184,7 @@
               <div class="dline">{% for run in line %}{% if run.bold %}<b>{{ run.text }}</b>{% else %}{{ run.text }}{% endif %}{% endfor %}</div>
             {% endfor %}
           {% endif %}
+          </div>
           {% if column.truncated %}
             <div class="cut">{{ t("recipes.truncated") }}</div>
           {% endif %}

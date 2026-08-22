@@ -42,6 +42,7 @@ from .const import (
     WS_STATUS,
 )
 from .coordinator import EPaperEngineCoordinator
+from .recipes import SEARCH_LIMIT
 
 
 def _coordinator(hass: HomeAssistant) -> EPaperEngineCoordinator | None:
@@ -250,11 +251,11 @@ def ws_recipes_search(hass, connection, msg) -> None:
     if coordinator is None:
         connection.send_error(msg["id"], "not_loaded", "ePaperEngine is not set up")
         return
-    limit = msg.get("limit")
-    hits = (
-        coordinator.recipes.search(msg["query"], limit)
-        if limit
-        else coordinator.recipes.search(msg["query"])
+    # The forecast per hit depends on how many recipes will share the screen,
+    # so it is made for "this one **plus** what is already picked".
+    picked = len(coordinator.config["recipes"].get("selection") or [])
+    hits = coordinator.recipes.search(
+        msg["query"], msg.get("limit") or SEARCH_LIMIT, slots=picked + 1
     )
     connection.send_result(
         msg["id"],
