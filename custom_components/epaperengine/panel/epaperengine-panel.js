@@ -242,6 +242,7 @@ class EPaperEnginePanel extends HTMLElement {
     this._error = null;
     this._probe = null; // result of the explicit "Test connection"
     this._previewUrl = null;
+    this._fullUrl = null; // signed full-size image, ready for the link
     this._built = false;
     this._timer = null;
   }
@@ -344,7 +345,14 @@ class EPaperEnginePanel extends HTMLElement {
   }
 
   async _signPreview() {
-    this._previewUrl = await this._sign(this._status && this._status.preview_path);
+    const status = this._status || {};
+    this._previewUrl = await this._sign(status.preview_path);
+    // Signed **here**, not when the link is clicked. A `window.open()` that
+    // happens after an `await` has lost the user gesture that permitted it, and
+    // every current browser drops it into the popup blocker without a word —
+    // which is exactly how "Open full size" did nothing at all. A real anchor
+    // with an href needs no permission.
+    this._fullUrl = await this._sign(status.wall_path);
   }
 
   // --- actions --------------------------------------------------------------
@@ -571,13 +579,17 @@ class EPaperEnginePanel extends HTMLElement {
         .dot.ok { background: var(--success-color, #43a047); }
         .dot.bad { background: var(--error-color, #db4437); }
         .dot.warn { background: var(--warning-color, #ff9800); }
-        button {
+        button, .btn {
           font: inherit; cursor: pointer; border-radius: 6px; padding: 8px 14px;
           border: 1px solid var(--primary-color); background: var(--card-background-color);
           color: var(--primary-color);
         }
+        /* ``.btn`` is for the one control that has to be a real link: an anchor
+           opens a new tab from the click itself, where a scripted
+           ``window.open`` after an await is blocked. */
+        .btn { display: inline-block; text-decoration: none; }
         button.primary { background: var(--primary-color); color: var(--text-primary-color, #fff); }
-        button.plain { border-color: var(--divider-color); color: var(--primary-text-color); }
+        button.plain, .btn.plain { border-color: var(--divider-color); color: var(--primary-text-color); }
         button.small { padding: 4px 8px; font-size: 0.85rem; }
         button:disabled { opacity: 0.5; cursor: default; }
         .main { display: flex; flex: 1; min-height: 0; }
@@ -759,8 +771,10 @@ class EPaperEnginePanel extends HTMLElement {
     const preview = this._previewUrl
       ? `<img class="preview" src="${esc(this._previewUrl)}" alt="${esc(viewLabel(target.view))}">`
       : `<div class="preview"></div><div class="muted">${esc(t("panel.overview.preview.none"))}</div>`;
-    const fullLink = status.wall_path
-      ? `<button class="plain" id="open-full">${esc(t("panel.overview.preview.full"))}</button>`
+    const fullLink = this._fullUrl
+      ? `<a class="btn plain" href="${esc(this._fullUrl)}" target="_blank" rel="noopener">${esc(
+          t("panel.overview.preview.full"),
+        )}</a>`
       : "";
 
     return `
@@ -1285,10 +1299,6 @@ class EPaperEnginePanel extends HTMLElement {
       await this._refreshStatus();
       await this._signPreview();
       this._render();
-    });
-    on("#open-full", async () => {
-      const url = await this._sign(this._status.wall_path, 300);
-      if (url) window.open(url, "_blank", "noopener");
     });
 
     // --- views
