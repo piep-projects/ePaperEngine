@@ -589,9 +589,12 @@ class EPaperEnginePanel extends HTMLElement {
           border: 1px solid var(--primary-color); background: var(--card-background-color);
           color: var(--primary-color);
         }
-        /* ``.btn`` is for the one control that has to be a real link: an anchor
-           opens a new tab from the click itself, where a scripted
-           ``window.open`` after an await is blocked. */
+        /* "btn" is for the one control that has to be a real link: an anchor
+           opens a new tab from the click itself, where a scripted window.open
+           after an await is blocked.
+           NO BACKTICKS IN HERE — this block lives inside a template literal,
+           and a pair of them turns the rest into a tagged template call that
+           throws at runtime while node --check stays silent. */
         .btn { display: inline-block; text-decoration: none; }
         button.primary { background: var(--primary-color); color: var(--text-primary-color, #fff); }
         button.plain, .btn.plain { border-color: var(--divider-color); color: var(--primary-text-color); }
