@@ -47,6 +47,7 @@ from .const import (
     SIGNAL_STATE_UPDATED,
     VIEW_GUESTS,
 )
+from . import scaling
 from .recipes import MAX_SELECTION, RecipeCache
 from .resolve import Resolution, manual_deadline, resolve
 from .store import EPaperEngineStore
@@ -430,6 +431,13 @@ class EPaperEngineCoordinator:
         recipes_cfg = self.config.get("recipes") or {}
         selection = [str(uid) for uid in (recipes_cfg.get("selection") or []) if uid]
         recipes_cfg["selection"] = selection[:MAX_SELECTION]
+        # A target portion count for a recipe nobody picked any more is dead
+        # weight that would come back to life the next time it is chosen.
+        recipes_cfg["servings"] = {
+            uid: value
+            for uid, value in (recipes_cfg.get("servings") or {}).items()
+            if uid in recipes_cfg["selection"]
+        }
 
         await self.store.async_save_config(self.config)
         self.addon.set_base((self.config.get("display") or {}).get("renderer_url"))
@@ -523,6 +531,16 @@ class EPaperEngineCoordinator:
         ]
         return {"total": len(photos), "photos": photos, "root": root}
 
+    def _scaled_selection(self) -> list[dict[str, Any]]:
+        """The picked recipes, each cooked for its target number of people."""
+        cfg = self.config["recipes"]
+        targets = cfg.get("servings") or {}
+        picked = self.recipes.selected([str(uid) for uid in (cfg.get("selection") or [])])
+        return [
+            scaling.scaled(recipe, scaling.parse_number(str(targets.get(recipe.get("uid")) or "")))
+            for recipe in picked
+        ]
+
     # --- render document ------------------------------------------------------
     def photo_slot(self, now: datetime | None = None) -> int:
         """Deterministic photo counter (FSD §5).
@@ -588,11 +606,13 @@ class EPaperEngineCoordinator:
             # document does not exist as far as the wall is concerned. Three
             # recipes are a few kilobytes — fine for a service response, and the
             # exact reason ``get_render_data`` is not an entity attribute.
+            # **The full text of the selected recipes travels here** (FSD §9.1),
+            # already cooked for the number of people it is meant for: scaling
+            # is arithmetic on the data, not a layout decision, so it happens
+            # once here rather than in the renderer (``scaling.py``).
             "recipes": {
                 "selection": list(cfg["recipes"].get("selection") or []),
-                "items": self.recipes.selected(
-                    [str(uid) for uid in (cfg["recipes"].get("selection") or [])]
-                ),
+                "items": self._scaled_selection(),
             },
             "calendar": {"sources": list(cfg["calendar"].get("sources") or [])},
             "layout": {

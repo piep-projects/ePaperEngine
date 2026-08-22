@@ -189,5 +189,10 @@
   "panel.recipes.fit.slots.hint": "whether the whole recipe fits on the wall with one, two or three up at once",
   "panel.recipes.fit.yes": "fits",
   "panel.recipes.fit.no": "does not fit",
-  "panel.recipes.fit.detail": "{n} recipe(s): {verdict}"
+  "panel.recipes.fit.detail": "{n} recipe(s): {verdict}",
+  "panel.recipes.servings.base": "written for",
+  "panel.recipes.servings.target": "cook for",
+  "panel.recipes.servings.people": "people",
+  "panel.recipes.servings.none": "no serving count in Paprika — cannot be scaled",
+  "panel.recipes.servings.hint": "only the ingredients are recalculated, to one decimal place. Quantities repeated in the directions are left alone — fix those in Paprika."
 }

@@ -627,6 +627,9 @@ class EPaperEnginePanel extends HTMLElement {
         .sortrow .name { font-weight: 600; }
         .sortrow .why { color: var(--secondary-text-color); font-size: 0.82rem; }
         .sortrow .badge { color: var(--primary-color); font-size: 0.82rem; font-weight: 600; }
+        .servings { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; }
+        .servings label { margin: 0; }
+        .servings input { width: 70px; padding: 4px 6px; }
         .note {
           border-left: 4px solid var(--primary-color); background: var(--secondary-background-color);
           padding: 8px 12px; border-radius: 4px; font-size: 0.85rem; margin-top: 12px;
@@ -1038,6 +1041,12 @@ class EPaperEnginePanel extends HTMLElement {
         const recipe = byUid.get(uid);
         const name = recipe ? recipe.name : uid;
         const known = recipe ? this._forecast.get(uid) : null;
+        // The number the recipe was written for, and the number it is being
+        // cooked for. An empty `servings` in Paprika means there is no base to
+        // scale from, so the field is not offered at all.
+        const base = recipe ? String(recipe.servings || "").trim() : "";
+        const scalable = /^[\d.,]+$/.test(base);
+        const target = ((this._draft.recipes || {}).servings || {})[uid];
         return `<div class="sortrow">
           <div class="grow">
             <div class="name">${esc(name)}</div>
@@ -1056,6 +1065,16 @@ class EPaperEnginePanel extends HTMLElement {
               : ""
           }
           </div>
+          ${
+            scalable
+              ? `<div class="servings">
+                   <span class="muted">${esc(t("panel.recipes.servings.base"))} ${esc(base)}</span>
+                   <label class="muted" for="serve-${esc(uid)}">${esc(t("panel.recipes.servings.target"))}</label>
+                   <input id="serve-${esc(uid)}" data-servings="${esc(uid)}" inputmode="decimal"
+                          value="${esc(target == null ? "" : fmtNum(target))}" placeholder="${esc(base)}" ${lock}>
+                 </div>`
+              : `<span class="muted">${esc(t("panel.recipes.servings.none"))}</span>`
+          }
           <div class="rank">
             <button class="plain small" data-slot-move="up" data-slot="${index}" title="${esc(t("panel.views.up"))}" ${index === 0 || lock ? "disabled" : ""}>▲</button>
             <button class="plain small" data-slot-move="down" data-slot="${index}" title="${esc(t("panel.views.down"))}" ${index === selection.length - 1 || lock ? "disabled" : ""}>▼</button>
@@ -1069,6 +1088,7 @@ class EPaperEnginePanel extends HTMLElement {
       <h2>${esc(t("panel.recipes.selection"))}</h2>
       <div class="hint">${esc(t("panel.recipes.selection.hint"))}</div>
       ${rows || `<div class="muted">${esc(t("panel.recipes.selection.empty"))}</div>`}
+      ${rows ? `<div class="note">${esc(t("panel.recipes.servings.hint"))}</div>` : ""}
     </div>`;
   }
 
@@ -1346,6 +1366,19 @@ class EPaperEnginePanel extends HTMLElement {
     }
     on("#sync-recipes", () => this._syncRecipes());
     this._wireHits();
+    root.querySelectorAll("[data-servings]").forEach((input) => {
+      input.onchange = () => {
+        const uid = input.dataset.servings;
+        const value = parseNum(input.value);
+        const servings = { ...((this._draft.recipes || {}).servings || {}) };
+        // An empty field means "as written" — the key goes away rather than
+        // standing there as a number that happens to match.
+        if (isFinite(value) && value > 0) servings[uid] = value;
+        else delete servings[uid];
+        this._draft.recipes.servings = servings;
+        this._saveSelection();
+      };
+    });
     root.querySelectorAll("[data-slot-move]").forEach((button) => {
       button.onclick = () =>
         this._moveSlot(Number(button.dataset.slot), button.dataset.slotMove === "up" ? -1 : 1);

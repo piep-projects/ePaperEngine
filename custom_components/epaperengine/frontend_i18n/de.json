@@ -189,5 +189,10 @@
   "panel.recipes.fit.slots.hint": "ob das ganze Rezept an die Wand passt, wenn eines, zwei oder drei gleichzeitig hängen",
   "panel.recipes.fit.yes": "passt",
   "panel.recipes.fit.no": "passt nicht",
-  "panel.recipes.fit.detail": "{n} Rezept(e): {verdict}"
+  "panel.recipes.fit.detail": "{n} Rezept(e): {verdict}",
+  "panel.recipes.servings.base": "geschrieben für",
+  "panel.recipes.servings.target": "kochen für",
+  "panel.recipes.servings.people": "Personen",
+  "panel.recipes.servings.none": "keine Portionsangabe in Paprika — nicht umrechenbar",
+  "panel.recipes.servings.hint": "umgerechnet werden nur die Zutaten, auf eine Nachkommastelle. Mengen, die im Text wiederholt sind, bleiben stehen — die gehören in Paprika korrigiert."
 }

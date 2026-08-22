@@ -77,6 +77,11 @@ def default_config() -> dict[str, Any]:
             "paprika_login": None,  # {username, password} — secret, FSD §4
             "sync_interval_h": DEFAULT_RECIPE_SYNC_INTERVAL_H,
             "selection": [],  # up to 3 recipe uids, set from the panel search
+            # ``{uid: number}`` — cook this one for that many people instead of
+            # the number it was written for (FSD §8.2, Festlegung 2026-08-22).
+            # A separate map rather than a richer ``selection`` so the priority
+            # resolution and the panel keep reading a plain list of uids.
+            "servings": {},
         },
         "photos": {
             "source_folder": None,  # default /media/epaperengine/photos/, FSD §3.4
