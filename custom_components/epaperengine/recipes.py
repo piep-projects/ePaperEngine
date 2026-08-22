@@ -78,10 +78,7 @@ def fold(text: str) -> str:
 
 
 def search(
-    document: dict[str, Any],
-    query: str,
-    limit: int = SEARCH_LIMIT,
-    slots: int = MAX_SELECTION,
+    document: dict[str, Any], query: str, limit: int = SEARCH_LIMIT
 ) -> list[dict[str, Any]]:
     """Full-text search over the cache — name and categories (FSD §9.3).
 
@@ -114,8 +111,8 @@ def search(
                 # the binding decision about type size and truncation is the
                 # add-on's (``recipe_layout.py``).
                 "chars": recipe_length(recipe),
-                # What the wall is expected to do with it (see ``forecast``).
-                "fit": forecast(recipe, slots),
+                # What the wall does with it at one, two and three recipes.
+                "fits": forecast_all(recipe),
             }
         )
     hits.sort(key=lambda hit: fold(hit["name"]))
@@ -154,6 +151,17 @@ def forecast(recipe: dict[str, Any], slots: int = MAX_SELECTION) -> str:
         columns=recipe_layout.sub_columns(slots),
     )
     return "cut" if column.truncated else str(column.font_px)
+
+
+def forecast_all(recipe: dict[str, Any]) -> dict[str, str]:
+    """The verdict for **every** number of recipes — ``{"1": "28", …}``.
+
+    All three rather than the one that applies right now: the choice a recipe
+    is really being weighed for is "does this one fit *next to the others*",
+    and 66 % of this collection is shortened at three while 5 % is at one. A
+    single verdict hides exactly the trade-off the list is being read for.
+    """
+    return {str(slots): forecast(recipe, slots) for slots in range(1, MAX_SELECTION + 1)}
 
 
 def selected(document: dict[str, Any], uids: list[str]) -> list[dict[str, Any]]:
@@ -250,10 +258,8 @@ class RecipeCache:
             "configured": bool(self._login()),
         }
 
-    def search(
-        self, query: str, limit: int = SEARCH_LIMIT, slots: int = MAX_SELECTION
-    ) -> list[dict[str, Any]]:
-        return search(self.document, query, limit, slots)
+    def search(self, query: str, limit: int = SEARCH_LIMIT) -> list[dict[str, Any]]:
+        return search(self.document, query, limit)
 
     def get(self, uids: list[str]) -> list[dict[str, Any]]:
         recipes = self.document.get("recipes") or {}

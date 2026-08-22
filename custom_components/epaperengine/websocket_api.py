@@ -251,12 +251,7 @@ def ws_recipes_search(hass, connection, msg) -> None:
     if coordinator is None:
         connection.send_error(msg["id"], "not_loaded", "ePaperEngine is not set up")
         return
-    # The forecast per hit depends on how many recipes will share the screen,
-    # so it is made for "this one **plus** what is already picked".
-    picked = len(coordinator.config["recipes"].get("selection") or [])
-    hits = coordinator.recipes.search(
-        msg["query"], msg.get("limit") or SEARCH_LIMIT, slots=picked + 1
-    )
+    hits = coordinator.recipes.search(msg["query"], msg.get("limit") or SEARCH_LIMIT)
     connection.send_result(
         msg["id"],
         {

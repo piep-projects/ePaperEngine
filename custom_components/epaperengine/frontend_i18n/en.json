@@ -187,5 +187,9 @@
   "panel.recipes.fit.28": "fits at 28 px",
   "panel.recipes.fit.26": "will be set at 26 px",
   "panel.recipes.fit.24": "will be set at 24 px",
-  "panel.recipes.fit.cut": "too long — will be shortened on the wall"
+  "panel.recipes.fit.cut": "too long — will be shortened on the wall",
+  "panel.recipes.fit.px": "{n} px",
+  "panel.recipes.fit.cut.short": "cut",
+  "panel.recipes.fit.slots": "at 1 · 2 · 3 recipes",
+  "panel.recipes.fit.slots.hint": "type size on the wall with one, two or three recipes up at once"
 }

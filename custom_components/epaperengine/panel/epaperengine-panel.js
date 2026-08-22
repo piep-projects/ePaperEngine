@@ -176,16 +176,23 @@ function fmtTime(iso) {
 }
 
 /**
- * "fits at 28 px" … "too long — will be shortened", plus the character count.
+ * One verdict, short: "26 px" or "cut".
  *
- * The verdict comes from the integration (`recipes.forecast`), not from a
- * threshold here: the wall sets **lines**, and an ingredient list of nineteen
- * short items is nineteen lines and 285 characters. A rule of thumb in this
- * file would be a second, wronger model of the same thing.
+ * It comes from the integration, which runs the add-on's own layout module
+ * (`recipe_layout.py`, kept byte-identical by scripts/publish.py). A rule of
+ * thumb in this file would be a second, wronger model of the same thing — the
+ * first version had one, and it called a recipe shortened that the wall was
+ * rendering in full.
  */
-function fitLabel(hit) {
-  const verdict = t(`panel.recipes.fit.${hit.fit || "cut"}`);
-  return `${verdict} · ${t("panel.recipes.chars", { count: fmtNum(hit.chars || 0) })}`;
+function fitOne(verdict) {
+  return verdict && verdict !== "cut"
+    ? t("panel.recipes.fit.px", { n: verdict })
+    : t("panel.recipes.fit.cut.short");
+}
+
+/** All three: what the wall does with one, two or three recipes up at once. */
+function fitTriple(fits) {
+  return [1, 2, 3].map((n) => `${n}: ${fitOne((fits || {})[n])}`).join(" · ");
 }
 
 function fmtDuration(ms) {
@@ -448,7 +455,7 @@ class EPaperEnginePanel extends HTMLElement {
    * small object per recipe, thrown away with the page.
    */
   _rememberForecasts(hits) {
-    for (const hit of hits || []) this._forecast.set(hit.uid, { fit: hit.fit, chars: hit.chars });
+    for (const hit of hits || []) this._forecast.set(hit.uid, { fits: hit.fits, chars: hit.chars });
   }
 
   /** Repaint the hit list alone, so the search field keeps focus and caret. */
@@ -1012,12 +1019,16 @@ class EPaperEnginePanel extends HTMLElement {
       .map((uid, index) => {
         const recipe = byUid.get(uid);
         const name = recipe ? recipe.name : uid;
-        const forecast = recipe ? this._forecast.get(uid) : null;
+        const known = recipe ? this._forecast.get(uid) : null;
         return `<div class="sortrow">
           <div class="grow">
             <div class="name">${esc(name)}</div>
             <div class="why">${esc(t("panel.recipes.slot", { n: index + 1 }))}${
-              forecast ? ` · ${esc(fitLabel(forecast))}` : ""
+              known
+                ? ` · ${esc(t(`panel.recipes.fit.${(known.fits || {})[selection.length] || "cut"}`))} · ${esc(
+                    t("panel.recipes.chars", { count: fmtNum(known.chars || 0) }),
+                  )}`
+                : ""
             }</div>
           </div>
           <div class="rank">
@@ -1056,7 +1067,12 @@ class EPaperEnginePanel extends HTMLElement {
         return `<tr>
           <td>${esc(hit.name)}</td>
           <td class="muted">${esc((hit.categories || []).join(" · "))}</td>
-          <td class="muted" style="white-space:nowrap">${esc(fitLabel(hit))}</td>
+          <td class="muted" style="white-space:nowrap">${esc(
+            t("panel.recipes.chars", { count: fmtNum(hit.chars || 0) }),
+          )}</td>
+          <td class="muted" style="white-space:nowrap" title="${esc(t("panel.recipes.fit.slots.hint"))}">${esc(
+            fitTriple(hit.fits),
+          )}</td>
           <td style="width:1%">
             ${
               picked
@@ -1075,7 +1091,13 @@ class EPaperEnginePanel extends HTMLElement {
           )}</div>`
         : "";
     const fullNote = full ? `<div class="note">${esc(t("panel.recipes.full"))}</div>` : "";
-    return `<table><tbody>${rows}</tbody></table>${more}${fullNote}`;
+    return `<table><thead><tr>
+        <th>${esc(t("panel.tab.recipes"))}</th>
+        <th></th>
+        <th></th>
+        <th>${esc(t("panel.recipes.fit.slots"))}</th>
+        <th></th>
+      </tr></thead><tbody>${rows}</tbody></table>${more}${fullNote}`;
   }
 
   // --- page: photos ---------------------------------------------------------

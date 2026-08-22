@@ -187,5 +187,9 @@
   "panel.recipes.fit.28": "passt in 28 px",
   "panel.recipes.fit.26": "wird in 26 px gesetzt",
   "panel.recipes.fit.24": "wird in 24 px gesetzt",
-  "panel.recipes.fit.cut": "zu lang — wird an der Wand gekürzt"
+  "panel.recipes.fit.cut": "zu lang — wird an der Wand gekürzt",
+  "panel.recipes.fit.px": "{n} px",
+  "panel.recipes.fit.cut.short": "gekürzt",
+  "panel.recipes.fit.slots": "bei 1 · 2 · 3 Rezepten",
+  "panel.recipes.fit.slots.hint": "Schriftgröße an der Wand, wenn eines, zwei oder drei gleichzeitig hängen"
 }
