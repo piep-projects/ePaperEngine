@@ -7,5 +7,6 @@
   "recipes.ingredients": "Zutaten",
   "recipes.directions": "Zubereitung",
   "recipes.truncated": "Gekürzt — es passte nicht in die Spalte",
-  "recipes.empty": "Kein Rezept gewählt."
+  "recipes.empty": "Kein Rezept gewählt.",
+  "recipes.servings": "{value} Portionen"
 }

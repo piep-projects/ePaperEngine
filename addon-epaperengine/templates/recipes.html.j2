@@ -15,6 +15,7 @@
     body      28 / 26 / 24 px, line advance 40 / 37 / 34
     gutter    a 2 px #aaaaaa rule down the middle of the 40 px gap
     bullets   ingredients are "· " per item
+    emphasis  Paprika's **markers** become bold runs, one element per line
 
   The type size and the sub-column count arrive decided from
   `recipe_layout.py`. Nothing is computed here on purpose: the height model and
@@ -70,9 +71,14 @@
         height: 100%;
         overflow: hidden;
       }
-      /* The separator sits in the middle of the 40 px gutter, 2 px and grey —
-         the mockup's `vline(x + COL3 + GUT/2 - 1, …, G170, 2)`. A heavier
-         black rule would compete with the head rules for attention. */
+      /* The separator sits in the middle of the 40 px gutter. The mockup draws
+         it 2 px in #aaaaaa; **grey does not survive the panel**. Measured on the
+         first real render: dithered against the six Spectra primaries, that line
+         came out as 67 % black pixels in one column and 33 % in the next — a
+         dotted trail, not a rule. FSD §7 allows grey as an *area* down to 170,
+         and this is the reading of it for a hairline. Black at 2 px keeps the
+         mockup's intent (lighter than the 3 px rule under the head) and is the
+         only way to get an unbroken line. */
       .column + .column::before {
         content: "";
         position: absolute;
@@ -80,7 +86,7 @@
         top: 0;
         bottom: 0;
         width: 2px;
-        background: #aaaaaa;
+        background: #000;
       }
       .title {
         font-size: 40px;
@@ -112,8 +118,14 @@
            keeps its line rather than collapsing — the height model counted it. */
         min-height: 1px;
       }
-      .directions {
-        white-space: pre-wrap;
+      .dline {
+        /* One element per source line: the line breaks in Paprika's free text
+           are the only structure it has, and they have to survive. An empty
+           line keeps its height — the model counted it. */
+        min-height: 1px;
+      }
+      .dline b {
+        font-weight: bold;
       }
       .cut {
         margin-top: 20px;
@@ -152,7 +164,9 @@
           {% endif %}
           {% if column.directions %}
             <div class="heading">{{ t("recipes.directions") }}</div>
-            <div class="directions">{{ column.directions }}</div>
+            {% for line in column.direction_lines %}
+              <div class="dline">{% for run in line %}{% if run.bold %}<b>{{ run.text }}</b>{% else %}{{ run.text }}{% endif %}{% endfor %}</div>
+            {% endfor %}
           {% endif %}
           {% if column.truncated %}
             <div class="cut">{{ t("recipes.truncated") }}</div>

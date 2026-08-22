@@ -85,6 +85,13 @@ TWO_COLUMN_WRAP_TOLERANCE = 1.15
 
 ELLIPSIS = "…"
 
+# Paprika's directions carry ``**emphasis**`` — in this household's collection
+# the section headings of a multi-part recipe ("**Erbsenmousseline**"). Raw
+# asterisks on a wall are noise, so the markers are turned into bold runs here
+# rather than left to be read out loud. Nothing else of Markdown is honoured:
+# guessing at a syntax the field does not promise would be worse than plain text.
+MARKUP = "**"
+
 
 @dataclass
 class Column:
@@ -93,7 +100,8 @@ class Column:
     name: str
     meta: str
     ingredients: list[str] = field(default_factory=list)  # source lines, "" = a gap
-    directions: str = ""
+    directions: str = ""  # plain text, markers stripped — what was measured
+    direction_lines: list[list[dict[str, Any]]] = field(default_factory=list)
     font_px: int = FLOOR_PX
     line_px: int = FLOOR_LINE
     ingredient_columns: int = 1
@@ -105,6 +113,7 @@ class Column:
             "meta": self.meta,
             "ingredients": self.ingredients,
             "directions": self.directions,
+            "direction_lines": self.direction_lines,
             "font_px": self.font_px,
             "line_px": self.line_px,
             "ingredient_columns": self.ingredient_columns,
@@ -211,19 +220,51 @@ def cut_to_lines(text: str, limit: int, budget: int) -> tuple[str, bool]:
     return "\n".join(kept).rstrip(), False
 
 
+def runs(line: str) -> list[dict[str, Any]]:
+    """One source line as ``[{"text": …, "bold": …}, …]``.
+
+    An odd number of markers means somebody typed one and never closed it; the
+    remainder stays plain rather than turning the rest of the recipe bold.
+    """
+    parts = line.split(MARKUP)
+    closed = len(parts) % 2 == 1  # an even number of markers: every run is closed
+    out: list[dict[str, Any]] = []
+    for index, text in enumerate(parts):
+        if not text:
+            continue
+        bold = index % 2 == 1 and (closed or index < len(parts) - 1)
+        out.append({"text": text, "bold": bold})
+    return out
+
+
+def as_lines(text: str) -> list[list[dict[str, Any]]]:
+    """The directions as runs per source line, ready for the template."""
+    return [runs(line) for line in text.split("\n")] if text else []
+
+
+def plain(text: str) -> str:
+    """The text as it will be read — markers gone."""
+    return text.replace(MARKUP, "")
+
+
 # --- building the column ------------------------------------------------------
-def build_column(recipe: dict[str, Any]) -> Column:
-    """Turn one recipe from the render document into a fitted column."""
+def build_column(recipe: dict[str, Any], servings_label: str = "{value}") -> Column:
+    """Turn one recipe from the render document into a fitted column.
+
+    ``servings_label`` carries the word for the number: Paprika stores
+    ``servings`` as free text, and this household's recipes hold a bare ``4``.
+    A lone digit under the title says nothing, so a plain number gets the word
+    from the wall catalog — anything the user actually typed ("2 Gläser") is
+    left exactly as written.
+    """
     name = str(recipe.get("name") or "").strip()
     ingredients_text = str(recipe.get("ingredients") or "").strip()
     directions_text = str(recipe.get("directions") or "").strip()
+    servings = str(recipe.get("servings") or "").strip()
+    if servings.isdigit():
+        servings = servings_label.format(value=servings)
     meta = " · ".join(
-        part
-        for part in (
-            str(recipe.get("servings") or "").strip(),
-            str(recipe.get("total_time") or "").strip(),
-        )
-        if part
+        part for part in (servings, str(recipe.get("total_time") or "").strip()) if part
     )
     items = [line.rstrip() for line in ingredients_text.split("\n")] if ingredients_text else []
 
@@ -234,7 +275,15 @@ def build_column(recipe: dict[str, Any]) -> Column:
         needed = cost + len(wrap(directions_text, limit))
         if needed <= available:
             return Column(
-                name, meta, items, directions_text, font_px, line_px, columns, False
+                name,
+                meta,
+                items,
+                plain(directions_text),
+                as_lines(directions_text),
+                font_px,
+                line_px,
+                columns,
+                False,
             )
 
     # The floor, and it still does not fit: shorten (FSD §8.2, Festlegung P13).
@@ -259,7 +308,8 @@ def build_column(recipe: dict[str, Any]) -> Column:
         name,
         meta,
         items,
-        directions_text,
+        plain(directions_text),
+        as_lines(directions_text),
         FLOOR_PX,
         FLOOR_LINE,
         columns,
@@ -267,11 +317,15 @@ def build_column(recipe: dict[str, Any]) -> Column:
     )
 
 
-def build_columns(recipes: list[dict[str, Any]], slots: int = 3) -> list[Column]:
+def build_columns(
+    recipes: list[dict[str, Any]], slots: int = 3, servings_label: str = "{value}"
+) -> list[Column]:
     """The selected recipes as columns, at most ``slots`` of them.
 
     The cap is belt and braces — the integration already clamps the selection
     (``recipes.MAX_SELECTION``) — but the layout is where a fourth column would
     actually break something, so it is refused here too.
     """
-    return [build_column(recipe) for recipe in (recipes or [])[:slots]]
+    return [
+        build_column(recipe, servings_label) for recipe in (recipes or [])[:slots]
+    ]

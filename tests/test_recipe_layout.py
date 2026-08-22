@@ -209,6 +209,55 @@ class TestShortening(unittest.TestCase):
         self.assertEqual(rl.cut_to_lines("abc", 60, 0), ("", True))
 
 
+class TestMarkup(unittest.TestCase):
+    """Paprika's directions carry ``**emphasis**`` — in this collection the
+    section headings of a multi-part recipe. Raw asterisks on a wall are noise."""
+
+    def test_a_closed_run_becomes_bold(self) -> None:
+        self.assertEqual(
+            rl.runs("Vor **Blumenkohl** danach"),
+            [
+                {"text": "Vor ", "bold": False},
+                {"text": "Blumenkohl", "bold": True},
+                {"text": " danach", "bold": False},
+            ],
+        )
+
+    def test_two_runs_in_one_line(self) -> None:
+        self.assertEqual(
+            [run["bold"] for run in rl.runs("**a** und **b**")], [True, False, True]
+        )
+
+    def test_an_unclosed_marker_leaves_the_rest_plain(self) -> None:
+        """Somebody typed one and never closed it; the recipe must not turn
+        bold from there to the end."""
+        self.assertEqual([run["bold"] for run in rl.runs("Text **ab hier")], [False, False])
+
+    def test_the_markers_are_gone_from_the_plain_text(self) -> None:
+        column = rl.build_column(recipe("R", "Salz", "**Teil eins**\nKochen."))
+        self.assertNotIn("*", column.directions)
+        self.assertEqual(column.direction_lines[0], [{"text": "Teil eins", "bold": True}])
+
+    def test_a_blank_line_survives_as_a_blank_line(self) -> None:
+        column = rl.build_column(recipe("R", "Salz", "eins\n\nzwei"))
+        self.assertEqual(len(column.direction_lines), 3)
+        self.assertEqual(column.direction_lines[1], [])
+
+
+class TestServings(unittest.TestCase):
+    def test_a_bare_number_gets_its_word(self) -> None:
+        """A lone "4" under the title says nothing."""
+        column = rl.build_column(recipe(servings="4"), servings_label="{value} Portionen")
+        self.assertEqual(column.meta, "4 Portionen")
+
+    def test_what_the_user_typed_is_left_alone(self) -> None:
+        column = rl.build_column(recipe(servings="2 Gläser"), servings_label="{value} Portionen")
+        self.assertEqual(column.meta, "2 Gläser")
+
+    def test_no_servings_no_meta(self) -> None:
+        self.assertEqual(rl.build_column(recipe()).meta, "")
+
+
 class TestColumns(unittest.TestCase):
     def test_three_is_the_ceiling(self) -> None:
         """Belt and braces behind the integration's own clamp — the layout is

@@ -7,5 +7,6 @@
   "recipes.ingredients": "Ingredients",
   "recipes.directions": "Directions",
   "recipes.truncated": "Shortened — it did not fit the column",
-  "recipes.empty": "No recipe picked."
+  "recipes.empty": "No recipe picked.",
+  "recipes.servings": "{value} servings"
 }

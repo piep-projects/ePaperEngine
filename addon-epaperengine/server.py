@@ -416,7 +416,12 @@ def _render_recipes(
     integration is where that gets fixed, not here.
     """
     recipes = (document.get("recipes") or {}).get("items") or []
-    columns = recipe_layout.build_columns(recipes)
+    # Paprika stores ``servings`` as free text and this collection holds a bare
+    # number; the word for it belongs to the language of the wall, not to the
+    # layout, so the catalog string travels in rather than a hard-coded label.
+    columns = recipe_layout.build_columns(
+        recipes, servings_label=text("recipes.servings", value="{value}")
+    )
 
     html = renderer.render_html(
         VIEW_RECIPES,
