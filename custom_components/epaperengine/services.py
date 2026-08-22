@@ -1,6 +1,6 @@
 """Services for ePaperEngine (FSD §3.1).
 
-Four. Two of them are the whole conversation between the integration and the
+Five. Two of them are the whole conversation between the integration and the
 add-on, two are for automations — the front-ends use the WebSocket API instead
 (``websocket_api.py``), because the browser is already connected there.
 
@@ -21,6 +21,11 @@ add-on, two are for automations — the front-ends use the WebSocket API instead
 ``set_view``
     pin a view by hand, with the timeout of FSD §5. Calling it without a view
     hands control back to the automatic resolution.
+
+``sync_recipes``
+    pull the collection from Paprika now (FSD §9.2). ``SupportsResponse
+    .OPTIONAL`` — an automation usually just wants the sync, but "how many came
+    back" is worth having without a second call to a sensor.
 """
 
 from __future__ import annotations
@@ -40,6 +45,7 @@ from .const import (
     SERVICE_RENDER,
     SERVICE_REPORT_RUN,
     SERVICE_SET_VIEW,
+    SERVICE_SYNC_RECIPES,
     VIEWS,
 )
 from .coordinator import EPaperEngineCoordinator
@@ -98,6 +104,9 @@ def async_register_services(hass: HomeAssistant) -> None:
     async def _set_view(call: ServiceCall) -> None:
         await _coordinator(hass).async_set_view(call.data.get("view"))
 
+    async def _sync_recipes(call: ServiceCall) -> ServiceResponse:
+        return await _coordinator(hass).async_sync_recipes()
+
     if not hass.services.has_service(DOMAIN, SERVICE_GET_RENDER_DATA):
         hass.services.async_register(
             DOMAIN,
@@ -116,6 +125,14 @@ def async_register_services(hass: HomeAssistant) -> None:
         hass.services.async_register(
             DOMAIN, SERVICE_SET_VIEW, _set_view, schema=SET_VIEW_SCHEMA
         )
+    if not hass.services.has_service(DOMAIN, SERVICE_SYNC_RECIPES):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_SYNC_RECIPES,
+            _sync_recipes,
+            schema=vol.Schema({}),
+            supports_response=SupportsResponse.OPTIONAL,
+        )
 
 
 def async_unregister_services(hass: HomeAssistant) -> None:
@@ -125,5 +142,6 @@ def async_unregister_services(hass: HomeAssistant) -> None:
         SERVICE_REPORT_RUN,
         SERVICE_RENDER,
         SERVICE_SET_VIEW,
+        SERVICE_SYNC_RECIPES,
     ):
         hass.services.async_remove(DOMAIN, service)

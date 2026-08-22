@@ -1,8 +1,8 @@
 """Sensors for ePaperEngine (FSD §3.1).
 
-Three of them: which view *should* be on the wall and why, what the last run
-did, and when the wall last actually changed. The recipe-cache sensor follows in
-phase 5 together with the recipe view.
+Four of them: which view *should* be on the wall and why, what the last run did,
+when the wall last actually changed, and when the recipe cache last spoke to
+Paprika.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, RUN_RESULTS, VIEWS
 from .coordinator import EPaperEngineCoordinator
@@ -33,6 +34,7 @@ async def async_setup_entry(
             TargetViewSensor(coordinator),
             StatusSensor(coordinator),
             LastPushSensor(coordinator),
+            RecipeCacheSensor(coordinator),
         ]
     )
 
@@ -130,3 +132,39 @@ class LastPushSensor(EPaperEngineEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         push = self.coordinator.state.get("last_push") or {}
         return {"image_hash": push.get("hash")}
+
+
+class RecipeCacheSensor(EPaperEngineEntity, SensorEntity):
+    """When the recipe cache last synced with Paprika (FSD §9.2).
+
+    A timestamp rather than the number of recipes, because the question this
+    sensor exists for is *"are the new recipes here yet?"* — C11 asked for it in
+    those words, and a count of 214 answers it only if you happen to remember it
+    was 213 yesterday. The count rides along as an attribute.
+
+    ``None`` until the first sync: an installation without a Paprika account is
+    not an error, it is a household that does not use the recipe view.
+    """
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(self, coordinator: EPaperEngineCoordinator) -> None:
+        super().__init__(coordinator, "recipe_cache")
+
+    @property
+    def native_value(self) -> datetime | None:
+        synced = self.coordinator.recipes.synced_at
+        return dt_util.parse_datetime(str(synced)) if synced else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        status = self.coordinator.recipes.status()
+        return {
+            "count": status["count"],
+            # Recipes whose detail did not fit into the last sync's request
+            # budget (FSD §9.2 — the endpoint bans by IP). They arrive with the
+            # next one; a number standing still here is worth looking at.
+            "pending": status["pending"],
+            "selected": len(self.coordinator.config["recipes"].get("selection") or []),
+            "error": status["error"],
+        }

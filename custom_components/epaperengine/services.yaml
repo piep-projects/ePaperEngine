@@ -61,3 +61,6 @@ set_view:
             - photos
             - guests
             - error
+
+sync_recipes:
+  fields: {}

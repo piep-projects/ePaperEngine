@@ -34,6 +34,9 @@
       },
       "last_push": {
         "name": "Letzter Push"
+      },
+      "recipe_cache": {
+        "name": "Rezept-Cache"
       }
     },
     "binary_sensor": {
@@ -101,6 +104,10 @@
           "description": "Welche Ansicht festgehalten wird. Leer lassen heißt zurück auf Automatik."
         }
       }
+    },
+    "sync_recipes": {
+      "name": "Rezepte abgleichen",
+      "description": "Holt die Rezeptsammlung von Paprika in den lokalen Cache. Abgerufen wird nur, was sich geändert hat. Nicht pro Render-Lauf aufrufen — die API sperrt dokumentiert nach IP; genau dafür gibt es das Sync-Intervall."
     }
   }
 }

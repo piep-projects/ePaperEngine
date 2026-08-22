@@ -10,6 +10,12 @@ Writing configuration is **admin-only**. Reading is not: the card is meant for
 the whole household, and the view chips are the household's control. Setting a
 view is likewise open — it is what the card exists for — while changing where
 the display lives, or its PIN, is not.
+
+The **secrets are the exception to open reading**: ``config/get`` hands the MDC
+PIN and the Paprika login to administrators and a plain "is one set" to
+everybody else (``_visible_config``). Without that, every logged-in member of
+the household could read a cloud account password out of a panel meant for
+picking tonight's recipe.
 """
 
 from __future__ import annotations
@@ -19,6 +25,7 @@ from typing import Any
 import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import config_validation as cv
 
 from .const import (
     DOMAIN,
@@ -27,6 +34,9 @@ from .const import (
     WS_CONFIG_SET,
     WS_DISPLAY_TEST,
     WS_PHOTOS_LIST,
+    WS_RECIPES_GET,
+    WS_RECIPES_SEARCH,
+    WS_RECIPES_SYNC,
     WS_RENDER,
     WS_SET_VIEW,
     WS_STATUS,
@@ -51,6 +61,9 @@ def async_register(hass: HomeAssistant) -> None:
         ws_set_view,
         ws_photos_list,
         ws_display_test,
+        ws_recipes_search,
+        ws_recipes_get,
+        ws_recipes_sync,
     ):
         websocket_api.async_register_command(hass, handler)
 
@@ -70,8 +83,39 @@ def ws_config_get(hass, connection, msg) -> None:
         return
     connection.send_result(
         msg["id"],
-        {"config": coordinator.config, "status": coordinator.status_document()},
+        {
+            "config": _visible_config(coordinator.config, connection.user.is_admin),
+            "status": coordinator.status_document(),
+        },
     )
+
+
+def _visible_config(config: dict[str, Any], is_admin: bool) -> dict[str, Any]:
+    """The configuration document as this connection may see it.
+
+    Reading is open to the whole household on purpose — the card is for
+    everybody and it needs the priority list and the view names. The **secrets**
+    are not part of that: FSD §4 keeps the MDC PIN and the Paprika login out of
+    plain YAML precisely so they are not lying around, and answering them to
+    every logged-in user would put them right back. Writing has been
+    administrator-only since phase 4; this is the same line drawn for reading.
+
+    Replaced by a boolean rather than removed: the panel has to tell "no account
+    configured" from "an account you may not read", and an empty password field
+    that silently means both is how a saved account gets wiped by accident.
+    """
+    if is_admin:
+        return config
+    display = {**(config.get("display") or {})}
+    recipes = {**(config.get("recipes") or {})}
+    display["mdc_pin"] = bool(display.get("mdc_pin"))
+    login = recipes.get("paprika_login") or {}
+    recipes["paprika_login"] = (
+        {"username": login.get("username"), "password": bool(login.get("password"))}
+        if login
+        else None
+    )
+    return {**config, "display": display, "recipes": recipes}
 
 
 @websocket_api.require_admin
@@ -179,3 +223,86 @@ async def ws_display_test(hass, connection, msg) -> None:
         return
     result: dict[str, Any] = await coordinator.async_refresh_display(fresh=True)
     connection.send_result(msg["id"], result)
+
+
+# --- recipes (FSD §3.1, §9) ---------------------------------------------------
+# Three commands rather than entity attributes: a collection of a few hundred
+# recipes blows the 16 KB attribute ceiling long before it is interesting, and
+# the search has to answer per keystroke.
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): WS_RECIPES_SEARCH,
+        vol.Optional("query", default=""): cv.string,
+        vol.Optional("limit"): vol.All(vol.Coerce(int), vol.Range(min=1, max=200)),
+    }
+)
+@callback
+def ws_recipes_search(hass, connection, msg) -> None:
+    """Full-text search in the cache (FSD §9.3).
+
+    Local, in-process, no network: the whole point of C11 was that the cache
+    lives where the search lives. Not admin-only — picking what to cook is
+    household business, and ``set_view`` is open for the same reason.
+    """
+    coordinator = _coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_loaded", "ePaperEngine is not set up")
+        return
+    limit = msg.get("limit")
+    hits = (
+        coordinator.recipes.search(msg["query"], limit)
+        if limit
+        else coordinator.recipes.search(msg["query"])
+    )
+    connection.send_result(
+        msg["id"],
+        {
+            "hits": hits,
+            "total": coordinator.recipes.count,
+            "cache": coordinator.recipes.status(),
+        },
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): WS_RECIPES_GET,
+        vol.Optional("uid"): cv.string,
+        vol.Optional("uids"): [cv.string],
+    }
+)
+@callback
+def ws_recipes_get(hass, connection, msg) -> None:
+    """One recipe in full — or the three that are on the wall.
+
+    FSD §3.1 writes this as "ein Rezept vollständig"; it takes a **list** as
+    well, because the panel's selection page needs all three at once and three
+    round trips for one screen is the thing the status document was designed to
+    avoid. A single ``uid`` still works and answers the same shape.
+    """
+    coordinator = _coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_loaded", "ePaperEngine is not set up")
+        return
+    uids = list(msg.get("uids") or ([msg["uid"]] if msg.get("uid") else []))
+    connection.send_result(msg["id"], {"recipes": coordinator.recipes.get(uids)})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({vol.Required("type"): WS_RECIPES_SYNC})
+@websocket_api.async_response
+async def ws_recipes_sync(hass, connection, msg) -> None:
+    """Sync against Paprika right now (FSD §9.2).
+
+    Administrator-only, unlike the search: this one leaves the house and hits an
+    endpoint that is documented to ban by IP. It answers the *status* even when
+    the sync failed — "no credentials", "login refused" and "217 recipes" are
+    all answers to the same question, and the panel shows each of them plainly.
+    """
+    coordinator = _coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_loaded", "ePaperEngine is not set up")
+        return
+    connection.send_result(msg["id"], await coordinator.async_sync_recipes())

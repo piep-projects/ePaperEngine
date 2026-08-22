@@ -17,7 +17,7 @@
  *                 display page would be the same thing twice, so there is none.
  *
  * Editing is draft-based per card: `_draft` is a working copy, committed on Save.
- * Pages for calendar, recipes and guests arrive with those views (phase 5).
+ * Pages for calendar and guests arrive with those views (phase 5).
  */
 
 const APP_NAME = "ePaperEngine";
@@ -26,7 +26,7 @@ const ICON = "mdi:image-frame"; // const.py PANEL_ICON
 // Nav order. The three pages without a view yet stay visible on purpose: the
 // navigation should not change shape when phase 5 lands.
 const TABS = ["overview", "views", "calendar", "recipes", "photos", "guests", "display"];
-const TABS_PENDING = new Set(["calendar", "recipes", "guests"]);
+const TABS_PENDING = new Set(["calendar", "guests"]);
 
 const VIEWS = ["calendar", "recipes", "photos", "guests", "error"];
 // What may be pinned by hand. ``error`` is a system state, not a choice.
@@ -36,6 +36,21 @@ const PINNABLE = ["calendar", "recipes", "photos", "guests"];
 const CANDIDATES = ["manual", "guests", "recipes", "schedule", "fallback"];
 
 const POLL_MS = 15000;
+const SEARCH_DEBOUNCE_MS = 250;
+
+// How many recipes fit on the wall side by side (FSD §8.2 — three columns of
+// 773 px), and how many characters each type size carries (FSD §7, measured at
+// 1 m on the real panel).
+const RECIPE_SLOTS = 3;
+// A **forecast**, not the decision: the add-on measures and sets the size per
+// column when it renders (`recipe_layout.py`). Shown here because picking a
+// 2.000-character recipe and only finding out at the wall is the one thing this
+// page can save its user.
+const RECIPE_FIT = [
+  [950, "28"],
+  [1150, "26"],
+  [1350, "24"],
+];
 
 // ---------------------------------------------------------------------------
 // i18n — same mechanism and the same catalogs as the card (i18n concept §4/§7).
@@ -169,6 +184,22 @@ function fmtTime(iso) {
   }
 }
 
+/** Characters a recipe puts into its column — the number FSD §8.2 budgets. */
+function recipeChars(recipe) {
+  return ["name", "ingredients", "directions"].reduce(
+    (sum, field) => sum + String(recipe[field] || "").length,
+    0,
+  );
+}
+
+/** "fits at 28 px" … "too long — will be shortened". A forecast, see RECIPE_FIT. */
+function fitLabel(chars) {
+  const step = RECIPE_FIT.find(([budget]) => chars <= budget);
+  return step
+    ? `${t(`panel.recipes.fit.${step[1]}`)} · ${t("panel.recipes.chars", { count: fmtNum(chars) })}`
+    : `${t("panel.recipes.fit.cut")} · ${t("panel.recipes.chars", { count: fmtNum(chars) })}`;
+}
+
 function fmtDuration(ms) {
   if (!isFinite(ms) || ms <= 0) return null;
   const minutes = Math.round(ms / 60000);
@@ -186,6 +217,12 @@ class EPaperEnginePanel extends HTMLElement {
     this._config = null;
     this._status = null;
     this._photos = null;
+    this._recipes = null; // { hits, total, cache } of the last search
+    this._picked = []; // the selected recipes in full, for the slot cards
+    this._query = "";
+    this._syncedAt = null; // last sync the recipe page was drawn for
+    this._syncing = false;
+    this._searchTimer = null;
     this._draft = {};
     this._notice = null;
     this._error = null;
@@ -213,6 +250,8 @@ class EPaperEnginePanel extends HTMLElement {
   disconnectedCallback() {
     if (this._timer) clearInterval(this._timer);
     this._timer = null;
+    if (this._searchTimer) clearTimeout(this._searchTimer);
+    this._searchTimer = null;
   }
 
   get isAdmin() {
@@ -244,6 +283,23 @@ class EPaperEnginePanel extends HTMLElement {
     if (!this._hass || !this._config) return;
     try {
       this._status = await this._call({ type: "epaperengine/status" });
+      // …and that promise only holds if the repaint is skipped while a field
+      // has focus. Inputs are rebuilt from the draft on every render and the
+      // draft is only read on Save, so a poll arriving mid-word would take the
+      // word with it — a password or a search query most visibly. The header
+      // goes one cycle stale instead, which nobody notices.
+      const active = this.shadowRoot.activeElement;
+      if (active && ["INPUT", "SELECT", "TEXTAREA"].includes(active.tagName)) return;
+      // A sync that finished in the background (the timer, or the catch-up run
+      // right after the account was saved) has to reach the open page — the
+      // status carries the new count, but the hit list would sit there empty
+      // and look broken.
+      const synced = ((this._status || {}).recipes || {}).synced_at || null;
+      if (this._tab === "recipes" && synced !== this._syncedAt) {
+        this._syncedAt = synced;
+        this._loadRecipes();
+        return;
+      }
       this._render();
     } catch (err) {
       /* a lost poll is not worth a message; the next one heals it */
@@ -350,10 +406,123 @@ class EPaperEnginePanel extends HTMLElement {
     this._render();
   }
 
+  // --- recipes (FSD §9) -----------------------------------------------------
+  /** Search the cache and fetch the picked recipes — one screen, two calls. */
+  async _loadRecipes() {
+    try {
+      const [found, picked] = await Promise.all([
+        this._call({ type: "epaperengine/recipes/search", query: this._query }),
+        this._call({
+          type: "epaperengine/recipes/get",
+          uids: [...((this._draft.recipes || {}).selection || [])],
+        }),
+      ]);
+      this._recipes = found;
+      this._picked = picked.recipes || [];
+      this._syncedAt = (found.cache || {}).synced_at || null;
+      this._error = null;
+    } catch (err) {
+      this._recipes = { hits: [], total: 0, error: this._message(err) };
+    }
+    this._render();
+  }
+
+  /**
+   * Typing searches, but not on every keystroke: the round trip is local and
+   * cheap, the re-render is not — it would fight the cursor in the very field
+   * being typed into.
+   */
+  _searchLater(query) {
+    this._query = query;
+    if (this._searchTimer) clearTimeout(this._searchTimer);
+    this._searchTimer = setTimeout(async () => {
+      this._searchTimer = null;
+      try {
+        this._recipes = await this._call({
+          type: "epaperengine/recipes/search",
+          query: this._query,
+        });
+      } catch (err) {
+        this._recipes = { hits: [], total: 0, error: this._message(err) };
+      }
+      this._renderHits();
+    }, SEARCH_DEBOUNCE_MS);
+  }
+
+  /** Repaint the hit list alone, so the search field keeps focus and caret. */
+  _renderHits() {
+    const list = this.shadowRoot.querySelector("#hits");
+    if (!list) return this._render();
+    list.innerHTML = this._hitRows();
+    this._wireHits();
+  }
+
+  async _syncRecipes() {
+    this._syncing = true;
+    this._render();
+    try {
+      const status = await this._call({ type: "epaperengine/recipes/sync" });
+      this._syncing = false;
+      this._error = status.error ? t("panel.recipes.error.sync", { msg: status.error }) : null;
+      if (!status.error) {
+        this._notice = t("panel.recipes.sync.done", {
+          count: fmtNum(status.fetched ?? 0),
+          removed: fmtNum(status.removed ?? 0),
+        });
+        setTimeout(() => {
+          this._notice = null;
+          this._render();
+        }, 4000);
+      }
+    } catch (err) {
+      this._syncing = false;
+      this._error = this._message(err);
+    }
+    await this._refreshStatus();
+    await this._loadRecipes();
+  }
+
+  _pick(uid) {
+    const selection = [...((this._draft.recipes || {}).selection || [])];
+    if (selection.includes(uid) || selection.length >= RECIPE_SLOTS) return;
+    this._draft.recipes.selection = [...selection, uid];
+    this._saveSelection();
+  }
+
+  _unpick(uid) {
+    this._draft.recipes.selection = ((this._draft.recipes || {}).selection || []).filter(
+      (entry) => entry !== uid,
+    );
+    this._saveSelection();
+  }
+
+  _moveSlot(index, direction) {
+    const selection = [...((this._draft.recipes || {}).selection || [])];
+    const to = index + direction;
+    if (to < 0 || to >= selection.length) return;
+    [selection[index], selection[to]] = [selection[to], selection[index]];
+    this._draft.recipes.selection = selection;
+    this._saveSelection();
+  }
+
+  /**
+   * The selection saves itself — no Save button on that card.
+   *
+   * It is the one setting on this page that is a *decision about tonight*
+   * rather than configuration, it is two clicks away from being undone, and
+   * FSD §9.3 says setting it triggers a render run. A draft nobody committed
+   * would mean picking a recipe and staring at an unchanged wall.
+   */
+  async _saveSelection() {
+    await this._save(["recipes"]);
+    await this._loadRecipes();
+  }
+
   _go(tab) {
     this._tab = tab;
     this._probe = null;
     if (tab === "photos" && !this._photos) this._loadPhotos();
+    if (tab === "recipes") this._loadRecipes();
     this._render();
   }
 
@@ -522,6 +691,7 @@ class EPaperEnginePanel extends HTMLElement {
     const body = {
       overview: () => this._pageOverview(),
       views: () => this._pageViews(),
+      recipes: () => this._pageRecipes(),
       photos: () => this._pagePhotos(),
       display: () => this._pageDisplay(),
     }[this._tab];
@@ -755,6 +925,157 @@ class EPaperEnginePanel extends HTMLElement {
     </div>`;
   }
 
+  // --- page: recipes --------------------------------------------------------
+  _pageRecipes() {
+    const recipes = this._draft.recipes || {};
+    const login = recipes.paprika_login || {};
+    const cache = ((this._status || {}).recipes) || {};
+    const admin = this.isAdmin;
+    const lock = admin ? "" : "disabled";
+    // Redacted for everybody but an administrator (websocket_api._visible_config):
+    // a string is the real password, `true` only says one is stored.
+    const password = typeof login.password === "string" ? login.password : "";
+    const hasPassword = !!login.password;
+
+    const synced = fmtDateTime(cache.synced_at);
+    const cacheLine = cache.count
+      ? t("panel.recipes.sync.count", { count: fmtNum(cache.count) })
+      : t("panel.recipes.search.empty_cache");
+
+    let cacheNote = "";
+    if (!cache.configured || cache.error === "no_credentials")
+      cacheNote = `<div class="note warn">${esc(t("panel.recipes.error.no_credentials"))}</div>`;
+    else if (cache.error)
+      cacheNote = `<div class="note bad">${esc(t("panel.recipes.error.sync", { msg: cache.error }))}</div>`;
+    else if (cache.pending)
+      cacheNote = `<div class="note warn">${esc(t("panel.recipes.sync.pending", { count: fmtNum(cache.pending) }))}</div>`;
+
+    return `
+      <div class="card">
+        <h2>${esc(t("panel.recipes.account"))}</h2>
+        <div class="hint">${esc(t("panel.recipes.account.hint"))}</div>
+        <label>${esc(t("panel.recipes.username"))}</label>
+        <input id="paprika-user" value="${esc(login.username || "")}" ${lock}>
+        <label>${esc(t("panel.recipes.password"))}</label>
+        <input id="paprika-password" type="password" value="${esc(password)}" ${lock}>
+        ${!admin && hasPassword ? `<div class="muted">${esc(t("panel.recipes.password.set"))}</div>` : ""}
+        <label>${esc(t("panel.recipes.interval"))}</label>
+        <div class="inline">
+          <input id="sync-interval" value="${esc(fmtNum(recipes.sync_interval_h ?? 24))}" ${lock}>
+          <span class="unit">${esc(t("panel.recipes.interval.hours"))}</span>
+        </div>
+        <div class="muted">${esc(t("panel.recipes.interval.hint"))}</div>
+        <div class="actions">
+          <button class="primary" data-save="recipes" ${lock}>${esc(t("common.save"))}</button>
+          <button class="plain" id="sync-recipes" ${lock || (this._syncing ? "disabled" : "")}>${esc(
+            this._syncing ? t("panel.recipes.sync.running") : t("panel.recipes.sync"),
+          )}</button>
+        </div>
+        <div class="kv" style="margin-top:12px">
+          <div class="k">${esc(t("panel.recipes.sync.last"))}</div>
+          <div>${esc(synced || t("panel.recipes.sync.never"))}</div>
+          <div class="k">${esc(t("panel.tab.recipes"))}</div>
+          <div>${esc(cacheLine)}</div>
+        </div>
+        ${cacheNote}
+        ${admin ? "" : `<div class="note warn">${esc(t("error.no_admin"))}</div>`}
+      </div>
+
+      ${this._cardSlots()}
+
+      <div class="card" style="grid-column: 1 / -1">
+        <h2>${esc(t("panel.recipes.search"))}</h2>
+        <div class="hint">${esc(t("panel.recipes.search.hint"))}</div>
+        <input id="recipe-search" value="${esc(this._query)}"
+               placeholder="${esc(t("panel.recipes.search.placeholder"))}">
+        <div id="hits">${this._hitRows()}</div>
+      </div>
+    `;
+  }
+
+  _cardSlots() {
+    // Picking writes ``recipes.selection``, and writing configuration is
+    // administrator business since phase 4 — so the buttons are locked for
+    // everybody else rather than failing on the round trip. [Offen: whether
+    // picking tonight's recipe should be open to the household the way
+    // ``set_view`` is. That would need its own narrow command; not invented
+    // here.]
+    const lock = this.isAdmin ? "" : "disabled";
+    const selection = ((this._draft.recipes || {}).selection || []).slice(0, RECIPE_SLOTS);
+    // Ordered the way the columns stand on the wall, not the way the cache
+    // answered — the slot number is the column number.
+    const byUid = new Map(this._picked.map((recipe) => [recipe.uid, recipe]));
+
+    const rows = selection
+      .map((uid, index) => {
+        const recipe = byUid.get(uid);
+        const name = recipe ? recipe.name : uid;
+        const chars = recipe ? recipeChars(recipe) : null;
+        return `<div class="sortrow">
+          <div class="grow">
+            <div class="name">${esc(name)}</div>
+            <div class="why">${esc(t("panel.recipes.slot", { n: index + 1 }))}${
+              chars === null ? "" : ` · ${esc(fitLabel(chars))}`
+            }</div>
+          </div>
+          <div class="rank">
+            <button class="plain small" data-slot-move="up" data-slot="${index}" title="${esc(t("panel.views.up"))}" ${index === 0 || lock ? "disabled" : ""}>▲</button>
+            <button class="plain small" data-slot-move="down" data-slot="${index}" title="${esc(t("panel.views.down"))}" ${index === selection.length - 1 || lock ? "disabled" : ""}>▼</button>
+          </div>
+          <button class="plain small" data-unpick="${esc(uid)}" ${lock}>✕</button>
+        </div>`;
+      })
+      .join("");
+
+    return `<div class="card">
+      <h2>${esc(t("panel.recipes.selection"))}</h2>
+      <div class="hint">${esc(t("panel.recipes.selection.hint"))}</div>
+      ${rows || `<div class="muted">${esc(t("panel.recipes.selection.empty"))}</div>`}
+    </div>`;
+  }
+
+  _hitRows() {
+    const found = this._recipes;
+    if (!found) return `<div class="muted">${esc(t("common.loading"))}</div>`;
+    if (found.error) return `<div class="note bad">${esc(found.error)}</div>`;
+    const hits = found.hits || [];
+    if (!hits.length) {
+      return `<div class="muted">${esc(
+        found.total ? t("panel.recipes.search.none") : t("panel.recipes.search.empty_cache"),
+      )}</div>`;
+    }
+    const selection = (this._draft.recipes || {}).selection || [];
+    const full = selection.length >= RECIPE_SLOTS;
+    const lock = this.isAdmin ? "" : "disabled";
+
+    const rows = hits
+      .map((hit) => {
+        const picked = selection.includes(hit.uid);
+        return `<tr>
+          <td>${esc(hit.name)}</td>
+          <td class="muted">${esc((hit.categories || []).join(" · "))}</td>
+          <td class="muted" style="white-space:nowrap">${esc(fitLabel(hit.chars))}</td>
+          <td style="width:1%">
+            ${
+              picked
+                ? `<button class="plain small" data-unpick="${esc(hit.uid)}" ${lock}>✕</button>`
+                : `<button class="plain small" data-pick="${esc(hit.uid)}" ${full || lock ? "disabled" : ""}>${esc(t("panel.recipes.add"))}</button>`
+            }
+          </td>
+        </tr>`;
+      })
+      .join("");
+
+    const more =
+      found.total > hits.length
+        ? `<div class="muted" style="margin-top:8px">${esc(
+            t("panel.recipes.search.more", { count: fmtNum(found.total - hits.length) }),
+          )}</div>`
+        : "";
+    const fullNote = full ? `<div class="note">${esc(t("panel.recipes.full"))}</div>` : "";
+    return `<table><tbody>${rows}</tbody></table>${more}${fullNote}`;
+  }
+
   // --- page: photos ---------------------------------------------------------
   _pagePhotos() {
     const photos = this._draft.photos || {};
@@ -965,6 +1286,24 @@ class EPaperEnginePanel extends HTMLElement {
       window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true, composed: true }));
     });
 
+    // --- recipes
+    const search = root.querySelector("#recipe-search");
+    if (search) {
+      search.oninput = () => this._searchLater(search.value);
+      // A repaint of the hit list moves focus nowhere, but a full re-render
+      // does — put the caret back where the typing was.
+      if (this._query && document.activeElement !== search) {
+        const end = search.value.length;
+        search.setSelectionRange(end, end);
+      }
+    }
+    on("#sync-recipes", () => this._syncRecipes());
+    this._wireHits();
+    root.querySelectorAll("[data-slot-move]").forEach((button) => {
+      button.onclick = () =>
+        this._moveSlot(Number(button.dataset.slot), button.dataset.slotMove === "up" ? -1 : 1);
+    });
+
     // --- photos
     on("#reload-photos", () => this._loadPhotos());
 
@@ -976,6 +1315,17 @@ class EPaperEnginePanel extends HTMLElement {
       };
     });
     on("#test-display", () => this._testDisplay());
+  }
+
+  /** Click handlers of the hit list and the slots — rebound on a partial repaint. */
+  _wireHits() {
+    const root = this.shadowRoot;
+    root.querySelectorAll("[data-pick]").forEach((button) => {
+      button.onclick = () => this._pick(button.dataset.pick);
+    });
+    root.querySelectorAll("[data-unpick]").forEach((button) => {
+      button.onclick = () => this._unpick(button.dataset.unpick);
+    });
   }
 
   /**
@@ -1006,6 +1356,19 @@ class EPaperEnginePanel extends HTMLElement {
       this._draft.photos.rotation_interval_min = number(
         "#rotation",
         this._draft.photos.rotation_interval_min,
+      );
+    }
+    if (this._tab === "recipes") {
+      const username = value("#paprika-user");
+      const password = value("#paprika-password");
+      // Written as one object rather than two keys: the section merge in
+      // ``async_set_config`` replaces whole keys, so a half-written login would
+      // leave the old password standing next to the new address.
+      this._draft.recipes.paprika_login =
+        username || password ? { username: username || null, password: password || null } : null;
+      this._draft.recipes.sync_interval_h = number(
+        "#sync-interval",
+        this._draft.recipes.sync_interval_h,
       );
     }
     if (this._tab === "display") {

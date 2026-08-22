@@ -17,8 +17,7 @@ from homeassistant.const import Platform
 
 DOMAIN: Final = "epaperengine"
 
-# Entity platforms. The recipe-cache sensor of FSD §3.1 follows in phase 5,
-# together with the recipe view itself.
+# Entity platforms.
 PLATFORMS: Final[list[Platform]] = [
     Platform.BINARY_SENSOR,
     Platform.BUTTON,
@@ -85,12 +84,16 @@ WS_RENDER: Final = f"{DOMAIN}/render"
 WS_SET_VIEW: Final = f"{DOMAIN}/set_view"
 WS_PHOTOS_LIST: Final = f"{DOMAIN}/photos/list"
 WS_DISPLAY_TEST: Final = f"{DOMAIN}/display/test"
+WS_RECIPES_SEARCH: Final = f"{DOMAIN}/recipes/search"
+WS_RECIPES_GET: Final = f"{DOMAIN}/recipes/get"
+WS_RECIPES_SYNC: Final = f"{DOMAIN}/recipes/sync"
 
 # --- Services (FSD §3.1) ------------------------------------------------------
 SERVICE_GET_RENDER_DATA: Final = "get_render_data"
 SERVICE_REPORT_RUN: Final = "report_run"
 SERVICE_RENDER: Final = "render"
 SERVICE_SET_VIEW: Final = "set_view"
+SERVICE_SYNC_RECIPES: Final = "sync_recipes"
 
 # --- Priority resolution (FSD §5) ---------------------------------------------
 # Candidates of the ordered priority list. ``manual``/``schedule``/``fallback``
@@ -135,6 +138,16 @@ RENDER_DEBOUNCE_S: Final = 20
 # and a burst of handshakes.
 DISPLAY_PROBE_INTERVAL_MIN: Final = 15
 
+# --- Recipes (FSD §9) ---------------------------------------------------------
+# How often the collection is pulled from Paprika when nobody presses the
+# button. Hours, because the constraint is a rate limit and not freshness: FSD
+# §9.2 forbids a fetch per render run outright, and a household adds a recipe
+# every few days, not every few minutes. The specification proposes 12 h; 24 h
+# is the default here for the same reason it is a *setting* — the cheapest sync
+# is the one that does not happen, and the panel's "Sync now" covers the moment
+# somebody actually wants it now.
+DEFAULT_RECIPE_SYNC_INTERVAL_H: Final = 24
+
 # Add-on endpoints (FSD §3.2). The base address is configuration
 # (``display.renderer_url``) because the add-on may run on another host.
 ADDON_RENDER_PATH: Final = "/render"
@@ -168,3 +181,8 @@ CARD_WWW_URL: Final = f"/local/{CARD_FILENAME}"
 STORAGE_VERSION: Final = 1
 STORE_CONFIG: Final = f"{DOMAIN}.config"  # user configuration, panel-edited
 STORE_STATE: Final = f"{DOMAIN}.state"    # last run, last push, manual override
+# The recipe cache (FSD §9.1) — its own file rather than a section of the config
+# document: it is written by the sync and not by the panel, it grows with the
+# collection, and a config save must not have to carry a few hundred recipes
+# through it.
+STORE_RECIPES: Final = f"{DOMAIN}.recipes"

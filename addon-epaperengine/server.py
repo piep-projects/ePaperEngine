@@ -42,6 +42,7 @@ import delivery
 import imaging
 import outage
 import paths as media_layout
+import recipe_layout
 import renderer
 import wall_text
 from photocache import PhotoCache
@@ -317,6 +318,7 @@ def _write_state(state: dict[str, Any]) -> None:
 # Stable English tokens, the same ones ``const.py`` defines on the integration
 # side (FSD §3.0a). The add-on only ever sees them, never a label.
 VIEW_PHOTOS = "photos"
+VIEW_RECIPES = "recipes"
 VIEW_ERROR = "error"
 
 # The failure policy itself lives in ``outage.py``: counting and timing are the
@@ -347,6 +349,8 @@ def _render_view(
     """
     if view == VIEW_PHOTOS:
         return _render_photos(document, engine)
+    if view == VIEW_RECIPES:
+        return _render_recipes(document, text)
     if view == VIEW_ERROR:
         # Somebody pinned the error view by hand (FSD §5 allows it — ``error`` is
         # one of the five tokens). Show the outage on record; if there is none,
@@ -397,6 +401,37 @@ def _render_photos(
     return imaging.dither_spectra(shot), {
         "photo": photo.source,
         "photos_total": report.total,
+    }
+
+
+def _render_recipes(
+    document: dict[str, Any], text: wall_text.WallText
+) -> tuple[Image.Image, dict[str, Any]]:
+    """The recipe view (FSD §8.2, §9).
+
+    **No network call happens here.** The full text of the selected recipes
+    travels in the render document (FSD §9.1) because the API is documented to
+    ban by IP and a fetch per render run is exactly what FSD §9.2 forbids. If a
+    recipe is missing from the document, it is missing from the cache — the
+    integration is where that gets fixed, not here.
+    """
+    recipes = (document.get("recipes") or {}).get("items") or []
+    columns = recipe_layout.build_columns(recipes)
+
+    html = renderer.render_html(
+        VIEW_RECIPES,
+        {
+            "language": text.language,
+            "t": text,
+            "columns": [column.as_dict() for column in columns],
+        },
+        WORK_DIR,
+    )
+    shot = renderer.screenshot(html, WORK_DIR / "recipes.png", WORK_DIR)
+    return imaging.dither_spectra(shot), {
+        "recipes": [column.name for column in columns],
+        "font_px": [column.font_px for column in columns],
+        "truncated": sum(1 for column in columns if column.truncated),
     }
 
 

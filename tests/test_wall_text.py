@@ -69,17 +69,24 @@ class TestCatalogs(unittest.TestCase):
             self.assertIn("2026", rendered, f"{lang}: no year in the timestamp")
             self.assertIn("15:04", rendered, f"{lang}: no time in the timestamp")
 
-    def test_the_error_view_has_the_keys_its_template_uses(self) -> None:
-        """Read out of the template rather than listed here — a hand-kept list
-        drifts the moment somebody edits the page, which is the failure this
-        test exists to catch."""
-        template = (
-            REPO_ROOT / "addon-epaperengine" / "templates" / "error.html.j2"
-        ).read_text(encoding="utf-8")
-        used = set(re.findall(r"""t\(\s*["']([a-z0-9_.]+)["']""", template))
-        self.assertTrue(used, "no catalog keys found in error.html.j2 — parser broken?")
-        for key in used:
-            self.assertIn(key, self.base, f"error.html.j2 uses {key!r}, en.json has not")
+    def test_every_view_has_the_keys_its_template_uses(self) -> None:
+        """Read out of the templates rather than listed here — a hand-kept list
+        drifts the moment somebody edits a page, which is the failure this test
+        exists to catch. Every template is scanned, so a new view brings its
+        strings with it or this goes red."""
+        templates = sorted(
+            (REPO_ROOT / "addon-epaperengine" / "templates").glob("*.html.j2")
+        )
+        self.assertTrue(templates, "no wall templates found — moved?")
+        found_any = False
+        for path in templates:
+            used = set(
+                re.findall(r"""t\(\s*["']([a-z0-9_.]+)["']""", path.read_text(encoding="utf-8"))
+            )
+            found_any = found_any or bool(used)
+            for key in used:
+                self.assertIn(key, self.base, f"{path.name} uses {key!r}, en.json has not")
+        self.assertTrue(found_any, "no catalog keys found in any template — parser broken?")
 
 
 class TestLanguageResolution(unittest.TestCase):

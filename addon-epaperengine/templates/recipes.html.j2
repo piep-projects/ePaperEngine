@@ -1,0 +1,118 @@
+{#
+  The recipe view (FSD §8.2, §9) — one to three recipes side by side as a
+  cooking sheet, with ingredients and directions.
+
+  **Three columns of 773 px, and the width is fixed even when only one recipe is
+  up.** Spreading a single recipe across the full 2400 px would give lines of
+  ~160 characters (FSD §7) — measured as unreadable at cooking distance long
+  before the type size becomes the problem. So the columns keep their width and
+  the row is centred instead.
+
+  Type size comes in per column (``column.font_px``): 28 → 26 → 24 px, decided in
+  ``recipe_layout.py`` so one long recipe does not shrink the short ones beside
+  it. Nothing here computes it — the template only sets what it is told, which
+  is what keeps the rule testable without Chromium.
+
+  Layout follows FSD §7: no line thinner than 3 px, no gradient, no grey below
+  170. Black on white, because both are Spectra primaries and carry no dither
+  raster at all. ``pre-wrap`` throughout: ``ingredients`` and ``directions`` are
+  multi-line free text at Paprika [belegt], not structured lists.
+#}<!doctype html>
+<html lang="{{ language }}">
+  <head>
+    <meta charset="utf-8" />
+    <title>ePaperEngine</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 2560px;
+        height: 1440px;
+        overflow: hidden;
+        background: #fff;
+        color: #000;
+        font-family: "DejaVu Sans", sans-serif;
+      }
+      main {
+        box-sizing: border-box;
+        width: 2560px;
+        height: 1440px;
+        padding: 80px;
+        display: flex;
+        gap: 40px;
+        justify-content: center;
+        align-items: stretch;
+      }
+      .column {
+        width: 773px;
+        flex: none;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      /* The 3 px FSD §7 asks for — 1 px disappears on this panel. */
+      .column + .column {
+        border-left: 3px solid #000;
+        padding-left: 37px;
+      }
+      .title {
+        font-weight: bold;
+        line-height: 1.1;
+        margin-bottom: 12px;
+      }
+      .meta {
+        /* 200 is the grey the panel renders reliably; 170 is the floor. */
+        color: #646464;
+        margin-bottom: 24px;
+      }
+      .heading {
+        font-weight: bold;
+        border-bottom: 3px solid #000;
+        padding-bottom: 6px;
+        margin: 24px 0 12px;
+      }
+      .body {
+        white-space: pre-wrap;
+        line-height: 1.35;
+      }
+      .cut {
+        margin-top: 20px;
+        color: #dc1e1e;
+        font-weight: bold;
+      }
+      .empty {
+        margin: auto;
+        font-size: 56px;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      {% if not columns %}
+        {# Reachable by pinning the recipe view with nothing selected. A legible
+           sentence beats an empty white wall, and beats a failure — nothing is
+           broken, there is simply nothing to cook. #}
+        <div class="empty">{{ t("recipes.empty") }}</div>
+      {% endif %}
+      {% for column in columns %}
+        <div class="column" style="font-size: {{ column.font_px }}px">
+          <div class="title" style="font-size: {{ column.font_px + 16 }}px">{{ column.name }}</div>
+          {% if column.meta %}<div class="meta">{{ column.meta }}</div>{% endif %}
+          {% if column.ingredients %}
+            <div class="heading">{{ t("recipes.ingredients") }}</div>
+            <div class="body">{{ column.ingredients }}</div>
+          {% endif %}
+          {% if column.directions %}
+            <div class="heading">{{ t("recipes.directions") }}</div>
+            <div class="body">{{ column.directions }}</div>
+          {% endif %}
+          {% if column.truncated %}
+            <div class="cut">{{ t("recipes.truncated") }}</div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </main>
+  </body>
+</html>

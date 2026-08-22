@@ -34,6 +34,9 @@
       },
       "last_push": {
         "name": "Last push"
+      },
+      "recipe_cache": {
+        "name": "Recipe cache"
       }
     },
     "binary_sensor": {
@@ -101,6 +104,10 @@
           "description": "Which view to pin. Leave empty to return to automatic."
         }
       }
+    },
+    "sync_recipes": {
+      "name": "Sync recipes",
+      "description": "Pulls the recipe collection from Paprika into the local cache. Only what has changed is fetched. Do not call this per render run — the API is documented to ban by IP; that is what the sync interval is for."
     }
   }
 }

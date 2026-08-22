@@ -3,5 +3,9 @@
   "error.headline": "ePaperEngine kann die Wand gerade nicht rendern",
   "error.since": "seit {at}",
   "error.idle": "Kein Fehler verzeichnet.",
-  "error.hint": "Einzelheiten in Home Assistant unter ePaperEngine."
+  "error.hint": "Einzelheiten in Home Assistant unter ePaperEngine.",
+  "recipes.ingredients": "Zutaten",
+  "recipes.directions": "Zubereitung",
+  "recipes.truncated": "Gekürzt — es passte nicht in die Spalte",
+  "recipes.empty": "Kein Rezept gewählt."
 }

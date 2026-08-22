@@ -23,6 +23,7 @@ from homeassistant.helpers.storage import Store
 from .const import (
     DEFAULT_MANUAL_TIMEOUT_H,
     DEFAULT_PRIORITY,
+    DEFAULT_RECIPE_SYNC_INTERVAL_H,
     STORAGE_VERSION,
     STORE_CONFIG,
     STORE_STATE,
@@ -69,9 +70,12 @@ def default_config() -> dict[str, Any]:
             "color_bar_px": 6,
             "show_empty_days": True,
         },
+        # The cached collection itself lives in its own store (``STORE_RECIPES``,
+        # FSD §9.1); what is configuration is the account, the sync clock and
+        # which three recipes are on the wall.
         "recipes": {
-            "paprika_login": None,  # {username, password} — secret
-            "sync_interval_h": 24,
+            "paprika_login": None,  # {username, password} — secret, FSD §4
+            "sync_interval_h": DEFAULT_RECIPE_SYNC_INTERVAL_H,
             "selection": [],  # up to 3 recipe uids, set from the panel search
         },
         "photos": {

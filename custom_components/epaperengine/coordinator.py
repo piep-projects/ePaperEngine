@@ -12,7 +12,9 @@ pushing — happens in the add-on. So there is nothing to poll and no
 * asks the add-on for a run — debounced (FSD §6.1) — and drives the timed net,
 * keeps the last MDC probe of the display.
 
-The recipe cache (FSD §9) belongs here too and arrives in phase 5.
+The recipe cache (FSD §9) hangs here as well — its own object
+(``recipes.RecipeCache``), driven by a second timer, because its clock is a
+rate limit and has nothing to do with the render cycle.
 """
 
 from __future__ import annotations
@@ -37,6 +39,7 @@ from homeassistant.util import dt as dt_util
 from . import mediapath
 from .addon import AddonClient, AddonError
 from .const import (
+    DEFAULT_RECIPE_SYNC_INTERVAL_H,
     DISPLAY_PROBE_INTERVAL_MIN,
     RENDER_DEBOUNCE_S,
     RENDER_INTERVAL_MIN,
@@ -44,6 +47,7 @@ from .const import (
     SIGNAL_STATE_UPDATED,
     VIEW_GUESTS,
 )
+from .recipes import MAX_SELECTION, RecipeCache
 from .resolve import Resolution, manual_deadline, resolve
 from .store import EPaperEngineStore
 
@@ -82,6 +86,12 @@ class EPaperEngineCoordinator:
         self.addon = AddonClient(hass)
         self.addon.set_base((config.get("display") or {}).get("renderer_url"))
 
+        # Reads the credentials through a callback rather than getting them
+        # handed over once: the panel can change the account at any time, and a
+        # cache holding the login it was built with would keep using the old one
+        # until the next restart.
+        self.recipes = RecipeCache(hass, lambda: self.config["recipes"].get("paprika_login"))
+
         self.target: Resolution = resolve(config, state, {}, dt_util.utcnow())
         self.display: dict[str, Any] = {}
         # Why the last request to the add-on failed, if it did. Not a run result:
@@ -91,6 +101,7 @@ class EPaperEngineCoordinator:
 
         self._unsubscribe: list[CALLBACK_TYPE] = []
         self._schedule_watch: CALLBACK_TYPE | None = None
+        self._recipe_timer: CALLBACK_TYPE | None = None
         self._manual_timer: CALLBACK_TYPE | None = None
         self._pending: tuple[str, bool] = ("startup", False)
         self._debouncer = Debouncer(
@@ -104,6 +115,7 @@ class EPaperEngineCoordinator:
     # --- lifecycle ------------------------------------------------------------
     async def async_setup(self) -> None:
         """Start the timers and the listeners (FSD §6.1)."""
+        await self.recipes.async_load()
         self._async_refresh_target(render=False)
         self._async_watch_schedules()
         self._async_arm_manual_timer()
@@ -120,6 +132,7 @@ class EPaperEngineCoordinator:
                 timedelta(minutes=DISPLAY_PROBE_INTERVAL_MIN),
             )
         )
+        self._async_arm_recipe_timer()
 
     async def async_shutdown(self) -> None:
         """Drop every timer and listener — a reload must not leave one behind."""
@@ -132,6 +145,9 @@ class EPaperEngineCoordinator:
         if self._manual_timer is not None:
             self._manual_timer()
             self._manual_timer = None
+        if self._recipe_timer is not None:
+            self._recipe_timer()
+            self._recipe_timer = None
         await self._debouncer.async_shutdown()
 
     # --- state ----------------------------------------------------------------
@@ -276,6 +292,58 @@ class EPaperEngineCoordinator:
 
         self._manual_timer = async_track_point_in_utc_time(self.hass, _lapsed, deadline)
 
+    # --- recipes (FSD §9) -----------------------------------------------------
+    @callback
+    def _async_arm_recipe_timer(self, catch_up: bool = True) -> None:
+        """(Re)start the sync clock, and catch up if a sync is overdue.
+
+        Two things in one place on purpose. The timer alone would leave a fresh
+        installation with an empty cache until the interval elapsed — a whole
+        day of "no recipes" after typing in the account. ``catch_up`` closes
+        that, and it stays rate-limit-safe because it syncs only when one is
+        actually **due**: a restart loop cannot turn into a request loop.
+        """
+        if self._recipe_timer is not None:
+            self._recipe_timer()
+            self._recipe_timer = None
+
+        hours = float(
+            (self.config.get("recipes") or {}).get("sync_interval_h")
+            or DEFAULT_RECIPE_SYNC_INTERVAL_H
+        )
+        hours = max(hours, 1.0)  # a sub-hour sync clock is an accident, not a wish
+
+        async def _tick(_now: datetime) -> None:
+            await self.async_sync_recipes()
+
+        self._recipe_timer = async_track_time_interval(
+            self.hass, _tick, timedelta(hours=hours)
+        )
+        if catch_up and self._recipe_sync_due(hours):
+            self.hass.async_create_task(self.async_sync_recipes())
+
+    def _recipe_sync_due(self, hours: float) -> bool:
+        """Is the cache older than the interval? No credentials = nothing due."""
+        if not (self.config.get("recipes") or {}).get("paprika_login"):
+            return False
+        last = self.recipes.synced_at
+        if not last:
+            return True
+        parsed = dt_util.parse_datetime(str(last))
+        if parsed is None:
+            return True
+        return dt_util.utcnow() - parsed >= timedelta(hours=hours)
+
+    async def async_sync_recipes(self) -> dict[str, Any]:
+        """Pull the collection from Paprika and tell everybody what came of it."""
+        status = await self.recipes.async_sync()
+        # The wall may be showing one of these very recipes, so a sync that
+        # changed something is a reason to render — but only then.
+        if status.get("fetched") or status.get("removed"):
+            self.async_request_render("recipes")
+        self._async_notify()
+        return status
+
     def next_change_at(self) -> datetime | None:
         """When the wall is next due to change on its own.
 
@@ -356,10 +424,21 @@ class EPaperEngineCoordinator:
             else:
                 self.config[section] = values
 
+        # Three columns is a layout constant, not a preference (FSD §8.2). The
+        # panel enforces it too; this is where it has to hold, because the store
+        # is what the renderer reads.
+        recipes_cfg = self.config.get("recipes") or {}
+        selection = [str(uid) for uid in (recipes_cfg.get("selection") or []) if uid]
+        recipes_cfg["selection"] = selection[:MAX_SELECTION]
+
         await self.store.async_save_config(self.config)
         self.addon.set_base((self.config.get("display") or {}).get("renderer_url"))
         self._async_watch_schedules()
         self._async_arm_manual_timer()
+        if "recipes" in patch:
+            # Covers both halves of that page: a changed interval moves the
+            # clock, and a freshly typed account makes the first sync due.
+            self._async_arm_recipe_timer()
 
         changed_target = self._async_refresh_target()
         if not changed_target and RENDER_RELEVANT & set(patch):
@@ -504,7 +583,17 @@ class EPaperEngineCoordinator:
                 "slot": self.photo_slot(),
             },
             "guests": dict(cfg["guests"]),
-            "recipes": {"selection": list(cfg["recipes"].get("selection") or [])},
+            # **The full text of the selected recipes travels here** (FSD §9.1):
+            # the add-on never talks to Paprika, so whatever is not in this
+            # document does not exist as far as the wall is concerned. Three
+            # recipes are a few kilobytes — fine for a service response, and the
+            # exact reason ``get_render_data`` is not an entity attribute.
+            "recipes": {
+                "selection": list(cfg["recipes"].get("selection") or []),
+                "items": self.recipes.selected(
+                    [str(uid) for uid in (cfg["recipes"].get("selection") or [])]
+                ),
+            },
             "calendar": {"sources": list(cfg["calendar"].get("sources") or [])},
             "layout": {
                 "color_bar_px": cfg["calendar"].get("color_bar_px"),
@@ -531,6 +620,9 @@ class EPaperEngineCoordinator:
             "guests_active": bool(self.state.get("guests_active")),
             "next_change": next_change.isoformat() if next_change else None,
             "display": self.display,
+            # Small and fixed in size — the collection itself goes over
+            # ``recipes/search``, never through here.
+            "recipes": self.recipes.status(),
             "addon_error": self.addon_error,
             "addon_url": self.addon.base,
             # Unsigned on purpose — the frontend signs it through ``auth/sign_path``
