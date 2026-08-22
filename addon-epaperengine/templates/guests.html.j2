@@ -5,18 +5,16 @@
   Schreibschrift auf einem Hintergrundbild." [Festlegung C13]
 
   Everything that could be decided has been decided already, in
-  ``guest_layout.py``: which face, at which size, broken into which lines, and
-  how tall the band behind them is. This file only draws it. That split is the
+  ``guest_layout.py``: which face, at which size, in which colour, at which
+  angle, broken into which lines. This file only draws it. That split is the
   lesson from the first recipe image — CSS re-wrapping what Python had budgeted
-  for is how text runs off a canvas nobody is watching.
+  for is how text runs off a canvas nobody is watching, and with the block now
+  rotated it would be off the canvas twice over.
 
-  The band is the first of the three remedies FSD §8.4 names against the dither
-  raster of the photo (band → quiet picture area → outline). Grey 200, flat and
-  several hundred pixels tall: the measured failure of grey was a 2 px rule
-  breaking up into dots, which a large area does not do. It is dropped when
-  there is no picture — on flat white it would be a grey stripe for nothing, and
-  grey on white is the one pairing that carries a visible raster right where the
-  text sits.
+  **The text has no ground of its own** [Festlegung P23]. The lightened band of
+  FSD §8.4 is gone; what carries the contrast against the dither raster of the
+  photo is the **colour**, and it comes from the six Spectra primaries so the
+  glyph edges stay solid instead of speckling.
 
   Dependency-free apart from the two file:// URLs it is given (the picture and
   the font file). Both are already on local disk when this renders.
@@ -55,24 +53,24 @@
         height: 1440px;
         object-fit: cover;
       }
-      .band {
-        position: absolute;
-        left: 0;
-        width: 2560px;
-        background: rgb({{ band_grey }}, {{ band_grey }}, {{ band_grey }});
-      }
       .text {
         position: absolute;
-        left: 0;
-        width: 2560px;
-        box-sizing: border-box;
-        padding: 0 160px;
+        left: 50%;
+        top: 50%;
+        /* Shrink-wrapped, not full width: the box is rotated about its own
+           centre, and ``guest_layout`` measured the rotated bounding box of
+           exactly this box. A 2.560 px container would turn every tilt into a
+           diagonal several screens wide. */
+        width: max-content;
+        max-width: 2240px;
         text-align: center;
+        transform: translate(-50%, -50%) rotate({{ plan.angle }}deg);
         /* The family is named *and* declared through @font-face above; the two
            are the same file. "cursive" is the last resort and would be visible
            at a glance, which is the point of naming it rather than sans-serif. */
         font-family: "{{ plan.font_family }}", "epaperengine-script", cursive;
         font-weight: {{ plan.font_weight }};
+        color: {{ plan.color }};
       }
       .line {
         white-space: nowrap;
@@ -86,29 +84,29 @@
         line-height: {{ line_height }};
       }
       /* Nothing typed yet. Not an error — the section exists from the first
-         start — so it says so quietly in the one font that is always there. */
+         start — so it says so quietly in the one font that is always there, and
+         in black, whatever colour the greeting would have had: a white notice
+         on a white page would be no notice at all. */
       .empty {
         font-family: "DejaVu Sans", sans-serif;
         font-size: 56px;
-        color: #555;
+        color: #000;
       }
     </style>
   </head>
   <body>
     <div class="stage">
       {% if plan.background_url %}<img src="{{ plan.background_url }}" alt="" />{% endif %}
-      {% if plan.band %}
-      <div class="band" style="top: {{ plan.band_top }}px; height: {{ plan.band_height }}px"></div>
-      {% endif %}
-      <div class="text" style="top: {{ plan.band_top + band_pad_y }}px">
+      <div class="text">
         {% if plan.name.lines or plan.greeting.lines %}
         <div class="name">
           {% for line in plan.name.lines %}<div class="line">{{ line }}</div>{% endfor %}
         </div>
         {% if plan.greeting.lines %}
         {# The gap only exists between two blocks. Hard-coding it as a margin
-           would add 48 px that ``guest_layout`` did not put into the band when
-           only one of the two fields is filled. #}
+           would add 48 px that ``guest_layout`` did not put into the block
+           height when only one of the two fields is filled — and the rotated
+           bounding box is measured off that height. #}
         <div class="greeting" style="margin-top: {{ block_gap if plan.name.lines else 0 }}px">
           {% for line in plan.greeting.lines %}<div class="line">{{ line }}</div>{% endfor %}
         </div>

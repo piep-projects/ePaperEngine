@@ -32,6 +32,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "addon-epaperengine"))
 
 import guest_layout as gl  # noqa: E402
+import imaging  # noqa: E402
 
 TEMPLATE = REPO_ROOT / "addon-epaperengine" / "templates" / "guests.html.j2"
 COMPONENT = REPO_ROOT / "custom_components" / "epaperengine"
@@ -100,6 +101,35 @@ class TestFontsShipAndOpen(unittest.TestCase):
             for token in gl.FONTS:
                 self.assertIn(f"guests.font.{token}", catalog, f"{lang}: no label for {token}")
 
+    def test_the_panel_offers_the_same_colours(self) -> None:
+        source = (COMPONENT / "panel" / "epaperengine-panel.js").read_text(encoding="utf-8")
+        listed = re.search(r"const GUEST_COLORS = \{(.*?)\};", source, re.S)
+        self.assertIsNotNone(listed, "GUEST_COLORS not found in the panel")
+        self.assertEqual(set(re.findall(r"(\w+):", listed.group(1))), set(gl.COLORS))
+
+    def test_every_colour_has_a_label_in_both_catalogs(self) -> None:
+        import json
+
+        for lang in ("en", "de"):
+            catalog = json.loads(
+                (COMPONENT / "frontend_i18n" / f"{lang}.json").read_text(encoding="utf-8")
+            )
+            for token in gl.COLORS:
+                self.assertIn(f"guests.color.{token}", catalog, f"{lang}: no label for {token}")
+
+    def test_the_integration_knows_the_same_colours(self) -> None:
+        tree = ast.parse((COMPONENT / "const.py").read_text(encoding="utf-8"))
+        literals = {
+            node.target.id: node.value
+            for node in tree.body
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+        }
+        tokens = {
+            str(element.value)  # type: ignore[attr-defined]
+            for element in literals["GUEST_COLORS"].elts  # type: ignore[attr-defined]
+        }
+        self.assertEqual(tokens, set(gl.COLORS), "const.GUEST_COLORS and COLORS differ")
+
     def test_the_panel_offers_the_same_faces(self) -> None:
         source = (COMPONENT / "panel" / "epaperengine-panel.js").read_text(encoding="utf-8")
         listed = re.search(r"const GUEST_FONTS = \[(.*?)\];", source, re.S)
@@ -166,37 +196,60 @@ class TestPlan(unittest.TestCase):
         plan = gl.plan({})
         self.assertEqual(plan.font_family, gl.FONTS[gl.DEFAULT_FONT]["family"])
         self.assertEqual(plan.name.lines, ())
-        self.assertFalse(plan.band)
+        self.assertEqual(plan.color, gl.COLORS[gl.DEFAULT_COLOR])
+        self.assertEqual(plan.angle, 0.0)
 
     def test_an_unknown_font_token_falls_back(self) -> None:
         """A typo in the store must not be the reason the wall goes dark."""
         plan = gl.plan({"name": "Berger", "font": "comic_sans"})
         self.assertEqual(plan.font_family, gl.FONTS[gl.DEFAULT_FONT]["family"])
 
-    def test_the_band_needs_a_picture_and_some_text(self) -> None:
-        both = gl.plan({"name": "Berger", "band": True}, "file:///b.jpg")
-        self.assertTrue(both.band)
-        # On flat white the band would be a grey stripe for nothing — and grey
-        # on white is the one pairing that shows a dither raster behind the text.
-        self.assertFalse(gl.plan({"name": "Berger", "band": True}).band)
-        self.assertFalse(gl.plan({"band": True}, "file:///b.jpg").band)
-        self.assertFalse(gl.plan({"name": "Berger", "band": False}, "file:///b.jpg").band)
+    def test_the_colour_is_always_a_spectra_primary(self) -> None:
+        """The whole reason the colour is a closed list [P23]: anything else is
+        mixed out of these six by dithering, and on a glyph edge that reads as
+        speckle rather than as a tint."""
+        for token, rgb in gl.COLORS.items():
+            self.assertIn(rgb, imaging.SPECTRA, f"{token} {rgb} is not a panel primary")
+        self.assertEqual(len(gl.COLORS), len(imaging.SPECTRA))
 
-    def test_the_band_covers_the_text_it_sits_behind(self) -> None:
-        plan = gl.plan(
-            {"name": "Familie Berger", "greeting": "Schön, dass ihr da seid!"}, "file:///b.jpg"
-        )
-        text = plan.name.height + gl.BLOCK_GAP + plan.greeting.height
-        self.assertGreaterEqual(plan.band_height, text + 2 * gl.BAND_PAD_Y - 1)
-        self.assertGreaterEqual(plan.band_top, 0)
-        self.assertLessEqual(plan.band_top + plan.band_height, gl.CANVAS_H)
+    def test_an_unknown_colour_falls_back(self) -> None:
+        self.assertEqual(gl.plan({"color": "puce"}).color, gl.COLORS[gl.DEFAULT_COLOR])
 
-    def test_the_gap_is_only_counted_between_two_blocks(self) -> None:
-        """The template adds the gap only when both are set; the band must be
-        measured the same way or it comes out 48 px too short."""
-        only_name = gl.plan({"name": "Berger"}, "file:///b.jpg")
-        self.assertEqual(only_name.band_height, only_name.name.height + 2 * gl.BAND_PAD_Y)
+    def test_the_colour_reaches_the_template_as_css(self) -> None:
+        self.assertEqual(gl.plan({"color": "white"}).as_dict()["color"], "rgb(255, 255, 255)")
 
+    def test_the_angle_is_bounded_and_survives_nonsense(self) -> None:
+        self.assertEqual(gl.plan({"angle": 90}).angle, gl.ANGLE_LIMIT)
+        self.assertEqual(gl.plan({"angle": -90}).angle, -gl.ANGLE_LIMIT)
+        self.assertEqual(gl.plan({"angle": "schräg"}).angle, 0.0)
+        self.assertEqual(gl.plan({}).angle, 0.0)
+
+    def test_a_tilted_block_still_fits_the_canvas(self) -> None:
+        """The property the whole fitting loop exists for. A name that fits
+        lying flat claims ``w·cos + h·sin`` once tilted — without this check it
+        would hang over the edge of the panel and be clipped in silence."""
+        long_name = "Familie Berger-Wiedemann und die ganze Verwandtschaft"
+        for angle in (0, 10, 25, 40, 45, -30):
+            plan = gl.plan(
+                {"name": long_name, "greeting": "Schön, dass ihr da seid!", "angle": angle}
+            )
+            self.assertLessEqual(plan.box_w, gl.TEXT_W, f"{angle}°: too wide")
+            self.assertLessEqual(plan.box_h, gl.TEXT_H, f"{angle}°: too tall")
+
+    def test_tilting_costs_type_size_rather_than_the_canvas(self) -> None:
+        """It has to give somewhere, and the specification says never the text
+        (P21) — so it is the size that gives."""
+        long_name = "Familie Berger-Wiedemann und die ganze Verwandtschaft"
+        flat = gl.plan({"name": long_name, "angle": 0})
+        steep = gl.plan({"name": long_name, "angle": 40})
+        self.assertLess(steep.name.font_px, flat.name.font_px)
+        self.assertEqual(" ".join(steep.name.lines), long_name)
+
+    def test_the_rotated_box_maths(self) -> None:
+        self.assertEqual(gl.rotated_box(1000, 400, 0), (1000, 400))
+        self.assertEqual(gl.rotated_box(1000, 400, 90), (400, 1000))
+        # 45° is the symmetric case: both sides become (w + h) / √2.
+        self.assertEqual(gl.rotated_box(1000, 400, 45), gl.rotated_box(1000, 400, -45))
 
 class TestTemplateAgreesWithTheModel(unittest.TestCase):
     """The page sets in CSS what the module measured in Python."""
@@ -208,8 +261,23 @@ class TestTemplateAgreesWithTheModel(unittest.TestCase):
         self.assertIn(f"width: {gl.CANVAS_W}px", self.source)
         self.assertIn(f"height: {gl.CANVAS_H}px", self.source)
 
-    def test_the_margin_matches(self) -> None:
-        self.assertIn(f"padding: 0 {gl.MARGIN}px", self.source)
+    def test_the_block_is_shrink_wrapped_and_bounded(self) -> None:
+        """The box the fit measured is the box the browser draws: shrink-wrapped
+        and capped at the same width budget. A full-width container would turn
+        every tilt into a diagonal several screens wide."""
+        self.assertIn("width: max-content", self.source)
+        self.assertIn(f"max-width: {gl.TEXT_W}px", self.source)
+
+    def test_the_tilt_and_the_colour_come_from_the_plan(self) -> None:
+        self.assertIn("rotate({{ plan.angle }}deg)", self.source)
+        self.assertIn("color: {{ plan.color }}", self.source)
+
+    def test_the_text_has_no_ground_of_its_own(self) -> None:
+        """Festlegung P23. The band left, and nothing may creep back in as a
+        background on the text box — that is the whole point of the change."""
+        block = self.source[self.source.index(".text {"):]
+        block = block[: block.index("}")]
+        self.assertNotIn("background", block)
 
     def test_the_line_height_comes_from_the_model(self) -> None:
         """Not a literal in the CSS: it travels in as ``line_height`` so there

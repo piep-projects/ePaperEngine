@@ -215,8 +215,6 @@
   "panel.guests.font.greeting_px": "Schriftgrad Grußzeile",
   "panel.guests.font.px": "px",
   "panel.guests.font.hint": "Ausgangsgrade. Ein Name, der zu breit ist, wird kleiner gesetzt, bis er passt — abgeschnitten wird er nie.",
-  "panel.guests.band": "Aufgehelltes Band hinter dem Text",
-  "panel.guests.band.hint": "Grau 200 — belegt brauchbar, 170 ist die Untergrenze. Entfällt ohne Hintergrundbild.",
   "panel.guests.background": "Hintergrund",
   "panel.guests.background.none": "Kein Bild — flächiges Weiß",
   "panel.guests.background.folder": "Ordner: {path}",
@@ -231,5 +229,16 @@
   "guests.font.great_vibes": "Great Vibes",
   "card.guests.on": "Gästemodus an",
   "card.guests.since": "seit {time}",
-  "card.guests.end": "Besuch ist wieder weg"
+  "card.guests.end": "Besuch ist wieder weg",
+  "panel.guests.color": "Farbe",
+  "panel.guests.color.hint": "Sechs Farben, weil das Panel sechs hat. Alles andere würde daraus gedithert, und an einer Buchstabenkante ist das ein Sprenkel statt einer Tönung.",
+  "panel.guests.angle": "Neigung",
+  "panel.guests.angle.degrees": "Grad",
+  "panel.guests.angle.hint": "Positiv neigt im Uhrzeigersinn, höchstens ±45°. Ein geneigter Name braucht mehr Breite und wird deshalb unter Umständen kleiner gesetzt als ein waagerechter.",
+  "guests.color.black": "Schwarz",
+  "guests.color.white": "Weiß",
+  "guests.color.red": "Rot",
+  "guests.color.yellow": "Gelb",
+  "guests.color.blue": "Blau",
+  "guests.color.green": "Grün"
 }

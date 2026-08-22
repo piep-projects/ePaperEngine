@@ -501,8 +501,6 @@ def _render_guests(
             "language": text.language,
             "t": text,
             "plan": plan.as_dict(),
-            "band_grey": guest_layout.BAND_GREY,
-            "band_pad_y": guest_layout.BAND_PAD_Y,
             "block_gap": guest_layout.BLOCK_GAP,
             "line_height": guest_layout.LINE_HEIGHT,
         },
@@ -513,7 +511,11 @@ def _render_guests(
         **detail,
         "name_px": plan.name.font_px,
         "greeting_px": plan.greeting.font_px,
-        "band": plan.band,
+        "angle": plan.angle,
+        # The rotated bounding box against the 2.240 × 1.120 canvas budget. In
+        # the log because it is the one number that says whether the greeting
+        # had room or was squeezed into it.
+        "box": [plan.box_w, plan.box_h],
     }
 
 

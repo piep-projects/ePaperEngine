@@ -12,10 +12,21 @@ picture**, and the picture is chosen in the panel.
 danger is not the stroke width — at 180 px even a script's thin connecting
 strokes are far above the 2 px floor of FSD §7 — but the **contrast against the
 dither raster of the photo**, and it names the remedies in order: a lightened
-band behind the text → a quiet area of the picture → an outline. The band is
-built here (grey 200, the level Phase 1 measured as usable, with 170 as the
-lower bound); the other two are left to whoever picks the picture, because no
-code can tell a quiet sky from a busy hedge.
+band behind the text → a quiet area of the picture → an outline.
+
+**The band is gone** [Festlegung P23, 2026-08-22]: the greeting sits directly on
+the picture, with no ground of its own. What takes its place is the **colour**,
+which is now chosen rather than assumed — white script over a dark photo is the
+same remedy the band was, without covering a third of the picture with a stripe.
+The colour is picked from the six Spectra primaries and from nothing else: any
+other value would be dithered into a raster, and a rastered glyph edge is
+exactly the thing FSD §8.4 warns about. The other two remedies stay with whoever
+picks the picture, because no code can tell a quiet sky from a busy hedge.
+
+**The text can be set at an angle** [Festlegung P23]. That is not free: a block
+rotated by θ needs ``w·|cos θ| + h·|sin θ|`` of horizontal room, so a name that
+fits lying flat can hang over the edge at 20°. The fit is therefore measured
+against the **rotated bounding box**, not against the line width — see ``plan``.
 
 **The type size is measured, not guessed.** ``recipe_layout`` had to estimate
 character widths because DejaVu was a system font it could not open; here the
@@ -31,6 +42,7 @@ image ran off the bottom of the canvas.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -46,6 +58,11 @@ CANVAS_H = 1440
 # upright sans, so the text is fitted into a little less than what is left.
 MARGIN = 160
 TEXT_W = CANVAS_W - 2 * MARGIN  # 2240
+# The vertical budget. It only started to matter with the angle: a block set at
+# 30° is taller than it is deep, and until now nothing measured the height at
+# all — the band was simply centred and would have run off the canvas without
+# anybody noticing.
+TEXT_H = CANVAS_H - 2 * MARGIN  # 1120
 SAFETY = 0.98  # a hair of room for the swash of a capital
 
 # --- the faces ----------------------------------------------------------------
@@ -94,14 +111,40 @@ GREETING_MAX_LINES = 3
 # lowercase g clear of the capital below it.
 LINE_HEIGHT = 1.3
 
-# --- the band -----------------------------------------------------------------
-# Grey 200 [Festlegung, Phase 1: 200 is usable, 170 is the lower bound]. It is a
-# flat area, not a hairline, so the dither raster does it no harm — the measured
-# failure of grey was a 2 px rule breaking up into dots, which is a different
-# problem from a 300 px band.
-BAND_GREY = 200
-BAND_PAD_Y = 72
 BLOCK_GAP = 48  # between the name and the greeting line
+
+# --- the colour ---------------------------------------------------------------
+# **The six Spectra primaries and nothing else** [Festlegung P23]. This is not a
+# restriction of the picker, it is what the panel can actually show: a colour off
+# the palette is reproduced by *dithering* it out of the six, and on a glyph edge
+# that comes out as a speckled outline rather than a tint. The same lesson cost a
+# hairline in phase 5.3 — a 2 px grey rule dithered into a dotted trail — and it
+# is why the recipe headings are palette blue and palette green.
+#
+# ``tests/test_guest_layout.py`` checks every value against ``imaging.SPECTRA``,
+# so a colour that is not a primary cannot be added by accident.
+COLORS: dict[str, tuple[int, int, int]] = {
+    "black": (0, 0, 0),
+    "white": (255, 255, 255),
+    "red": (220, 30, 30),
+    "yellow": (240, 200, 30),
+    "blue": (30, 60, 180),
+    "green": (30, 140, 70),
+}
+DEFAULT_COLOR = "black"
+
+# --- the angle ----------------------------------------------------------------
+# Degrees, positive is clockwise (the CSS sense). Bounded rather than free: past
+# 45° the block is more vertical than horizontal on a 16:9 canvas, and every
+# extra degree costs type size for nothing — the fit below would simply shrink
+# the name until it fitted the diagonal.
+ANGLE_LIMIT = 45.0
+
+# How the width budget is walked down when the rotated block does not fit. 4 % a
+# step converges in a handful of passes and never overshoots by much; measuring
+# is cheap (the font is already open) so there is no reason to jump.
+WIDTH_STEP = 0.96
+WIDTH_PASSES = 30
 
 
 @dataclass(frozen=True)
@@ -139,9 +182,16 @@ class GuestPlan:
     font_family: str
     font_weight: int
     font_url: str
-    band: bool
-    band_top: int
-    band_height: int
+    color: tuple[int, int, int]
+    angle: float
+    # The block as it ends up on the canvas: the width of its widest line, its
+    # stacked height, and the axis-aligned box those two occupy once rotated.
+    # Reported rather than kept private because it is the thing the fit was
+    # working towards, and a run that came out cramped should say so in its log.
+    width: int
+    height: int
+    box_w: int
+    box_h: int
     background_url: str | None
 
     def as_dict(self) -> dict[str, Any]:
@@ -151,9 +201,15 @@ class GuestPlan:
             "font_family": self.font_family,
             "font_weight": self.font_weight,
             "font_url": self.font_url,
-            "band": self.band,
-            "band_top": self.band_top,
-            "band_height": self.band_height,
+            # Handed over as CSS, not as three numbers: the template has no
+            # business assembling a colour, and a stray value could not become
+            # markup here even if it tried.
+            "color": "rgb(%d, %d, %d)" % self.color,
+            "angle": self.angle,
+            "width": self.width,
+            "height": self.height,
+            "box_w": self.box_w,
+            "box_h": self.box_h,
             "background_url": self.background_url,
         }
 
@@ -264,12 +320,45 @@ def fit(
     )
 
 
+def block_size(name: TextBlock, greeting: TextBlock, font_id: str) -> tuple[int, int]:
+    """The unrotated box the two blocks occupy: widest line × stacked height."""
+    width = 0.0
+    for block in (name, greeting):
+        for line in block.lines:
+            width = max(width, width_of(line, font_id, block.font_px))
+    height = name.height + greeting.height
+    if name.lines and greeting.lines:
+        height += BLOCK_GAP
+    return round(width), height
+
+
+def rotated_box(width: int, height: int, angle: float) -> tuple[int, int]:
+    """The axis-aligned box a ``width × height`` block fills once rotated.
+
+    Plain trigonometry, and the reason the angle is not free of charge: at 30° a
+    2.000 px line already claims 1.732 px of width *plus* half its own height
+    again. A layout that ignored this would let a name that fits lying flat hang
+    over the edge of the panel the moment somebody tilted it.
+    """
+    radians = math.radians(abs(angle))
+    cos, sin = abs(math.cos(radians)), abs(math.sin(radians))
+    return round(width * cos + height * sin), round(width * sin + height * cos)
+
+
 def plan(config: dict[str, Any], background_url: str | None = None) -> GuestPlan:
     """Turn the ``guests`` section of the render document into a finished layout.
 
     Reads defensively — every field may be missing or ``None``, because the
     section exists from the first start while nobody has typed anything into it
     yet, and an empty guest page is a legitimate thing to render.
+
+    **The fit is against the rotated box, not the line width** [Festlegung P23].
+    The two are coupled — narrowing the budget wraps more lines, more lines make
+    the block taller, and a taller block claims more width once it is tilted —
+    so it is walked rather than solved: fit, measure the rotated box, and if it
+    hangs over the canvas, take 4 % off the budget and fit again. It converges
+    because ``fit`` bottoms out at its floor size; at that point the greeting is
+    as small as it may get and the loop stops arguing.
     """
     cfg = config or {}
     font_id = str(cfg.get("font") or DEFAULT_FONT)
@@ -277,32 +366,42 @@ def plan(config: dict[str, Any], background_url: str | None = None) -> GuestPlan
         font_id = DEFAULT_FONT
     entry = font_entry(font_id)
 
-    name = fit(
-        str(cfg.get("name") or ""),
-        font_id,
-        int(cfg.get("name_px") or DEFAULT_NAME_PX),
-        NAME_MAX_LINES,
-        NAME_FLOOR_PX,
-    )
-    greeting = fit(
-        str(cfg.get("greeting") or ""),
-        font_id,
-        int(cfg.get("greeting_px") or DEFAULT_GREETING_PX),
-        GREETING_MAX_LINES,
-        GREETING_FLOOR_PX,
-    )
+    color_id = str(cfg.get("color") or DEFAULT_COLOR)
+    color = COLORS.get(color_id) or COLORS[DEFAULT_COLOR]
 
-    text_height = name.height + greeting.height
-    if name.lines and greeting.lines:
-        text_height += BLOCK_GAP
+    try:
+        angle = float(cfg.get("angle") or 0.0)
+    except (TypeError, ValueError):
+        angle = 0.0
+    angle = max(-ANGLE_LIMIT, min(ANGLE_LIMIT, angle))
 
-    # The band is only worth its grey on top of a picture. On the flat white of
-    # a missing background it would be a grey stripe for nothing — and grey on
-    # white is the one combination that *does* carry a visible dither raster,
-    # right behind the text it is supposed to help.
-    band = bool(cfg.get("band", True)) and bool(background_url) and bool(text_height)
-    band_height = text_height + 2 * BAND_PAD_Y
-    band_top = max(0, (CANVAS_H - band_height) // 2)
+    name_px = int(cfg.get("name_px") or DEFAULT_NAME_PX)
+    greeting_px = int(cfg.get("greeting_px") or DEFAULT_GREETING_PX)
+
+    budget = float(TEXT_W)
+    name = greeting = TextBlock(lines=(), font_px=0, requested_px=0)
+    width = height = box_w = box_h = 0
+    for _pass in range(WIDTH_PASSES):
+        limit = round(budget)
+        name = fit(str(cfg.get("name") or ""), font_id, name_px, NAME_MAX_LINES, NAME_FLOOR_PX, limit)
+        greeting = fit(
+            str(cfg.get("greeting") or ""),
+            font_id,
+            greeting_px,
+            GREETING_MAX_LINES,
+            GREETING_FLOOR_PX,
+            limit,
+        )
+        width, height = block_size(name, greeting, font_id)
+        box_w, box_h = rotated_box(width, height, angle)
+        if box_w <= TEXT_W and box_h <= TEXT_H:
+            break
+        if name.font_px <= NAME_FLOOR_PX and greeting.font_px <= GREETING_FLOOR_PX:
+            # Both are as small as they are allowed to get. Shrinking the budget
+            # further would only wrap more lines and make the box taller — the
+            # honest thing is to stop and let the run report what it produced.
+            break
+        budget *= WIDTH_STEP
 
     return GuestPlan(
         name=name,
@@ -316,8 +415,11 @@ def plan(config: dict[str, Any], background_url: str | None = None) -> GuestPlan
         # to register would fall back to DejaVu, and "the greeting is not in
         # script" is a defect nobody sees until they walk past the wall.
         font_url=font_path(font_id).as_uri(),
-        band=band,
-        band_top=band_top,
-        band_height=band_height,
+        color=color,
+        angle=angle,
+        width=width,
+        height=height,
+        box_w=box_w,
+        box_h=box_h,
         background_url=background_url,
     )

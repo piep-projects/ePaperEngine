@@ -54,6 +54,20 @@ const RECIPE_SLOTS = 3;
 // in every catalog, because a typeface is a proper noun.
 const GUEST_FONTS = ["dancing_script", "caveat", "great_vibes"];
 
+// The colour of the greeting (const.py GUEST_COLORS, and the COLORS table of
+// the add-on's guest_layout.py). **The six Spectra primaries and nothing else**
+// — every other value is reproduced by dithering it out of these, and on a
+// glyph edge that is a speckled outline rather than a tint. The hex values here
+// are only for the swatches in the picker; what is stored is the token.
+const GUEST_COLORS = {
+  black: "#000000",
+  white: "#ffffff",
+  red: "#dc1e1e",
+  yellow: "#f0c81e",
+  blue: "#1e3cb4",
+  green: "#1e8c46",
+};
+
 // ---------------------------------------------------------------------------
 // i18n — same mechanism and the same catalogs as the card (i18n concept §4/§7).
 //
@@ -736,6 +750,14 @@ class EPaperEnginePanel extends HTMLElement {
                        text-align: center; color: var(--secondary-text-color);
                        background: var(--secondary-background-color); }
         .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .swatches { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+        .swatch { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px;
+                  border-radius: 16px; border: 1px solid var(--divider-color);
+                  background: var(--card-background-color); color: var(--primary-text-color);
+                  font: inherit; font-size: 0.85rem; cursor: pointer; }
+        .swatch.on { border-color: var(--primary-color); color: var(--primary-color); font-weight: 600; }
+        .swatch span { width: 16px; height: 16px; border-radius: 50%;
+                       border: 1px solid var(--divider-color); display: inline-block; }
         .row label { margin: 0; }
         .preview { width: 100%; border-radius: 8px; display: block; aspect-ratio: 16/9;
                    object-fit: contain; background: var(--secondary-background-color); }
@@ -1280,6 +1302,15 @@ class EPaperEnginePanel extends HTMLElement {
     const lock = admin ? "" : "disabled";
     const cache = this._backgrounds;
 
+    const swatches = Object.entries(GUEST_COLORS)
+      .map(
+        ([id, hex]) =>
+          `<button class="swatch ${guests.color === id ? "on" : ""}" data-color="${esc(id)}"
+             title="${esc(t(`guests.color.${id}`))}" ${lock}
+           ><span style="background:${esc(hex)}"></span>${esc(t(`guests.color.${id}`))}</button>`,
+      )
+      .join("");
+
     const fontOptions = GUEST_FONTS.map(
       (id) =>
         `<option value="${esc(id)}" ${guests.font === id ? "selected" : ""}>${esc(t(`guests.font.${id}`))}</option>`,
@@ -1352,11 +1383,15 @@ class EPaperEnginePanel extends HTMLElement {
           <span class="unit">${esc(t("panel.guests.font.px"))}</span>
         </div>
         <div class="muted">${esc(t("panel.guests.font.hint"))}</div>
-        <div class="row" style="margin-top:12px">
-          <input type="checkbox" id="guest-band" ${guests.band ? "checked" : ""} ${lock}>
-          <label for="guest-band">${esc(t("panel.guests.band"))}</label>
+        <label>${esc(t("panel.guests.color"))}</label>
+        <div class="swatches">${swatches}</div>
+        <div class="muted">${esc(t("panel.guests.color.hint"))}</div>
+        <label>${esc(t("panel.guests.angle"))}</label>
+        <div class="inline">
+          <input id="guest-angle" value="${esc(fmtNum(guests.angle ?? 0))}" ${lock}>
+          <span class="unit">${esc(t("panel.guests.angle.degrees"))}</span>
         </div>
-        <div class="muted">${esc(t("panel.guests.band.hint"))}</div>
+        <div class="muted">${esc(t("panel.guests.angle.hint"))}</div>
         <div class="actions"><button class="primary" data-save="guests" ${lock}>${esc(t("common.save"))}</button></div>
       </div>
 
@@ -1611,6 +1646,15 @@ class EPaperEnginePanel extends HTMLElement {
       this._render();
       this._loadBackgrounds();
     });
+    root.querySelectorAll("[data-color]").forEach((button) => {
+      button.onclick = () => {
+        // Read the rest of the page first: the swatch repaints the card, and a
+        // half-typed name would be rebuilt from the draft and lost.
+        this._collect();
+        this._draft.guests.color = button.dataset.color;
+        this._render();
+      };
+    });
     root.querySelectorAll("[data-background]").forEach((tile) => {
       if (!this.isAdmin) return;
       tile.onclick = () => this._pickBackground(tile.dataset.background);
@@ -1667,14 +1711,13 @@ class EPaperEnginePanel extends HTMLElement {
     }
     if (this._tab === "guests") {
       const font = root.querySelector("#guest-font");
-      const band = root.querySelector("#guest-band");
       this._draft.guests.name = value("#guest-name") || null;
       this._draft.guests.greeting = value("#guest-greeting") || null;
       if (font) this._draft.guests.font = font.value;
-      // A checkbox is read from ``checked``; ``value`` on one is the literal
-      // string "on" whether or not it is ticked, which would store a truthy
-      // band that can never be switched off again.
-      if (band) this._draft.guests.band = !!band.checked;
+      // Zero is a real angle, so the fallback has to be the draft value and the
+      // guard has to be isFinite — ``|| 0`` would be right by accident here and
+      // wrong the moment somebody clears the field.
+      this._draft.guests.angle = number("#guest-angle", this._draft.guests.angle ?? 0);
       this._draft.guests.name_px = number("#guest-name-px", this._draft.guests.name_px);
       this._draft.guests.greeting_px = number(
         "#guest-greeting-px",

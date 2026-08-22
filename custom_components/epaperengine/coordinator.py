@@ -39,6 +39,8 @@ from homeassistant.util import dt as dt_util
 from . import mediapath
 from .addon import AddonClient, AddonError
 from .const import (
+    DEFAULT_GUEST_ANGLE,
+    DEFAULT_GUEST_COLOR,
     DEFAULT_GUEST_FONT,
     DEFAULT_GUEST_GREETING_PX,
     DEFAULT_GUEST_NAME_PX,
@@ -82,13 +84,21 @@ GUEST_DEFAULTS: dict[str, Any] = {
     "font": DEFAULT_GUEST_FONT,
     "name_px": DEFAULT_GUEST_NAME_PX,
     "greeting_px": DEFAULT_GUEST_GREETING_PX,
-    "band": True,
+    "color": DEFAULT_GUEST_COLOR,
+    "angle": DEFAULT_GUEST_ANGLE,
 }
 
 
 def _normalise_guests(config: dict[str, Any]) -> None:
-    """Fill the guest fields that carry a default, in place."""
+    """Fill the guest fields that carry a default, in place.
+
+    ``band`` is dropped rather than left lying: it was a real key for one
+    afternoon (integration 0.9.0), the greeting has had no ground of its own
+    since [Festlegung P23], and a stale key in the document would come back as a
+    question every time somebody read the store.
+    """
     guests = config.setdefault("guests", {})
+    guests.pop("band", None)
     for key, default in GUEST_DEFAULTS.items():
         if guests.get(key) is None:
             guests[key] = default

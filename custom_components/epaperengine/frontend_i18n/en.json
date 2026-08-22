@@ -215,8 +215,6 @@
   "panel.guests.font.greeting_px": "Greeting size",
   "panel.guests.font.px": "px",
   "panel.guests.font.hint": "Starting sizes. A name too long for the width shrinks until it fits; it is never cut.",
-  "panel.guests.band": "Lightened band behind the text",
-  "panel.guests.band.hint": "Grey 200 — measured usable, 170 is the lower bound. Dropped when no background is set.",
   "panel.guests.background": "Background",
   "panel.guests.background.none": "No picture — flat white",
   "panel.guests.background.folder": "Folder: {path}",
@@ -231,5 +229,16 @@
   "guests.font.great_vibes": "Great Vibes",
   "card.guests.on": "Guest mode on",
   "card.guests.since": "since {time}",
-  "card.guests.end": "Visitors have left"
+  "card.guests.end": "Visitors have left",
+  "panel.guests.color": "Colour",
+  "panel.guests.color.hint": "Six colours, because the panel has six. Anything else would be mixed from these by dithering, and on a letter's edge that shows as speckle instead of a tint.",
+  "panel.guests.angle": "Tilt",
+  "panel.guests.angle.degrees": "degrees",
+  "panel.guests.angle.hint": "Positive tilts clockwise, ±45° at most. A tilted name needs more width, so it may end up set smaller than a level one.",
+  "guests.color.black": "Black",
+  "guests.color.white": "White",
+  "guests.color.red": "Red",
+  "guests.color.yellow": "Yellow",
+  "guests.color.blue": "Blue",
+  "guests.color.green": "Green"
 }

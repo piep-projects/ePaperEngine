@@ -176,6 +176,31 @@ DEFAULT_GUEST_FONT: Final = GUEST_FONT_DANCING_SCRIPT
 DEFAULT_GUEST_NAME_PX: Final = 180
 DEFAULT_GUEST_GREETING_PX: Final = 72
 
+# The colour of the greeting [Festlegung P23]. **The six Spectra primaries and
+# nothing else** — a colour off the palette is reproduced by dithering it out of
+# these six, and on a glyph edge that comes out as a speckled outline rather
+# than a tint. Same lesson as the grey hairline of phase 5.3 and the reason the
+# recipe headings are palette blue and palette green.
+#
+# English tokens like every stored identifier; the labels live in the frontend
+# catalogs, and ``tests/test_guest_layout.py`` holds this tuple, the add-on's
+# ``COLORS``, the panel's picker and the catalogs together.
+GUEST_COLORS: Final[tuple[str, ...]] = (
+    "black",
+    "white",
+    "red",
+    "yellow",
+    "blue",
+    "green",
+)
+DEFAULT_GUEST_COLOR: Final = "black"
+
+# Tilt of the whole text block in degrees, positive clockwise. Bounded in the
+# add-on (``guest_layout.ANGLE_LIMIT``): past 45° the block is more vertical
+# than horizontal on a 16:9 canvas and every further degree only costs type
+# size.
+DEFAULT_GUEST_ANGLE: Final = 0
+
 # Add-on endpoints (FSD §3.2). The base address is configuration
 # (``display.renderer_url``) because the add-on may run on another host.
 ADDON_RENDER_PATH: Final = "/render"

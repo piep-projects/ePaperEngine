@@ -21,6 +21,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from .const import (
+    DEFAULT_GUEST_ANGLE,
+    DEFAULT_GUEST_COLOR,
     DEFAULT_GUEST_FONT,
     DEFAULT_GUEST_GREETING_PX,
     DEFAULT_GUEST_NAME_PX,
@@ -107,9 +109,13 @@ def default_config() -> dict[str, Any]:
             "font": DEFAULT_GUEST_FONT,  # one of const.GUEST_FONTS
             "name_px": DEFAULT_GUEST_NAME_PX,
             "greeting_px": DEFAULT_GUEST_GREETING_PX,
-            # The lightened band behind the text — the first of the three
-            # remedies FSD §8.4 names against the dither raster of the photo.
-            "band": True,
+            # One of const.GUEST_COLORS — a Spectra primary, so the glyph edges
+            # carry no dither raster (FSD §8.4, Festlegung P23). This is what
+            # replaced the lightened band: white script over a dark picture is
+            # the same remedy without covering a third of it with a stripe.
+            "color": DEFAULT_GUEST_COLOR,
+            # Degrees, positive clockwise. The add-on bounds it at ±45°.
+            "angle": DEFAULT_GUEST_ANGLE,
         },
     }
 
