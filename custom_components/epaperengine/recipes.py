@@ -37,6 +37,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
+from . import recipe_layout
 from .const import STORAGE_VERSION, STORE_RECIPES
 from .paprika import TRASH_FIELD, PaprikaClient, PaprikaError
 
@@ -130,66 +131,29 @@ def recipe_length(recipe: dict[str, Any]) -> int:
 
 
 # --- the forecast for the panel -----------------------------------------------
-# **The add-on decides, this only warns.** ``recipe_layout.py`` measures the
-# column properly when it renders; what happens here is a coarse copy of the
-# same model, so the panel can say "this one will be cut" *before* somebody
-# picks it and waits a minute for the wall.
-#
-# Coarse, but not in characters. A character budget is what got the first
-# version wrong: an ingredient list of nineteen short items is 285 characters
-# and nineteen lines, and the wall sets lines.
-#
-# The verdict depends on **how many recipes share the screen** — one recipe gets
-# the whole 2.400 px in three sub-columns, two get 1.180 px each, three get
-# 773 px. So the forecast is made for "what happens if you add this one to what
-# is already picked", which is the question somebody looking at the hit list is
-# actually asking.
-_SLOT_WIDTH = {1: 2400, 2: 1180, 3: 773}
-_SUB_COLUMNS = {1: 3, 2: 1, 3: 1}
-_LINE_PX = {28: 40, 26: 37, 24: 34}
-_CHAR_RATIO = 0.531
-_TITLE_PX = 32
-_TITLE_LINE = 46
-_HEAD_CHROME = 72   # meta line plus the rule and its gap
-_HEADING = 52
-_GROUP_GAP = 20
-_COLUMN_PX = 1280   # 1440 minus the 80 px margins
-
-
-def _chars(px: int, width: int) -> int:
-    return max(round(width / (_CHAR_RATIO * px)), 1)
-
-
-def _wrapped(text: str, limit: int) -> int:
-    """Lines a block of free text costs — every source line at least one."""
-    total = 0
-    for line in str(text or "").split("\n"):
-        total += max(-(-len(line) // limit), 1)
-    return total
-
-
 def forecast(recipe: dict[str, Any], slots: int = MAX_SELECTION) -> str:
     """``"28"``, ``"26"``, ``"24"`` or ``"cut"`` — what the wall will do with it.
 
-    ``slots`` is how many recipes will be sharing the screen.
+    **The same code the add-on renders with.** ``recipe_layout.py`` is a copy of
+    the add-on's own module, kept byte-identical by ``scripts/publish.py`` and
+    guarded by ``tests/test_shared.py``. The first version of this forecast was
+    a coarse re-implementation, and it did exactly what a second copy of a model
+    does: it told the user a recipe would be shortened while the wall was
+    rendering it in full, because it did not know the ingredient list splits
+    into sub-columns.
+
+    ``slots`` is how many recipes will share the screen — one gets the whole
+    2.400 px, two get 1.180 px each, three get 773 px. The panel asks for
+    "this one **plus** what is already picked", which is the question somebody
+    looking at the hit list is actually asking.
     """
     slots = min(max(int(slots or 1), 1), MAX_SELECTION)
-    width = _SLOT_WIDTH[slots]
-    columns = _SUB_COLUMNS[slots]
-    name = str(recipe.get("name") or "")
-    ingredients = str(recipe.get("ingredients") or "").strip()
-    directions = str(recipe.get("directions") or "").strip()
-
-    title_lines = max(-(-len(name) // _chars(_TITLE_PX, width)), 1)
-    head = title_lines * _TITLE_LINE + _HEAD_CHROME
-    for size in (28, 26, 24):
-        line_px = _LINE_PX[size]
-        limit = _chars(size, width // columns)
-        available = ((_COLUMN_PX - head) // line_px - 1) * columns
-        chrome = -(-_HEADING // line_px) * 2 + -(-_GROUP_GAP // line_px)
-        if _wrapped(ingredients, limit) + _wrapped(directions, limit) + chrome <= available:
-            return str(size)
-    return "cut"
+    column = recipe_layout.build_column(
+        recipe,
+        width=recipe_layout.slot_width(slots),
+        columns=recipe_layout.sub_columns(slots),
+    )
+    return "cut" if column.truncated else str(column.font_px)
 
 
 def selected(document: dict[str, Any], uids: list[str]) -> list[dict[str, Any]]:
