@@ -25,7 +25,12 @@ const ICON = "mdi:image-frame"; // const.py PANEL_ICON
 
 // Nav order. The three pages without a view yet stay visible on purpose: the
 // navigation should not change shape when phase 5 lands.
-const TABS = ["overview", "views", "calendar", "recipes", "photos", "guests", "display"];
+// "Settings" is everything an administrator sets once and then forgets
+// [Festlegung 2026-08-22]: the display, the Paprika account, the image paths.
+// The view tabs keep what gets touched — the selection, the schedules, the
+// cache state. It also draws the permission line in one place instead of half way
+// down three pages.
+const TABS = ["overview", "views", "calendar", "recipes", "photos", "guests", "settings"];
 const TABS_PENDING = new Set(["calendar", "guests"]);
 
 const VIEWS = ["calendar", "recipes", "photos", "guests", "error"];
@@ -735,7 +740,7 @@ class EPaperEnginePanel extends HTMLElement {
       views: () => this._pageViews(),
       recipes: () => this._pageRecipes(),
       photos: () => this._pagePhotos(),
-      display: () => this._pageDisplay(),
+      settings: () => this._pageSettings(),
     }[this._tab];
     return this._banner() + `<div class="grid">${body ? body() : ""}</div>`;
   }
@@ -970,16 +975,13 @@ class EPaperEnginePanel extends HTMLElement {
   }
 
   // --- page: recipes --------------------------------------------------------
+  // What is on the wall and what could be. The Paprika account lives under
+  // Settings; **the state of the cache stays here** — "are the new recipes here
+  // yet?" is a question somebody asks while cooking, not while configuring, and
+  // C11 asked for it in as many words.
   _pageRecipes() {
-    const recipes = this._draft.recipes || {};
-    const login = recipes.paprika_login || {};
     const cache = ((this._status || {}).recipes) || {};
-    const admin = this.isAdmin;
-    const lock = admin ? "" : "disabled";
-    // Redacted for everybody but an administrator (websocket_api._visible_config):
-    // a string is the real password, `true` only says one is stored.
-    const password = typeof login.password === "string" ? login.password : "";
-    const hasPassword = !!login.password;
+    const lock = this.isAdmin ? "" : "disabled";
 
     const synced = fmtDateTime(cache.synced_at);
     const cacheLine = cache.count
@@ -988,7 +990,10 @@ class EPaperEnginePanel extends HTMLElement {
 
     let cacheNote = "";
     if (!cache.configured || cache.error === "no_credentials")
-      cacheNote = `<div class="note warn">${esc(t("panel.recipes.error.no_credentials"))}</div>`;
+      cacheNote = `<div class="note warn">${esc(t("panel.recipes.error.no_credentials"))}</div>
+                   <div class="actions"><button class="plain" id="to-settings">${esc(
+                     t("panel.recipes.account.open"),
+                   )}</button></div>`;
     else if (cache.error)
       cacheNote = `<div class="note bad">${esc(t("panel.recipes.error.sync", { msg: cache.error }))}</div>`;
     else if (cache.pending)
@@ -996,33 +1001,20 @@ class EPaperEnginePanel extends HTMLElement {
 
     return `
       <div class="card">
-        <h2>${esc(t("panel.recipes.account"))}</h2>
-        <div class="hint">${esc(t("panel.recipes.account.hint"))}</div>
-        <label>${esc(t("panel.recipes.username"))}</label>
-        <input id="paprika-user" value="${esc(login.username || "")}" ${lock}>
-        <label>${esc(t("panel.recipes.password"))}</label>
-        <input id="paprika-password" type="password" value="${esc(password)}" ${lock}>
-        ${!admin && hasPassword ? `<div class="muted">${esc(t("panel.recipes.password.set"))}</div>` : ""}
-        <label>${esc(t("panel.recipes.interval"))}</label>
-        <div class="inline">
-          <input id="sync-interval" value="${esc(fmtNum(recipes.sync_interval_h ?? 24))}" ${lock}>
-          <span class="unit">${esc(t("panel.recipes.interval.hours"))}</span>
-        </div>
-        <div class="muted">${esc(t("panel.recipes.interval.hint"))}</div>
-        <div class="actions">
-          <button class="primary" data-save="recipes" ${lock}>${esc(t("common.save"))}</button>
-          <button class="plain" id="sync-recipes" ${lock || (this._syncing ? "disabled" : "")}>${esc(
-            this._syncing ? t("panel.recipes.sync.running") : t("panel.recipes.sync"),
-          )}</button>
-        </div>
-        <div class="kv" style="margin-top:12px">
+        <h2>${esc(t("panel.recipes.cache"))}</h2>
+        <div class="hint">${esc(t("panel.recipes.cache.hint"))}</div>
+        <div class="kv">
           <div class="k">${esc(t("panel.recipes.sync.last"))}</div>
           <div>${esc(synced || t("panel.recipes.sync.never"))}</div>
           <div class="k">${esc(t("panel.tab.recipes"))}</div>
           <div>${esc(cacheLine)}</div>
         </div>
+        <div class="actions">
+          <button class="plain" id="sync-recipes" ${lock || (this._syncing ? "disabled" : "")}>${esc(
+            this._syncing ? t("panel.recipes.sync.running") : t("panel.recipes.sync"),
+          )}</button>
+        </div>
         ${cacheNote}
-        ${admin ? "" : `<div class="note warn">${esc(t("error.no_admin"))}</div>`}
       </div>
 
       ${this._cardSlots()}
@@ -1158,9 +1150,10 @@ class EPaperEnginePanel extends HTMLElement {
   }
 
   // --- page: photos ---------------------------------------------------------
+  // The rotation and what is in the cache. The folders live under Settings —
+  // they are typed once, when the NAS is mounted.
   _pagePhotos() {
     const photos = this._draft.photos || {};
-    const media = this._draft.media || {};
     const cache = this._photos;
 
     const thumbs =
@@ -1177,17 +1170,6 @@ class EPaperEnginePanel extends HTMLElement {
         : `<div class="muted">${esc((cache && cache.error) || t("panel.photos.cache.none"))}</div>`;
 
     return `
-      <div class="card">
-        <h2>${esc(t("panel.photos.source"))}</h2>
-        <label>${esc(t("panel.photos.root"))}</label>
-        <input id="media-root" value="${esc(media.root || "")}" placeholder="/media/epaperengine">
-        <div class="muted">${esc(t("panel.photos.root.hint"))}</div>
-        <label>${esc(t("panel.photos.source.folder"))}</label>
-        <input id="photo-folder" value="${esc(photos.source_folder || "")}">
-        <div class="muted">${esc(t("panel.photos.source.hint"))}</div>
-        <div class="actions"><button class="primary" data-save="photos,media">${esc(t("common.save"))}</button></div>
-      </div>
-
       <div class="card">
         <h2>${esc(t("panel.photos.rotation"))}</h2>
         <label>${esc(t("panel.photos.rotation.interval"))}</label>
@@ -1211,8 +1193,12 @@ class EPaperEnginePanel extends HTMLElement {
     `;
   }
 
-  // --- page: display --------------------------------------------------------
-  _pageDisplay() {
+  // --- page: settings -------------------------------------------------------
+  // Everything an administrator sets once and then forgets: the display, the
+  // Paprika account, the image paths [Festlegung 2026-08-22]. It is also the
+  // one page that is administrator-only as a whole, which is what makes the
+  // permission rule sayable in a sentence.
+  _pageSettings() {
     const display = this._draft.display || {};
     const probed = (this._status && this._status.display) || {};
     const battery = probed.battery || {};
@@ -1228,7 +1214,47 @@ class EPaperEnginePanel extends HTMLElement {
     const admin = this.isAdmin;
     const lock = admin ? "" : "disabled";
 
+    const recipes = this._draft.recipes || {};
+    const login = recipes.paprika_login || {};
+    // Redacted for everybody but an administrator (websocket_api._visible_config):
+    // a string is the real password, `true` only says one is stored.
+    const password = typeof login.password === "string" ? login.password : "";
+    const hasPassword = !!login.password;
+    const media = this._draft.media || {};
+    const photos = this._draft.photos || {};
+
     return `
+      ${admin ? "" : `<div class="card" style="grid-column: 1 / -1"><div class="note warn">${esc(t("error.no_admin"))}</div></div>`}
+
+      <div class="card">
+        <h2>${esc(t("panel.recipes.account"))}</h2>
+        <div class="hint">${esc(t("panel.recipes.account.hint"))}</div>
+        <label>${esc(t("panel.recipes.username"))}</label>
+        <input id="paprika-user" value="${esc(login.username || "")}" ${lock}>
+        <label>${esc(t("panel.recipes.password"))}</label>
+        <input id="paprika-password" type="password" value="${esc(password)}" ${lock}>
+        ${!admin && hasPassword ? `<div class="muted">${esc(t("panel.recipes.password.set"))}</div>` : ""}
+        <label>${esc(t("panel.recipes.interval"))}</label>
+        <div class="inline">
+          <input id="sync-interval" value="${esc(fmtNum(recipes.sync_interval_h ?? 24))}" ${lock}>
+          <span class="unit">${esc(t("panel.recipes.interval.hours"))}</span>
+        </div>
+        <div class="muted">${esc(t("panel.recipes.interval.hint"))}</div>
+        <div class="actions"><button class="primary" data-save="recipes" ${lock}>${esc(t("common.save"))}</button></div>
+      </div>
+
+      <div class="card">
+        <h2>${esc(t("panel.photos.source"))}</h2>
+        <div class="hint">${esc(t("panel.settings.paths.hint"))}</div>
+        <label>${esc(t("panel.photos.root"))}</label>
+        <input id="media-root" value="${esc(media.root || "")}" placeholder="/media/epaperengine" ${lock}>
+        <div class="muted">${esc(t("panel.photos.root.hint"))}</div>
+        <label>${esc(t("panel.photos.source.folder"))}</label>
+        <input id="photo-folder" value="${esc(photos.source_folder || "")}" ${lock}>
+        <div class="muted">${esc(t("panel.photos.source.hint"))}</div>
+        <div class="actions"><button class="primary" data-save="photos,media" ${lock}>${esc(t("common.save"))}</button></div>
+      </div>
+
       <div class="card">
         <h2>${esc(t("panel.display.connection"))}</h2>
         <label>${esc(t("panel.display.host"))}</label>
@@ -1243,7 +1269,6 @@ class EPaperEnginePanel extends HTMLElement {
         </div>
         <div class="muted">${esc(t("panel.display.test.hint"))}</div>
         ${probeNote}
-        ${admin ? "" : `<div class="note warn">${esc(t("error.no_admin"))}</div>`}
       </div>
 
       <div class="card">
@@ -1375,6 +1400,7 @@ class EPaperEnginePanel extends HTMLElement {
       }
     }
     on("#sync-recipes", () => this._syncRecipes());
+    on("#to-settings", () => this._go("settings"));
     this._wireHits();
     root.querySelectorAll("[data-servings]").forEach((input) => {
       input.onchange = () => {
@@ -1441,14 +1467,12 @@ class EPaperEnginePanel extends HTMLElement {
       if (fallback) this._draft.views.fallback = fallback;
     }
     if (this._tab === "photos") {
-      this._draft.media.root = value("#media-root") || null;
-      this._draft.photos.source_folder = value("#photo-folder") || null;
       this._draft.photos.rotation_interval_min = number(
         "#rotation",
         this._draft.photos.rotation_interval_min,
       );
     }
-    if (this._tab === "recipes") {
+    if (this._tab === "settings") {
       const username = value("#paprika-user");
       const password = value("#paprika-password");
       // Written as one object rather than two keys: the section merge in
@@ -1460,8 +1484,8 @@ class EPaperEnginePanel extends HTMLElement {
         "#sync-interval",
         this._draft.recipes.sync_interval_h,
       );
-    }
-    if (this._tab === "display") {
+      this._draft.media.root = value("#media-root") || null;
+      this._draft.photos.source_folder = value("#photo-folder") || null;
       this._draft.display.host = value("#display-host") || null;
       this._draft.display.mdc_pin = value("#display-pin") || null;
       this._draft.display.mac = value("#display-mac") || null;

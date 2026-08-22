@@ -73,7 +73,6 @@
   "panel.tab.recipes": "Recipes",
   "panel.tab.photos": "Photos",
   "panel.tab.guests": "Guests",
-  "panel.tab.display": "Display",
   "panel.tab.soon": "Comes with the view itself.",
   "panel.help": "Help",
   "panel.overview.current": "Current view",
@@ -192,7 +191,11 @@
   "panel.recipes.fit.detail": "{n} recipe(s): {verdict}",
   "panel.recipes.servings.base": "written for",
   "panel.recipes.servings.target": "cook for",
-  "panel.recipes.servings.people": "people",
   "panel.recipes.servings.none": "no serving count in Paprika — cannot be scaled",
-  "panel.recipes.servings.hint": "only the ingredients are recalculated, to one decimal place. Quantities repeated in the directions are left alone — fix those in Paprika."
+  "panel.recipes.servings.hint": "only the ingredients are recalculated, to one decimal place. Quantities repeated in the directions are left alone — fix those in Paprika.",
+  "panel.tab.settings": "Settings",
+  "panel.settings.paths.hint": "where the image store lives — typed once, when the storage is mounted",
+  "panel.recipes.cache": "Recipe cache",
+  "panel.recipes.cache.hint": "are the new recipes here yet? The account itself is under Settings.",
+  "panel.recipes.account.open": "Open settings"
 }

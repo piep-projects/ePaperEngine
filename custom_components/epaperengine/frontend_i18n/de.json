@@ -73,7 +73,6 @@
   "panel.tab.recipes": "Rezepte",
   "panel.tab.photos": "Fotos",
   "panel.tab.guests": "Gäste",
-  "panel.tab.display": "Display",
   "panel.tab.soon": "Kommt mit der Ansicht selbst.",
   "panel.help": "Hilfe",
   "panel.overview.current": "Aktuelle Ansicht",
@@ -192,7 +191,11 @@
   "panel.recipes.fit.detail": "{n} Rezept(e): {verdict}",
   "panel.recipes.servings.base": "geschrieben für",
   "panel.recipes.servings.target": "kochen für",
-  "panel.recipes.servings.people": "Personen",
   "panel.recipes.servings.none": "keine Portionsangabe in Paprika — nicht umrechenbar",
-  "panel.recipes.servings.hint": "umgerechnet werden nur die Zutaten, auf eine Nachkommastelle. Mengen, die im Text wiederholt sind, bleiben stehen — die gehören in Paprika korrigiert."
+  "panel.recipes.servings.hint": "umgerechnet werden nur die Zutaten, auf eine Nachkommastelle. Mengen, die im Text wiederholt sind, bleiben stehen — die gehören in Paprika korrigiert.",
+  "panel.tab.settings": "Einstellungen",
+  "panel.settings.paths.hint": "wo die Bildablage liegt — einmal eingetragen, wenn der Speicher eingehängt ist",
+  "panel.recipes.cache": "Rezept-Cache",
+  "panel.recipes.cache.hint": "sind die neuen Rezepte schon da? Das Konto selbst liegt unter Einstellungen.",
+  "panel.recipes.account.open": "Einstellungen öffnen"
 }
