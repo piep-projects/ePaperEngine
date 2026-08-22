@@ -109,10 +109,20 @@ SAFETY_LINES = 1
 STEPS: tuple[tuple[int, int], ...] = ((28, 40), (26, 37), (24, 34))
 FLOOR_PX, FLOOR_LINE = STEPS[-1]
 
-# Two-column ingredients only pay off from this many items, and only when
-# half-width wrapping does not itself cost more lines than it saves.
-TWO_COLUMN_MIN_ITEMS = 6
-TWO_COLUMN_WRAP_TOLERANCE = 1.15
+# Ingredient items are short — "400 g Champignons" is seventeen characters — so
+# the list is set in as many sub-columns as a **sensible item width** allows,
+# rather than in a fixed two. The target below is what a 773 px column splits
+# into two of, and it is the same width that a 1.180 px column splits into three
+# of [Festlegung 2026-08-22]:
+#
+#   773 px   → 2 sub-columns of ~386 px   (three recipes)
+#   1.180 px → 3 sub-columns of ~393 px   (two recipes)
+#
+# A list only splits when it has at least two items per sub-column, and only
+# when the narrower measure does not cost more re-wrapped lines than the split
+# saves — a list of long items stays in one column.
+INGREDIENT_SUB_W = 390
+INGREDIENT_WRAP_TOLERANCE = 1.15
 
 ELLIPSIS = "…"
 
@@ -249,11 +259,11 @@ def ingredient_layout(
 ) -> tuple[int, int]:
     """``(lines the block costs, number of sub-columns for the list)``.
 
-    Two columns when the items are short enough to survive half the width —
-    the difference between nineteen lines and ten for a real ingredient list,
-    and where the room for the directions comes from.
+    Splitting a list of short items is where the room for the directions comes
+    from: nineteen ingredients are nineteen lines in one column, ten in two and
+    seven in three.
 
-    Only when the body itself is a single column: once the recipe already flows
+    Only when the body itself is a single column. Once the recipe already flows
     in three sub-columns of 773 px, splitting the list again would give 386 px
     of item, and nesting a second multi-column inside the first is a layout
     neither this model nor the browser would agree on.
@@ -262,13 +272,19 @@ def ingredient_layout(
         return 0, 1
     text = "\n".join(items)
     full = len(wrap(text, chars_per_line(font_px, width)))
-    if columns > 1 or len(items) < TWO_COLUMN_MIN_ITEMS:
+    if columns > 1:
         return full, 1
-    half = len(wrap(text, chars_per_line(font_px, width // 2)))
-    if half > full * TWO_COLUMN_WRAP_TOLERANCE:
-        # The items are long enough that halving the width only re-wraps them.
-        return full, 1
-    return math.ceil(half / 2), 2
+
+    target = max(round(width / INGREDIENT_SUB_W), 1)
+    for count in range(target, 1, -1):
+        # Two items per sub-column at least — a split that leaves one item
+        # standing alone under a heading looks like a mistake, not a layout.
+        if len(items) < 2 * count:
+            continue
+        lines = len(wrap(text, chars_per_line(font_px, width // count)))
+        if lines <= full * INGREDIENT_WRAP_TOLERANCE:
+            return math.ceil(lines / count), count
+    return full, 1
 
 
 def cut_to_lines(text: str, limit: int, budget: int) -> tuple[str, bool]:

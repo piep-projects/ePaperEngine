@@ -1,5 +1,5 @@
 name: ePaperEngine
-version: "0.4.0"
+version: "0.4.1"
 slug: epaperengine
 description: Renders the wall views for a Samsung EM32DX e-paper panel and pushes them over MDC.
 url: https://github.com/piep-projects/ePaperEngine

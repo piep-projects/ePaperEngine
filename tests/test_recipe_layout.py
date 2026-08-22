@@ -205,21 +205,40 @@ class TestTheWholeScreen(unittest.TestCase):
 
 
 class TestIngredients(unittest.TestCase):
-    def test_a_long_list_of_short_items_goes_into_two_columns(self) -> None:
-        """Nineteen items down to ten lines — that is where the room for the
-        directions comes from."""
+    """The list splits into as many sub-columns as a sensible item width allows
+    — ~390 px, which is a 773 px column halved and a 1.180 px column in thirds
+    [Festlegung 2026-08-22]. It is where the room for the directions comes from."""
+
+    def test_the_split_follows_the_width(self) -> None:
         items = MANY_ITEMS.split("\n")
-        cost, columns = rl.ingredient_layout(items, 24)
-        self.assertEqual(columns, 2)
-        self.assertLess(cost, len(items))
+        for count, expected in ((3, 2), (2, 3)):
+            width = rl.slot_width(count)
+            cost, columns = rl.ingredient_layout(items, 24, width, rl.sub_columns(count))
+            self.assertEqual(columns, expected, f"{count} recipes at {width} px")
+            self.assertLess(cost, len(items))
+
+    def test_three_columns_beat_two(self) -> None:
+        """The point of the change: at two recipes the same list costs a third."""
+        items = MANY_ITEMS.split("\n")
+        narrow, _ = rl.ingredient_layout(items, 24, rl.slot_width(3), 1)
+        wide, _ = rl.ingredient_layout(items, 24, rl.slot_width(2), 1)
+        self.assertLess(wide, narrow)
 
     def test_a_short_list_stays_in_one(self) -> None:
+        """A split that leaves one item alone under the heading reads as a slip."""
         cost, columns = rl.ingredient_layout(["Salz", "Pfeffer", "Muskat"], 28)
         self.assertEqual((cost, columns), (3, 1))
 
-    def test_long_items_stay_in_one_because_halving_only_rewraps_them(self) -> None:
+    def test_long_items_stay_in_one_because_splitting_only_rewraps_them(self) -> None:
         items = ["Eine ziemlich lange Zutatenzeile mit vielen Wörtern darin"] * 8
         _cost, columns = rl.ingredient_layout(items, 28)
+        self.assertEqual(columns, 1)
+
+    def test_a_flowing_body_keeps_its_list_in_one(self) -> None:
+        """One recipe already flows in three 773 px sub-columns; a second
+        multi-column nested inside is a layout nobody can predict."""
+        items = MANY_ITEMS.split("\n")
+        _cost, columns = rl.ingredient_layout(items, 24, rl.slot_width(1), rl.sub_columns(1))
         self.assertEqual(columns, 1)
 
     def test_no_ingredients_costs_nothing(self) -> None:
