@@ -176,23 +176,41 @@ function fmtTime(iso) {
 }
 
 /**
- * One verdict, short: "26 px" or "cut".
+ * Does the whole recipe fit — a tick or a cross, not a type size.
  *
- * It comes from the integration, which runs the add-on's own layout module
- * (`recipe_layout.py`, kept byte-identical by scripts/publish.py). A rule of
- * thumb in this file would be a second, wronger model of the same thing — the
- * first version had one, and it called a recipe shortened that the wall was
+ * "1: 28 px · 2: 26 px · 3: cut" was accurate and unreadable: the number a
+ * household wants is not the type size, it is whether anything gets lost
+ * [Festlegung 2026-08-22]. The size stays in the tooltip for whoever cares.
+ *
+ * The verdict itself comes from the integration, which runs the add-on's own
+ * layout module (`recipe_layout.py`, kept byte-identical by publish.py). A rule
+ * of thumb in this file would be a second, wronger model of the same thing —
+ * the first version had one, and it called a recipe shortened that the wall was
  * rendering in full.
  */
-function fitOne(verdict) {
-  return verdict && verdict !== "cut"
-    ? t("panel.recipes.fit.px", { n: verdict })
-    : t("panel.recipes.fit.cut.short");
+const fitsAt = (fits, n) => !!(fits || {})[n] && (fits || {})[n] !== "cut";
+
+function fitMark(fits, n) {
+  const ok = fitsAt(fits, n);
+  const colour = ok ? "var(--success-color,#43a047)" : "var(--error-color,#db4437)";
+  return `<span style="color:${colour}">${n}&nbsp;${ok ? "✓" : "✗"}</span>`;
 }
 
-/** All three: what the wall does with one, two or three recipes up at once. */
+/** All three, as marks. Returns markup — the caller must not escape it. */
 function fitTriple(fits) {
-  return [1, 2, 3].map((n) => `${n}: ${fitOne((fits || {})[n])}`).join(" · ");
+  return [1, 2, 3].map((n) => fitMark(fits, n)).join(" · ");
+}
+
+/** The long form, for the tooltip: "1 recipe(s): fits (28 px) · …". */
+function fitTitle(fits) {
+  return [1, 2, 3]
+    .map((n) => {
+      const verdict = fitsAt(fits, n)
+        ? `${t("panel.recipes.fit.yes")} (${t("panel.recipes.fit.px", { n: (fits || {})[n] })})`
+        : t("panel.recipes.fit.no");
+      return t("panel.recipes.fit.detail", { n, verdict });
+    })
+    .join(" · ");
 }
 
 function fmtDuration(ms) {
@@ -1025,11 +1043,18 @@ class EPaperEnginePanel extends HTMLElement {
             <div class="name">${esc(name)}</div>
             <div class="why">${esc(t("panel.recipes.slot", { n: index + 1 }))}${
               known
-                ? ` · ${esc(t(`panel.recipes.fit.${(known.fits || {})[selection.length] || "cut"}`))} · ${esc(
-                    t("panel.recipes.chars", { count: fmtNum(known.chars || 0) }),
-                  )}`
+                ? ` · ${esc(
+                    fitsAt(known.fits, selection.length)
+                      ? t("panel.recipes.fit.yes")
+                      : t("panel.recipes.fit.no"),
+                  )} · ${esc(t("panel.recipes.chars", { count: fmtNum(known.chars || 0) }))}`
                 : ""
             }</div>
+          ${
+            known && !fitsAt(known.fits, selection.length)
+              ? `<span style="color:var(--error-color,#db4437);font-weight:600">✗</span>`
+              : ""
+          }
           </div>
           <div class="rank">
             <button class="plain small" data-slot-move="up" data-slot="${index}" title="${esc(t("panel.views.up"))}" ${index === 0 || lock ? "disabled" : ""}>▲</button>
@@ -1070,9 +1095,7 @@ class EPaperEnginePanel extends HTMLElement {
           <td class="muted" style="white-space:nowrap">${esc(
             t("panel.recipes.chars", { count: fmtNum(hit.chars || 0) }),
           )}</td>
-          <td class="muted" style="white-space:nowrap" title="${esc(t("panel.recipes.fit.slots.hint"))}">${esc(
-            fitTriple(hit.fits),
-          )}</td>
+          <td style="white-space:nowrap" title="${esc(fitTitle(hit.fits))}">${fitTriple(hit.fits)}</td>
           <td style="width:1%">
             ${
               picked
@@ -1095,7 +1118,7 @@ class EPaperEnginePanel extends HTMLElement {
         <th>${esc(t("panel.tab.recipes"))}</th>
         <th></th>
         <th></th>
-        <th>${esc(t("panel.recipes.fit.slots"))}</th>
+        <th title="${esc(t("panel.recipes.fit.slots.hint"))}">${esc(t("panel.recipes.fit.slots"))}</th>
         <th></th>
       </tr></thead><tbody>${rows}</tbody></table>${more}${fullNote}`;
   }

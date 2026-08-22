@@ -184,12 +184,10 @@
   "panel.recipes.add": "Add",
   "panel.recipes.full": "All three columns are taken.",
   "panel.recipes.chars": "{count} characters",
-  "panel.recipes.fit.28": "fits at 28 px",
-  "panel.recipes.fit.26": "will be set at 26 px",
-  "panel.recipes.fit.24": "will be set at 24 px",
-  "panel.recipes.fit.cut": "too long — will be shortened on the wall",
   "panel.recipes.fit.px": "{n} px",
-  "panel.recipes.fit.cut.short": "cut",
-  "panel.recipes.fit.slots": "at 1 · 2 · 3 recipes",
-  "panel.recipes.fit.slots.hint": "type size on the wall with one, two or three recipes up at once"
+  "panel.recipes.fit.slots": "fits at 1 · 2 · 3",
+  "panel.recipes.fit.slots.hint": "whether the whole recipe fits on the wall with one, two or three up at once",
+  "panel.recipes.fit.yes": "fits",
+  "panel.recipes.fit.no": "does not fit",
+  "panel.recipes.fit.detail": "{n} recipe(s): {verdict}"
 }

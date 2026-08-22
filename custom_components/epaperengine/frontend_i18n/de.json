@@ -184,12 +184,10 @@
   "panel.recipes.add": "Übernehmen",
   "panel.recipes.full": "Alle drei Spalten sind belegt.",
   "panel.recipes.chars": "{count} Zeichen",
-  "panel.recipes.fit.28": "passt in 28 px",
-  "panel.recipes.fit.26": "wird in 26 px gesetzt",
-  "panel.recipes.fit.24": "wird in 24 px gesetzt",
-  "panel.recipes.fit.cut": "zu lang — wird an der Wand gekürzt",
   "panel.recipes.fit.px": "{n} px",
-  "panel.recipes.fit.cut.short": "gekürzt",
-  "panel.recipes.fit.slots": "bei 1 · 2 · 3 Rezepten",
-  "panel.recipes.fit.slots.hint": "Schriftgröße an der Wand, wenn eines, zwei oder drei gleichzeitig hängen"
+  "panel.recipes.fit.slots": "passt bei 1 · 2 · 3",
+  "panel.recipes.fit.slots.hint": "ob das ganze Rezept an die Wand passt, wenn eines, zwei oder drei gleichzeitig hängen",
+  "panel.recipes.fit.yes": "passt",
+  "panel.recipes.fit.no": "passt nicht",
+  "panel.recipes.fit.detail": "{n} Rezept(e): {verdict}"
 }
