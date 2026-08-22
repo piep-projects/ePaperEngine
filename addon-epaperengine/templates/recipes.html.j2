@@ -7,14 +7,16 @@
   `tools/mockup-gen/pages_wand.py`), and the numbers are the ones that file
   uses, not new ones:
 
-    title     32 px bold in Spectra green at the column top, advance 46 px per
+    title     32 px bold in Spectra blue at the column top, advance 46 px per
               wrapped line (the mockup's 40 px black cost three lines on a real
-              recipe name)
+              recipe name; blue is [zur Ansicht], green was the step before)
     meta      26 px in #555555, advance 48 px
     rule      3 px black under the head, 24 px of air below it
     heading   32 px bold in Spectra green (#1e8c46), block height 52 px —
               no underline: the rule under the head is the only one
     body      28 / 26 / 24 px, line advance 40 / 37 / 34
+    direction 22 px / 31 px when the alternative is cutting — the one place
+              this page goes past FSD §7's floor, and only for the directions
     gutter    a 2 px **black** rule down the middle of the 40 px gap — the
               mockup's #aaaaaa dithered into a dotted trail (measured)
     bullets   ingredients are "· " per item
@@ -103,9 +105,10 @@
         font-size: 32px;
         font-weight: bold;
         line-height: 46px;
-        /* The same Spectra green as the section headings. A palette primary, so
-           it carries no dither raster of its own. */
-        color: #1e8c46;
+        /* Spectra blue [zur Ansicht 2026-08-22]. Like the green of the section
+           headings it is a palette primary, so it carries no dither raster of
+           its own — only the fringe every glyph edge has (FSD §15). */
+        color: #1e3cb4;
       }
       .meta {
         font-size: 26px;
@@ -144,6 +147,13 @@
         /* An empty source line is a group break in the ingredient list, and it
            keeps its line rather than collapsing — the height model counted it. */
         min-height: 1px;
+      }
+      .directions {
+        /* The directions may be set one step below the column — the only place
+           in this page that goes past FSD §7's 24 px floor, and only when the
+           alternative is cutting text. Both numbers come from the model
+           (recipe_layout.CRAMPED_PX / CRAMPED_LINE) so the height it measured
+           is the height that gets set. */
       }
       .dline {
         /* One element per source line: the line breaks in Paprika's free text
@@ -192,9 +202,11 @@
           {% endif %}
           {% if column.directions %}
             <div class="heading">{{ t("recipes.directions") }}</div>
+            <div class="directions" style="font-size: {{ column.directions_px }}px; line-height: {{ column.directions_line }}px">
             {% for line in column.direction_lines %}
               <div class="dline">{% for run in line %}{% if run.bold %}<b>{{ run.text }}</b>{% else %}{{ run.text }}{% endif %}{% endfor %}</div>
             {% endfor %}
+            </div>
           {% endif %}
           </div>
           {% if column.truncated %}

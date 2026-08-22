@@ -109,6 +109,21 @@ SAFETY_LINES = 1
 STEPS: tuple[tuple[int, int], ...] = ((28, 40), (26, 37), (24, 34))
 FLOOR_PX, FLOOR_LINE = STEPS[-1]
 
+# **One step below the floor, for the directions alone** [Festlegung 2026-08-22,
+# Wolfgang: "die Schrift bei Zubereitung, wenn es nötig ist, noch etwas kleiner"].
+#
+# This goes past what FSD §7 measured: 24 px is the floor there, and the reason
+# given is that colour stops carrying below it. The directions are black on
+# white and carry no colour, and the trade this buys is the one that matters —
+# a whole recipe at 22 px instead of a shortened one at 24. It applies **only**
+# when the alternative is cutting text, and **only** to the directions: the
+# ingredient list is what gets read across the kitchen, the directions are read
+# from an arm's length away.
+#
+# [ungeprüft] whether 22 px is still legible at 1 m on the real panel. That is
+# an eye at the wall, not a number in this file.
+CRAMPED_PX, CRAMPED_LINE = 22, 31
+
 # Ingredient items are short — "400 g Champignons" is seventeen characters — so
 # the list is set in as many sub-columns as a **sensible item width** allows,
 # rather than in a fixed two. The target below is what a 773 px column splits
@@ -149,6 +164,9 @@ class Column:
     truncated: bool = False
     width: int = COLUMN_W
     body_columns: int = 1
+    # The directions may be set one step below the column (see CRAMPED_PX).
+    directions_px: int = FLOOR_PX
+    directions_line: int = FLOOR_LINE
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -163,6 +181,8 @@ class Column:
             "truncated": self.truncated,
             "width": self.width,
             "body_columns": self.body_columns,
+            "directions_px": self.directions_px,
+            "directions_line": self.directions_line,
         }
 
 
@@ -222,35 +242,37 @@ def head_lines(name: str, has_meta: bool, width: int = COLUMN_W) -> int:
     return title * TITLE_LINE + (META_LINE if has_meta else 0) + RULE_GAP
 
 
-def body_lines(
+def body_room(
     name: str,
     has_meta: bool,
     line_px: int,
     width: int = COLUMN_W,
-    columns: int = 1,
     reserve: int = 0,
 ) -> int:
-    """Total body lines available, across all sub-columns.
+    """Pixels one sub-column has for the body, once the head is off.
 
-    Counted in lines rather than in reserved pixels because the two headings
-    now travel **inside** the flow: with three sub-columns, "Directions" may
-    start half way down the second one, and a fixed pixel reserve at the top
-    would be measuring a layout that no longer exists.
+    In **pixels**, not lines: since the directions may be set one step smaller
+    than the ingredients, two line heights are in play and a line count would
+    have to pick one of them. ``line_px`` is only used for the safety margin.
     """
     room = COLUMN_H - head_lines(name, has_meta, width) - reserve
-    per_column = max(room // line_px - SAFETY_LINES, 0)
-    return per_column * max(columns, 1)
+    return max(room - SAFETY_LINES * line_px, 0)
 
 
-def chrome_lines(line_px: int, has_ingredients: bool, has_directions: bool) -> int:
-    """What the two headings and the gap between the blocks cost, in lines."""
+def chrome_px(has_ingredients: bool, has_directions: bool) -> int:
+    """What the two headings and the gap between the blocks cost, in pixels.
+
+    They travel **inside** the flow: with three sub-columns "Directions" may
+    start half way down the second one, so this is part of the total rather
+    than a reserve at the top.
+    """
     cost = 0
     if has_ingredients:
-        cost += -(-HEADING_BLOCK // line_px)
+        cost += HEADING_BLOCK
     if has_directions:
-        cost += -(-HEADING_BLOCK // line_px)
+        cost += HEADING_BLOCK
     if has_ingredients and has_directions:
-        cost += -(-GROUP_GAP // line_px)
+        cost += GROUP_GAP
     return cost
 
 
@@ -369,16 +391,27 @@ def build_column(
     )
     items = [line.rstrip() for line in ingredients_text.split("\n")] if ingredients_text else []
 
-    for font_px, line_px in STEPS:
-        limit = chars_per_line(font_px, width // columns)
-        available = body_lines(name, bool(meta), line_px, width, columns)
+    chrome = chrome_px(bool(items), bool(directions_text))
+
+    def fits(font_px: int, line_px: int, dir_px: int, dir_line: int) -> tuple[bool, int]:
+        """Does it fit at these sizes? Also hands back the ingredient columns."""
         cost, item_columns = ingredient_layout(items, font_px, width, columns)
-        needed = (
-            cost
-            + len(wrap(directions_text, limit))
-            + chrome_lines(line_px, bool(items), bool(directions_text))
+        total = (
+            chrome
+            + cost * line_px
+            + len(wrap(directions_text, chars_per_line(dir_px, width // columns))) * dir_line
         )
-        if needed <= available:
+        room = body_room(name, bool(meta), line_px, width)
+        return -(-total // columns) <= room, item_columns
+
+    # The ladder: 28 → 26 → 24 for the whole column (FSD §8.2), and then one more
+    # step for the **directions alone** before anything is cut.
+    ladder = [(px, line, px, line) for px, line in STEPS]
+    ladder.append((FLOOR_PX, FLOOR_LINE, CRAMPED_PX, CRAMPED_LINE))
+
+    for font_px, line_px, dir_px, dir_line in ladder:
+        ok, item_columns = fits(font_px, line_px, dir_px, dir_line)
+        if ok:
             return Column(
                 name,
                 meta,
@@ -391,28 +424,29 @@ def build_column(
                 False,
                 width,
                 columns,
+                dir_px,
+                dir_line,
             )
 
-    # The floor, and it still does not fit: shorten (FSD §8.2, Festlegung P13).
-    limit = chars_per_line(FLOOR_PX, width // columns)
+    # Past the last step and it still does not fit: shorten (Festlegung P13).
+    # The directions stay at the smaller size — more of them survive the cut.
+    limit = chars_per_line(CRAMPED_PX, width // columns)
     # A shortened column carries the marker that says so, and it needs room.
-    available = body_lines(
-        name, bool(meta), FLOOR_LINE, width, columns, reserve=CUT_BLOCK
-    ) - chrome_lines(FLOOR_LINE, bool(items), bool(directions_text))
-    available = max(available, 0)
+    room = body_room(name, bool(meta), FLOOR_LINE, width, reserve=CUT_BLOCK) * columns
+    available = max(room - chrome, 0)
     cost, item_columns = ingredient_layout(items, FLOOR_PX, width, columns)
     # The ingredients are protected, but not without limit: a column that is
     # nothing but an ingredient list shows no directions at all, which reads as
     # broken rather than as shortened.
-    ingredient_budget = max(int(available * 0.6), 1)
+    ingredient_budget = max(int(available * 0.6), FLOOR_LINE)
     cut_ingredients = False
-    if cost > ingredient_budget:
-        keep = ingredient_budget * item_columns
+    if cost * FLOOR_LINE > ingredient_budget:
+        keep = (ingredient_budget // FLOOR_LINE) * item_columns
         cut_ingredients = len(items) > keep
         items = items[:keep]
         cost, item_columns = ingredient_layout(items, FLOOR_PX, width, columns)
     directions_text, cut_directions = cut_to_lines(
-        directions_text, limit, available - cost
+        directions_text, limit, max(available - cost * FLOOR_LINE, 0) // CRAMPED_LINE
     )
     return Column(
         name,
@@ -426,6 +460,8 @@ def build_column(
         cut_ingredients or cut_directions,
         width,
         columns,
+        CRAMPED_PX,
+        CRAMPED_LINE,
     )
 
 

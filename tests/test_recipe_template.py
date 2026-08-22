@@ -91,6 +91,12 @@ class TestTemplateMatchesTheModel(unittest.TestCase):
         )
         self.assertEqual(px(".column + .column::before", "width", self.css), 2)
 
+    def test_the_directions_carry_their_own_size(self) -> None:
+        """They may be set one step below the column (CRAMPED_PX), and the
+        model measured them at that size."""
+        self.assertIn("font-size: {{ column.directions_px }}px", self.css)
+        self.assertIn("line-height: {{ column.directions_line }}px", self.css)
+
     def test_the_body_steps_are_the_models(self) -> None:
         """Set inline from ``font_px``/``line_px``, so the template must not
         carry a competing font-size on the column."""
@@ -128,10 +134,16 @@ class TestColour(unittest.TestCase):
                 f"{colour} is not a Spectra primary — it will be dithered",
             )
 
-    def test_the_title_and_the_headings_share_the_green(self) -> None:
+    def test_the_title_and_the_headings_are_coloured_at_all(self) -> None:
+        """Which primary is a design question and moves; that they are *set*
+        from the palette rather than left to chance is not."""
         css = TEMPLATE.read_text(encoding="utf-8")
-        self.assertIn("#1e8c46", rule(".title", css))
-        self.assertIn("#1e8c46", rule(".heading", css))
+        for selector in (".title", ".heading"):
+            body = re.sub(r"/\*.*?\*/", "", rule(selector, css), flags=re.S)
+            self.assertTrue(
+                [c for c in self.SPECTRA if c in body],
+                f"{selector} carries no palette colour",
+            )
 
 
 if __name__ == "__main__":

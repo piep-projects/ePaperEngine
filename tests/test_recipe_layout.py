@@ -35,28 +35,24 @@ def height(column) -> int:
 
     Mirrors the CSS of ``recipes.html.j2``: the head spans the recipe's full
     width, the body flows in ``body_columns`` sub-columns below it, and the two
-    headings travel inside that flow. A change to one without the other shows
-    up here.
+    headings travel inside that flow. In pixels rather than lines because the
+    directions may be set one step smaller than the ingredients.
     """
     body = column.body_columns
-    limit = rl.chars_per_line(column.font_px, column.width // body)
-    lines = rl.chrome_lines(column.line_px, bool(column.ingredients), bool(column.directions))
+    total = rl.chrome_px(bool(column.ingredients), bool(column.directions))
     if column.ingredients:
         cost, columns = rl.ingredient_layout(
             column.ingredients, column.font_px, column.width, body
         )
         assert columns == column.ingredient_columns, "ingredient sub-columns drifted"
-        lines += cost
+        total += cost * column.line_px
     if column.directions:
-        lines += len(rl.wrap(column.directions, limit))
-    # Balanced across the sub-columns, rounded up — the tallest one is what the
-    # canvas has to hold.
-    tallest = -(-lines // body)
-    total = rl.head_lines(column.name, bool(column.meta), column.width)
-    total += tallest * column.line_px
-    if column.truncated:
-        total += rl.CUT_BLOCK
-    return total
+        limit = rl.chars_per_line(column.directions_px, column.width // body)
+        total += len(rl.wrap(column.directions, limit)) * column.directions_line
+    # Balanced across the sub-columns — the tallest is what the canvas holds.
+    tallest = -(-total // body)
+    head = rl.head_lines(column.name, bool(column.meta), column.width)
+    return head + tallest + (rl.CUT_BLOCK if column.truncated else 0)
 
 
 # A real one: 69-character title (three lines at 40 px), 19 short ingredient
@@ -100,7 +96,7 @@ class TestMeasuring(unittest.TestCase):
         short = rl.head_lines("Suppe", True)
         long = rl.head_lines(LONG_TITLE, True)
         self.assertGreater(long, short)
-        self.assertLess(rl.body_lines(LONG_TITLE, True, 34), rl.body_lines("Suppe", True, 34))
+        self.assertLess(rl.body_room(LONG_TITLE, True, 34), rl.body_room("Suppe", True, 34))
 
     def test_the_title_is_the_largest_type_on_the_page(self) -> None:
         self.assertEqual(rl.TITLE_PX, 32)
@@ -123,6 +119,21 @@ class TestTypeSize(unittest.TestCase):
         column = rl.build_column(recipe("Suppe", "Salz", "Wort " * 260))
         self.assertLess(column.font_px, 28)
         self.assertFalse(column.truncated)
+
+    def test_the_directions_go_one_step_below_the_floor_before_anything_is_cut(self) -> None:
+        """[Festlegung 2026-08-22] Past FSD §7's 24 px floor, for the directions
+        alone — a whole recipe at 22 px beats a shortened one at 24. The
+        ingredient list stays at the column size: it is what gets read across
+        the kitchen."""
+        column = rl.build_column(recipe("Suppe", "Salz\nPfeffer", "Wort " * 400))
+        self.assertEqual(column.font_px, rl.FLOOR_PX)
+        self.assertEqual(column.directions_px, rl.CRAMPED_PX)
+        self.assertFalse(column.truncated)
+
+    def test_a_recipe_that_fits_keeps_the_directions_at_the_column_size(self) -> None:
+        """The small step is a last resort, not a default."""
+        column = rl.build_column(recipe("Suppe", "Salz", "Kochen."))
+        self.assertEqual(column.directions_px, column.font_px)
 
     def test_below_the_floor_it_stays_at_24(self) -> None:
         """24 px is the floor — colour stops carrying below it (FSD §7)."""
@@ -198,7 +209,7 @@ class TestTheWholeScreen(unittest.TestCase):
     def test_the_extra_width_is_what_stops_the_shortening(self) -> None:
         """The point of the change: a recipe that had to be cut into a third of
         the screen fits when it gets half or all of it."""
-        data = recipe(LONG_TITLE, MANY_ITEMS, "Schritt für Schritt. " * 60)
+        data = recipe(LONG_TITLE, MANY_ITEMS, "Schritt für Schritt. " * 100)
         self.assertTrue(rl.build_columns([data] * 3)[0].truncated)
         self.assertFalse(rl.build_columns([data] * 2)[0].truncated)
         self.assertFalse(rl.build_columns([data])[0].truncated)
