@@ -130,6 +130,27 @@ class TestFontsShipAndOpen(unittest.TestCase):
         }
         self.assertEqual(tokens, set(gl.COLORS), "const.GUEST_COLORS and COLORS differ")
 
+    def test_the_panel_offers_the_seam(self) -> None:
+        source = (COMPONENT / "panel" / "epaperengine-panel.js").read_text(encoding="utf-8")
+        for hook in ("guest-outline", "guest-outline-px", "data-outline-color"):
+            self.assertIn(hook, source, f"the panel has no {hook}")
+
+    def test_the_seam_labels_exist_in_both_catalogs(self) -> None:
+        import json
+
+        keys = (
+            "panel.guests.outline",
+            "panel.guests.outline.on",
+            "panel.guests.outline.width",
+            "panel.guests.outline.color",
+        )
+        for lang in ("en", "de"):
+            catalog = json.loads(
+                (COMPONENT / "frontend_i18n" / f"{lang}.json").read_text(encoding="utf-8")
+            )
+            for key in keys:
+                self.assertIn(key, catalog, f"{lang}: no label for {key}")
+
     def test_the_panel_offers_the_same_faces(self) -> None:
         source = (COMPONENT / "panel" / "epaperengine-panel.js").read_text(encoding="utf-8")
         listed = re.search(r"const GUEST_FONTS = \[(.*?)\];", source, re.S)
@@ -245,6 +266,79 @@ class TestPlan(unittest.TestCase):
         self.assertLess(steep.name.font_px, flat.name.font_px)
         self.assertEqual(" ".join(steep.name.lines), long_name)
 
+    # --- the outline (FSD §8.4's third remedy, P24) ---------------------------
+    def test_the_seam_is_off_until_it_is_asked_for(self) -> None:
+        plan = gl.plan({"name": "Berger"})
+        self.assertFalse(plan.outline)
+        # Zero rather than "the configured width, unused": the template asks
+        # ``plan.outline`` before it draws anything, and a stroke width left
+        # standing would be a trap for whoever changes that condition next.
+        self.assertEqual(plan.stroke_px, 0)
+
+    def test_the_stylesheet_gets_twice_the_visible_width(self) -> None:
+        """``-webkit-text-stroke`` centres its stroke and the fill covers the
+        inner half, so half of what CSS is told is what can be seen. The factor
+        lives in the module rather than in somebody's head."""
+        plan = gl.plan({"name": "Berger", "outline": True, "outline_px": 8})
+        self.assertEqual(plan.outline_px, 8)
+        self.assertEqual(plan.stroke_px, 16)
+        self.assertEqual(plan.as_dict()["stroke_px"], 16)
+
+    def test_the_seam_width_is_bounded(self) -> None:
+        """Below FSD §7's 2 px floor a seam breaks up into dots; above the
+        ceiling the counter colour starts eating the letter it frames."""
+        self.assertEqual(gl.plan({"outline": True, "outline_px": 0}).outline_px, gl.DEFAULT_OUTLINE_PX)
+        self.assertEqual(gl.plan({"outline": True, "outline_px": 1}).outline_px, gl.OUTLINE_MIN_PX)
+        self.assertEqual(gl.plan({"outline": True, "outline_px": 999}).outline_px, gl.OUTLINE_MAX_PX)
+        self.assertEqual(gl.plan({"outline": True, "outline_px": "dick"}).outline_px, gl.DEFAULT_OUTLINE_PX)
+
+    def test_the_seam_colour_is_a_primary_too(self) -> None:
+        """Same reason as the fill, only more so: a seam is the thinnest feature
+        on the page, and a dithered one would speckle exactly where it is meant
+        to separate the letter from the picture."""
+        self.assertIn(gl.COLORS[gl.DEFAULT_OUTLINE_COLOR], imaging.SPECTRA)
+        plan = gl.plan({"outline": True, "outline_color": "puce"})
+        self.assertEqual(plan.outline_color, gl.COLORS[gl.DEFAULT_OUTLINE_COLOR])
+
+    def test_the_seam_widens_the_block_it_wraps(self) -> None:
+        """It is drawn outside the glyphs, so it is part of the geometry — not
+        something for the browser to discover at the edge of the canvas."""
+        plain = gl.plan({"name": "Berger"})
+        seamed = gl.plan({"name": "Berger", "outline": True, "outline_px": 12})
+        self.assertEqual(seamed.width, plain.width + 24)
+        self.assertEqual(seamed.height, plain.height + 24)
+
+    def test_a_seam_and_a_tilt_together_still_fit(self) -> None:
+        """The combination that broke the first two attempts at this loop."""
+        for angle in (0, 25, 40, 45):
+            for width in (2, 8, 16, 32):
+                plan = gl.plan(
+                    {
+                        "name": "Ulla & Christian",
+                        "greeting": "Schön, dass ihr da seid!",
+                        "name_px": 240,
+                        "greeting_px": 200,
+                        "outline": True,
+                        "outline_px": width,
+                        "angle": angle,
+                    }
+                )
+                self.assertFalse(plan.cramped, f"{angle}° / {width} px seam: {plan.box_w}×{plan.box_h}")
+
+    def test_the_search_beats_shrinking_the_type_alone(self) -> None:
+        """The measured case: a 52-character name at 40°.
+
+        Walking the type size on its own drove it to one 1.563 px line at the
+        72 px floor — over budget *and* barely readable. Wrapping it instead
+        buys back type size, which is why the width budget is searched as well.
+        """
+        plan = gl.plan(
+            {"name": "Familie Berger-Wiedemann und die ganze Verwandtschaft", "angle": 40}
+        )
+        self.assertFalse(plan.cramped)
+        self.assertGreater(plan.name.font_px, gl.NAME_FLOOR_PX)
+        self.assertEqual(len(plan.name.lines), 2)
+
     def test_the_rotated_box_maths(self) -> None:
         self.assertEqual(gl.rotated_box(1000, 400, 0), (1000, 400))
         self.assertEqual(gl.rotated_box(1000, 400, 90), (400, 1000))
@@ -271,6 +365,19 @@ class TestTemplateAgreesWithTheModel(unittest.TestCase):
     def test_the_tilt_and_the_colour_come_from_the_plan(self) -> None:
         self.assertIn("rotate({{ plan.angle }}deg)", self.source)
         self.assertIn("color: {{ plan.color }}", self.source)
+
+    def test_the_seam_is_painted_under_the_fill(self) -> None:
+        """Without ``paint-order`` the stroke is painted over the fill and eats
+        half its width out of the letter — on a script face that takes the thin
+        connecting strokes first, which is the opposite of the point."""
+        self.assertIn("-webkit-text-stroke: {{ plan.stroke_px }}px {{ plan.outline_color }}", self.source)
+        self.assertIn("paint-order: stroke fill", self.source)
+        self.assertIn("{%- if plan.outline %}", self.source)
+
+    def test_the_notice_does_not_inherit_the_seam(self) -> None:
+        block = self.source[self.source.index(".empty {"):]
+        block = block[: block.index("}")]
+        self.assertIn("-webkit-text-stroke: 0", block)
 
     def test_the_text_has_no_ground_of_its_own(self) -> None:
         """Festlegung P23. The band left, and nothing may creep back in as a

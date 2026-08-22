@@ -495,6 +495,17 @@ def _render_guests(
             detail["background"] = picture.source
 
     plan = guest_layout.plan(guests_cfg, background_url)
+    if plan.cramped:
+        # Both type sizes are at their floor and the block is still over budget
+        # — a long name, a steep tilt and a thick seam at once. Said out loud,
+        # because the page clips silently.
+        _LOGGER.warning(
+            "Guest text does not fit: %d×%d against %d×%d",
+            plan.box_w,
+            plan.box_h,
+            guest_layout.TEXT_W,
+            guest_layout.TEXT_H,
+        )
     html = renderer.render_html(
         VIEW_GUESTS,
         {
@@ -512,6 +523,8 @@ def _render_guests(
         "name_px": plan.name.font_px,
         "greeting_px": plan.greeting.font_px,
         "angle": plan.angle,
+        "outline": plan.outline_px if plan.outline else 0,
+        "cramped": plan.cramped,
         # The rotated bounding box against the 2.240 × 1.120 canvas budget. In
         # the log because it is the one number that says whether the greeting
         # had room or was squeezed into it.

@@ -40,6 +40,9 @@ from . import mediapath
 from .addon import AddonClient, AddonError
 from .const import (
     DEFAULT_GUEST_ANGLE,
+    DEFAULT_GUEST_OUTLINE,
+    DEFAULT_GUEST_OUTLINE_COLOR,
+    DEFAULT_GUEST_OUTLINE_PX,
     DEFAULT_GUEST_COLOR,
     DEFAULT_GUEST_FONT,
     DEFAULT_GUEST_GREETING_PX,
@@ -86,6 +89,9 @@ GUEST_DEFAULTS: dict[str, Any] = {
     "greeting_px": DEFAULT_GUEST_GREETING_PX,
     "color": DEFAULT_GUEST_COLOR,
     "angle": DEFAULT_GUEST_ANGLE,
+    "outline": DEFAULT_GUEST_OUTLINE,
+    "outline_px": DEFAULT_GUEST_OUTLINE_PX,
+    "outline_color": DEFAULT_GUEST_OUTLINE_COLOR,
 }
 
 

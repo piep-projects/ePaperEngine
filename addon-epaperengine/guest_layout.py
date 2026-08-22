@@ -28,6 +28,15 @@ rotated by θ needs ``w·|cos θ| + h·|sin θ|`` of horizontal room, so a name 
 fits lying flat can hang over the edge at 20°. The fit is therefore measured
 against the **rotated bounding box**, not against the line width — see ``plan``.
 
+**The outline is the third remedy** [Festlegung P24], and the only one that makes
+the greeting independent of the picture underneath it: a seam in the counter
+colour separates the glyph from whatever it happens to sit on, rather than
+relying on the whole letter out-contrasting it. Switchable, because a calm motif
+does not need it and a seam always costs a little of the script's elegance. Its
+colour comes from the same six primaries for the same reason the fill does, and
+its width is a **visible** width — see ``stroke_px`` for why that is not the
+number the CSS gets.
+
 **The type size is measured, not guessed.** ``recipe_layout`` had to estimate
 character widths because DejaVu was a system font it could not open; here the
 font files ship with the add-on, so Pillow opens the very file Chromium will
@@ -133,6 +142,23 @@ COLORS: dict[str, tuple[int, int, int]] = {
 }
 DEFAULT_COLOR = "black"
 
+# --- the outline --------------------------------------------------------------
+# **What is configured is the width that can be *seen*.** ``-webkit-text-stroke``
+# centres its stroke on the glyph outline, and the template draws it with
+# ``paint-order: stroke fill`` so the fill covers the inner half — which is what
+# keeps a script face from being thinned by its own seam. The visible part is
+# therefore half of what CSS is told, and the factor lives here rather than in
+# somebody's head [Festlegung P24].
+OUTLINE_CSS_FACTOR = 2
+
+# FSD §7's floor is 2 px, and a seam is exactly the kind of thin feature that
+# breaks up into dots below it. The ceiling is where the counter colour starts
+# eating the letter it is supposed to frame.
+OUTLINE_MIN_PX = 2
+OUTLINE_MAX_PX = 32
+DEFAULT_OUTLINE_PX = 8
+DEFAULT_OUTLINE_COLOR = "white"
+
 # --- the angle ----------------------------------------------------------------
 # Degrees, positive is clockwise (the CSS sense). Bounded rather than free: past
 # 45° the block is more vertical than horizontal on a 16:9 canvas, and every
@@ -140,11 +166,28 @@ DEFAULT_COLOR = "black"
 # the name until it fitted the diagonal.
 ANGLE_LIMIT = 45.0
 
-# How the width budget is walked down when the rotated block does not fit. 4 % a
-# step converges in a handful of passes and never overshoots by much; measuring
-# is cheap (the font is already open) so there is no reason to jump.
-WIDTH_STEP = 0.96
-WIDTH_PASSES = 30
+# Fitting a **tilted** block takes two knobs, not one, and neither alone is
+# enough. Both were tried:
+#
+# * **Only the width budget.** Narrowing the room a line may use wraps it into
+#   more lines, and more lines make the block *taller* — the wrong direction
+#   whenever the height is what binds. Measured: 16 px of seam at 25° came out
+#   1.706 px tall against a budget of 1.120, and the loop only stopped because
+#   the fonts had hit their floors.
+# * **Only the type size.** ``fit`` prefers *fewer lines at a larger size*, which
+#   is right for a level block and wrong for a tilted one: at 40° it is the line
+#   *width* that drives the height. Measured: a 52-character name came out as one
+#   1.563 px line at the 72 px floor — 1.153 px tall, over budget — while the
+#   same name on **two** lines at 100 px would have been 1.004 px tall and
+#   larger to read.
+#
+# So both are searched: an outer walk over the width budget, an inner walk over
+# the type size, and of everything that fits the canvas the **largest type**
+# wins. A few hundred fits at worst, each of them a handful of measurements
+# against an already-open font — microseconds against a 5-second render.
+ROOM_FACTORS: tuple[float, ...] = (1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3)
+SHRINK_STEP = 0.94
+SHRINK_PASSES = 30
 
 
 @dataclass(frozen=True)
@@ -184,6 +227,9 @@ class GuestPlan:
     font_url: str
     color: tuple[int, int, int]
     angle: float
+    outline: bool
+    outline_px: int
+    outline_color: tuple[int, int, int]
     # The block as it ends up on the canvas: the width of its widest line, its
     # stacked height, and the axis-aligned box those two occupy once rotated.
     # Reported rather than kept private because it is the thing the fit was
@@ -193,6 +239,24 @@ class GuestPlan:
     box_w: int
     box_h: int
     background_url: str | None
+
+    @property
+    def cramped(self) -> bool:
+        """Did the block end up larger than the canvas allows?
+
+        Only reachable at the very bottom of the shrinking loop — both type
+        sizes at their floor and the box still over budget, which takes a long
+        name, a steep tilt and a thick seam together. Reported rather than
+        silently clipped: ``overflow: hidden`` would swallow it, and text
+        quietly missing from a wall is the failure this project has already paid
+        for once.
+        """
+        return self.box_w > TEXT_W or self.box_h > TEXT_H
+
+    @property
+    def stroke_px(self) -> int:
+        """The ``-webkit-text-stroke`` width for the visible seam asked for."""
+        return self.outline_px * OUTLINE_CSS_FACTOR if self.outline else 0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -206,10 +270,17 @@ class GuestPlan:
             # markup here even if it tried.
             "color": "rgb(%d, %d, %d)" % self.color,
             "angle": self.angle,
+            "outline": self.outline,
+            "outline_px": self.outline_px,
+            "outline_color": "rgb(%d, %d, %d)" % self.outline_color,
+            # What the stylesheet is actually given — twice the visible width,
+            # because half of the centred stroke disappears under the fill.
+            "stroke_px": self.stroke_px,
             "width": self.width,
             "height": self.height,
             "box_w": self.box_w,
             "box_h": self.box_h,
+            "cramped": self.cramped,
             "background_url": self.background_url,
         }
 
@@ -320,8 +391,17 @@ def fit(
     )
 
 
-def block_size(name: TextBlock, greeting: TextBlock, font_id: str) -> tuple[int, int]:
-    """The unrotated box the two blocks occupy: widest line × stacked height."""
+def block_size(
+    name: TextBlock, greeting: TextBlock, font_id: str, outline_px: int = 0
+) -> tuple[int, int]:
+    """The unrotated box the two blocks occupy: widest line × stacked height.
+
+    ``outline_px`` grows the box on every side. The seam sits *outside* the glyph
+    (``paint-order: stroke fill``), so it adds to the extremes of the line
+    without touching the advance between letters — the same kind of coupling the
+    angle has, and the same reason it is accounted for here instead of being
+    left for the browser to discover at the edge of the canvas.
+    """
     width = 0.0
     for block in (name, greeting):
         for line in block.lines:
@@ -329,6 +409,9 @@ def block_size(name: TextBlock, greeting: TextBlock, font_id: str) -> tuple[int,
     height = name.height + greeting.height
     if name.lines and greeting.lines:
         height += BLOCK_GAP
+    if width or height:
+        width += 2 * outline_px
+        height += 2 * outline_px
     return round(width), height
 
 
@@ -353,12 +436,15 @@ def plan(config: dict[str, Any], background_url: str | None = None) -> GuestPlan
     yet, and an empty guest page is a legitimate thing to render.
 
     **The fit is against the rotated box, not the line width** [Festlegung P23].
-    The two are coupled — narrowing the budget wraps more lines, more lines make
-    the block taller, and a taller block claims more width once it is tilted —
-    so it is walked rather than solved: fit, measure the rotated box, and if it
-    hangs over the canvas, take 4 % off the budget and fit again. It converges
-    because ``fit`` bottoms out at its floor size; at that point the greeting is
-    as small as it may get and the loop stops arguing.
+    Width and height are coupled through the tilt — ``w·|cos θ| + h·|sin θ|`` —
+    and through the seam, so it is walked rather than solved: set the text,
+    measure the rotated bounding box, and if it hangs over the canvas take 6 %
+    off the **type size** and set it again.
+
+    The type size and not the width budget, and that distinction is the whole
+    lesson of this loop: a narrower budget wraps more lines and makes the block
+    *taller*, which is the wrong direction whenever the height is what binds.
+    See ``SHRINK_STEP``.
     """
     cfg = config or {}
     font_id = str(cfg.get("font") or DEFAULT_FONT)
@@ -369,6 +455,16 @@ def plan(config: dict[str, Any], background_url: str | None = None) -> GuestPlan
     color_id = str(cfg.get("color") or DEFAULT_COLOR)
     color = COLORS.get(color_id) or COLORS[DEFAULT_COLOR]
 
+    outline = bool(cfg.get("outline"))
+    outline_color_id = str(cfg.get("outline_color") or DEFAULT_OUTLINE_COLOR)
+    outline_color = COLORS.get(outline_color_id) or COLORS[DEFAULT_OUTLINE_COLOR]
+    try:
+        outline_px = int(cfg.get("outline_px") or DEFAULT_OUTLINE_PX)
+    except (TypeError, ValueError):
+        outline_px = DEFAULT_OUTLINE_PX
+    outline_px = max(OUTLINE_MIN_PX, min(OUTLINE_MAX_PX, outline_px))
+    pad = outline_px if outline else 0
+
     try:
         angle = float(cfg.get("angle") or 0.0)
     except (TypeError, ValueError):
@@ -378,30 +474,58 @@ def plan(config: dict[str, Any], background_url: str | None = None) -> GuestPlan
     name_px = int(cfg.get("name_px") or DEFAULT_NAME_PX)
     greeting_px = int(cfg.get("greeting_px") or DEFAULT_GREETING_PX)
 
-    budget = float(TEXT_W)
-    name = greeting = TextBlock(lines=(), font_px=0, requested_px=0)
-    width = height = box_w = box_h = 0
-    for _pass in range(WIDTH_PASSES):
-        limit = round(budget)
-        name = fit(str(cfg.get("name") or ""), font_id, name_px, NAME_MAX_LINES, NAME_FLOOR_PX, limit)
+    # The room the lines themselves may use: the canvas less the seam, which is
+    # drawn outside them.
+    full_room = max(1, TEXT_W - 2 * pad)
+
+    def attempt(room: int, scale: float) -> tuple[TextBlock, TextBlock, int, int, int, int]:
+        """One candidate layout: set both blocks, measure the rotated box."""
+        name = fit(
+            str(cfg.get("name") or ""),
+            font_id,
+            max(NAME_FLOOR_PX, round(name_px * scale)),
+            NAME_MAX_LINES,
+            NAME_FLOOR_PX,
+            room,
+        )
         greeting = fit(
             str(cfg.get("greeting") or ""),
             font_id,
-            greeting_px,
+            max(GREETING_FLOOR_PX, round(greeting_px * scale)),
             GREETING_MAX_LINES,
             GREETING_FLOOR_PX,
-            limit,
+            room,
         )
-        width, height = block_size(name, greeting, font_id)
+        width, height = block_size(name, greeting, font_id, pad)
         box_w, box_h = rotated_box(width, height, angle)
-        if box_w <= TEXT_W and box_h <= TEXT_H:
-            break
-        if name.font_px <= NAME_FLOOR_PX and greeting.font_px <= GREETING_FLOOR_PX:
-            # Both are as small as they are allowed to get. Shrinking the budget
-            # further would only wrap more lines and make the box taller — the
-            # honest thing is to stop and let the run report what it produced.
-            break
-        budget *= WIDTH_STEP
+        return name, greeting, width, height, box_w, box_h
+
+    best: tuple[TextBlock, TextBlock, int, int, int, int] | None = None
+    fallback = attempt(full_room, 1.0)
+    for factor in ROOM_FACTORS:
+        room = max(1, round(full_room * factor))
+        scale = 1.0
+        for _pass in range(SHRINK_PASSES):
+            candidate = attempt(room, scale)
+            fallback = candidate
+            if candidate[4] <= TEXT_W and candidate[5] <= TEXT_H:
+                # Of everything that fits, the largest type wins — the greeting
+                # is meant to be read from across the room.
+                if best is None or (candidate[0].font_px, candidate[1].font_px) > (
+                    best[0].font_px,
+                    best[1].font_px,
+                ):
+                    best = candidate
+                break
+            if candidate[0].font_px <= NAME_FLOOR_PX and candidate[1].font_px <= GREETING_FLOOR_PX:
+                # As small as the rules allow. Going further would mean cutting
+                # the greeting, and a greeting is never cut (P21).
+                break
+            scale *= SHRINK_STEP
+
+    # Nothing fitted at any width: keep the last attempt and let ``cramped`` say
+    # so, rather than quietly handing the browser something to clip.
+    name, greeting, width, height, box_w, box_h = best or fallback
 
     return GuestPlan(
         name=name,
@@ -417,6 +541,9 @@ def plan(config: dict[str, Any], background_url: str | None = None) -> GuestPlan
         font_url=font_path(font_id).as_uri(),
         color=color,
         angle=angle,
+        outline=outline,
+        outline_px=outline_px,
+        outline_color=outline_color,
         width=width,
         height=height,
         box_w=box_w,

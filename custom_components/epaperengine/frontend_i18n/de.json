@@ -240,5 +240,11 @@
   "guests.color.red": "Rot",
   "guests.color.yellow": "Gelb",
   "guests.color.blue": "Blau",
-  "guests.color.green": "Grün"
+  "guests.color.green": "Grün",
+  "panel.guests.outline": "Kontur",
+  "panel.guests.outline.hint": "Ein Saum um die Buchstaben in der Gegenfarbe. Er macht den Gruß über jedem Bildbereich lesbar — hell wie dunkel — statt darauf zu setzen, dass der ganze Buchstabe den Untergrund übertrifft. Das dritte Gegenmittel aus FSD 8.4.",
+  "panel.guests.outline.on": "Buchstaben mit Saum",
+  "panel.guests.outline.width": "Saumstärke",
+  "panel.guests.outline.width.hint": "Die sichtbare Stärke, 2 bis 32 px. Sie wächst nach außen, die Buchstabenform behält also ihr Gewicht — sie verbreitert aber den Block, und ein dicker Saum kann Schriftgrad kosten.",
+  "panel.guests.outline.color": "Saumfarbe"
 }

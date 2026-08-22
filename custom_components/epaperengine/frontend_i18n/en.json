@@ -240,5 +240,11 @@
   "guests.color.red": "Red",
   "guests.color.yellow": "Yellow",
   "guests.color.blue": "Blue",
-  "guests.color.green": "Green"
+  "guests.color.green": "Green",
+  "panel.guests.outline": "Outline",
+  "panel.guests.outline.hint": "A seam around the letters in the counter colour. It makes the greeting readable over any part of the picture — bright or dark — instead of relying on the whole letter to out-contrast it. FSD 8.4's third remedy.",
+  "panel.guests.outline.on": "Give the letters an outline",
+  "panel.guests.outline.width": "Seam width",
+  "panel.guests.outline.width.hint": "The width you can see, 2 to 32 px. It grows outwards, so the letterform keeps its weight — but it also widens the block, and a wide seam can cost type size.",
+  "panel.guests.outline.color": "Seam colour"
 }

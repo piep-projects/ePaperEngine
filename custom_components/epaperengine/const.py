@@ -201,6 +201,19 @@ DEFAULT_GUEST_COLOR: Final = "black"
 # size.
 DEFAULT_GUEST_ANGLE: Final = 0
 
+# The outline (FSD §8.4's third remedy, Festlegung P24). Off by default: a calm
+# motif does not need it, and a seam always costs a script face a little of its
+# elegance. The colour comes from ``GUEST_COLORS`` for the same reason the fill
+# does — a seam is the thinnest feature on the page, and a dithered one would
+# speckle exactly where it is meant to separate.
+#
+# The width is the **visible** one; the add-on doubles it for the CSS, because
+# ``-webkit-text-stroke`` centres its stroke and the fill covers the inner half
+# (``guest_layout.OUTLINE_CSS_FACTOR``).
+DEFAULT_GUEST_OUTLINE: Final = False
+DEFAULT_GUEST_OUTLINE_PX: Final = 8
+DEFAULT_GUEST_OUTLINE_COLOR: Final = "white"
+
 # Add-on endpoints (FSD §3.2). The base address is configuration
 # (``display.renderer_url``) because the add-on may run on another host.
 ADDON_RENDER_PATH: Final = "/render"

@@ -16,6 +16,14 @@
   photo is the **colour**, and it comes from the six Spectra primaries so the
   glyph edges stay solid instead of speckling.
 
+  **The outline is the third remedy** [Festlegung P24], switchable. It is drawn
+  with ``paint-order: stroke fill`` rather than plain ``-webkit-text-stroke``:
+  the stroke is centred on the glyph outline, so painted *over* the fill it eats
+  half its width out of the letter — which on a script face means the thin
+  connecting strokes go first. Painted under it, the letter keeps its weight and
+  the seam grows outward. The visible half is what ``guest_layout`` calls
+  ``outline_px``; the stylesheet gets twice that.
+
   Dependency-free apart from the two file:// URLs it is given (the picture and
   the font file). Both are already on local disk when this renders.
 #}<!doctype html>
@@ -71,6 +79,11 @@
         font-family: "{{ plan.font_family }}", "epaperengine-script", cursive;
         font-weight: {{ plan.font_weight }};
         color: {{ plan.color }};
+        {%- if plan.outline %}
+        -webkit-text-stroke: {{ plan.stroke_px }}px {{ plan.outline_color }};
+        /* Under the fill, not over it — see the note at the top of this file. */
+        paint-order: stroke fill;
+        {%- endif %}
       }
       .line {
         white-space: nowrap;
@@ -91,6 +104,9 @@
         font-family: "DejaVu Sans", sans-serif;
         font-size: 56px;
         color: #000;
+        /* The seam is inherited from .text and has no business on a notice set
+           in DejaVu at 56 px, where it would swallow the letters. */
+        -webkit-text-stroke: 0;
       }
     </style>
   </head>

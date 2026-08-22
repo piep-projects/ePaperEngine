@@ -1302,14 +1302,18 @@ class EPaperEnginePanel extends HTMLElement {
     const lock = admin ? "" : "disabled";
     const cache = this._backgrounds;
 
-    const swatches = Object.entries(GUEST_COLORS)
-      .map(
-        ([id, hex]) =>
-          `<button class="swatch ${guests.color === id ? "on" : ""}" data-color="${esc(id)}"
-             title="${esc(t(`guests.color.${id}`))}" ${lock}
-           ><span style="background:${esc(hex)}"></span>${esc(t(`guests.color.${id}`))}</button>`,
-      )
-      .join("");
+    // One builder for both pickers — the fill and the seam offer the same six.
+    const swatchRow = (attribute, chosen) =>
+      Object.entries(GUEST_COLORS)
+        .map(
+          ([id, hex]) =>
+            `<button class="swatch ${chosen === id ? "on" : ""}" ${attribute}="${esc(id)}"
+               title="${esc(t(`guests.color.${id}`))}" ${lock}
+             ><span style="background:${esc(hex)}"></span>${esc(t(`guests.color.${id}`))}</button>`,
+        )
+        .join("");
+    const swatches = swatchRow("data-color", guests.color);
+    const outlineSwatches = swatchRow("data-outline-color", guests.outline_color);
 
     const fontOptions = GUEST_FONTS.map(
       (id) =>
@@ -1392,6 +1396,24 @@ class EPaperEnginePanel extends HTMLElement {
           <span class="unit">${esc(t("panel.guests.angle.degrees"))}</span>
         </div>
         <div class="muted">${esc(t("panel.guests.angle.hint"))}</div>
+        <div class="actions"><button class="primary" data-save="guests" ${lock}>${esc(t("common.save"))}</button></div>
+      </div>
+
+      <div class="card">
+        <h2>${esc(t("panel.guests.outline"))}</h2>
+        <div class="hint">${esc(t("panel.guests.outline.hint"))}</div>
+        <div class="row">
+          <input type="checkbox" id="guest-outline" ${guests.outline ? "checked" : ""} ${lock}>
+          <label for="guest-outline">${esc(t("panel.guests.outline.on"))}</label>
+        </div>
+        <label>${esc(t("panel.guests.outline.width"))}</label>
+        <div class="inline">
+          <input id="guest-outline-px" value="${esc(fmtNum(guests.outline_px ?? 8))}" ${lock}>
+          <span class="unit">${esc(t("panel.guests.font.px"))}</span>
+        </div>
+        <div class="muted">${esc(t("panel.guests.outline.width.hint"))}</div>
+        <label>${esc(t("panel.guests.outline.color"))}</label>
+        <div class="swatches">${outlineSwatches}</div>
         <div class="actions"><button class="primary" data-save="guests" ${lock}>${esc(t("common.save"))}</button></div>
       </div>
 
@@ -1646,15 +1668,18 @@ class EPaperEnginePanel extends HTMLElement {
       this._render();
       this._loadBackgrounds();
     });
-    root.querySelectorAll("[data-color]").forEach((button) => {
-      button.onclick = () => {
-        // Read the rest of the page first: the swatch repaints the card, and a
-        // half-typed name would be rebuilt from the draft and lost.
-        this._collect();
-        this._draft.guests.color = button.dataset.color;
-        this._render();
-      };
-    });
+    const pickColour = (selector, key) =>
+      root.querySelectorAll(selector).forEach((button) => {
+        button.onclick = () => {
+          // Read the rest of the page first: the swatch repaints the card, and
+          // a half-typed name would be rebuilt from the draft and lost.
+          this._collect();
+          this._draft.guests[key] = button.dataset[key === "color" ? "color" : "outlineColor"];
+          this._render();
+        };
+      });
+    pickColour("[data-color]", "color");
+    pickColour("[data-outline-color]", "outline_color");
     root.querySelectorAll("[data-background]").forEach((tile) => {
       if (!this.isAdmin) return;
       tile.onclick = () => this._pickBackground(tile.dataset.background);
@@ -1718,6 +1743,12 @@ class EPaperEnginePanel extends HTMLElement {
       // guard has to be isFinite — ``|| 0`` would be right by accident here and
       // wrong the moment somebody clears the field.
       this._draft.guests.angle = number("#guest-angle", this._draft.guests.angle ?? 0);
+      const outline = root.querySelector("#guest-outline");
+      // A checkbox is read from ``checked``; ``value`` on one is the literal
+      // string "on" whether it is ticked or not, which would store a seam that
+      // could never be switched off again.
+      if (outline) this._draft.guests.outline = !!outline.checked;
+      this._draft.guests.outline_px = number("#guest-outline-px", this._draft.guests.outline_px);
       this._draft.guests.name_px = number("#guest-name-px", this._draft.guests.name_px);
       this._draft.guests.greeting_px = number(
         "#guest-greeting-px",

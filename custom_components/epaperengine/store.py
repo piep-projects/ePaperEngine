@@ -22,6 +22,9 @@ from homeassistant.helpers.storage import Store
 
 from .const import (
     DEFAULT_GUEST_ANGLE,
+    DEFAULT_GUEST_OUTLINE,
+    DEFAULT_GUEST_OUTLINE_COLOR,
+    DEFAULT_GUEST_OUTLINE_PX,
     DEFAULT_GUEST_COLOR,
     DEFAULT_GUEST_FONT,
     DEFAULT_GUEST_GREETING_PX,
@@ -116,6 +119,12 @@ def default_config() -> dict[str, Any]:
             "color": DEFAULT_GUEST_COLOR,
             # Degrees, positive clockwise. The add-on bounds it at ±45°.
             "angle": DEFAULT_GUEST_ANGLE,
+            # The outline — FSD §8.4's third remedy, and the only one that makes
+            # the greeting independent of what it sits on. ``outline_px`` is the
+            # width that can be seen; the add-on doubles it for the CSS.
+            "outline": DEFAULT_GUEST_OUTLINE,
+            "outline_px": DEFAULT_GUEST_OUTLINE_PX,
+            "outline_color": DEFAULT_GUEST_OUTLINE_COLOR,
         },
     }
 
