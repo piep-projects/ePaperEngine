@@ -314,6 +314,41 @@ class TestIngredients(unittest.TestCase):
         _cost, columns = rl.ingredient_layout(items, 28)
         self.assertEqual(columns, 1)
 
+    def test_a_split_that_saves_rows_is_taken_even_when_a_few_items_wrap(self) -> None:
+        """[P33] The rule the docstring always claimed, and the code did not.
+
+        Fourteen short ingredients: at half measure three of them run onto a
+        second line, so the old ``lines <= full * 1.15`` refused the split — at
+        28 px and at 26 px, but not at 24 px, where it saves six lines. The
+        recipe therefore dropped **two type steps to keep two lines from
+        wrapping**, which is a local rule about raggedness overruling a global
+        one about legibility.
+        """
+        items = [
+            "200 g Mehl", "3 Eier", "1 Prise Salz", "150 ml Milch", "80 g Butter",
+            "1 TL Backpulver", "100 g Zucker", "1 Pck. Vanillezucker",
+            "abgeriebene Schale einer unbehandelten Zitrone", "2 EL Rum",
+            "1 Prise Zimt", "Puderzucker zum Bestäuben", "Öl zum Ausbacken",
+            "100 g gemahlene Haselnüsse",
+        ]
+        rows, columns = rl.ingredient_layout(items, 28)
+        self.assertEqual(columns, 2)
+        self.assertLess(rows, len(items))
+
+    def test_the_guard_counts_items_not_lines(self) -> None:
+        """A third of the entries may wrap; past that it stops being a list.
+
+        The line-total cap it replaced was measuring the wrong thing: a long
+        list of short items trips it as easily as a short list of long ones.
+        """
+        short = ["200 g Mehl", "3 Eier", "1 Prise Salz", "150 ml Milch"] * 3
+        long = ["Eine ziemlich lange Zutatenzeile mit vielen Wörtern darin"] * 8
+        self.assertEqual(rl.ingredient_layout(short, 28)[1], 2)
+        self.assertEqual(rl.ingredient_layout(long, 28)[1], 1)
+        # …and the boundary itself: half the entries wrapping is one too many.
+        half = ["kurz"] * 4 + ["ein deutlich längerer Eintrag als die anderen hier"] * 4
+        self.assertEqual(rl.ingredient_layout(half, 28)[1], 1)
+
     def test_a_flowing_body_keeps_its_list_in_one(self) -> None:
         """One recipe already flows in three 773 px sub-columns; a second
         multi-column nested inside is a layout nobody can predict."""

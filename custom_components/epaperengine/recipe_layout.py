@@ -151,8 +151,29 @@ CRAMPED_PX, CRAMPED_LINE = 22, 31
 # A list only splits when it has at least two items per sub-column, and only
 # when the narrower measure does not cost more re-wrapped lines than the split
 # saves — a list of long items stays in one column.
+#
+# **That sentence is what the code now does** [Festlegung P33, 2026-08-23]. Until
+# then it did something else: it capped the *re-wrapped line count* at
+# ``full * 1.15`` instead of comparing the *rows the block ends up costing*. The
+# difference is not academic — measured 2026-08-23 on "Filettierte Ananas an
+# Lebkuchen-Sauerrahmglace", 14 ingredients: the split was refused at 28 px and
+# at 26 px and accepted at 24 px, where it saves six lines. So the recipe fell
+# **two type steps, to keep two ingredient lines from wrapping.** A local rule
+# about raggedness was overruling a global one about legibility.
+#
+# **What the guard now measures is the items, not the line total.** Splitting is
+# worth doing because ingredient items are *short*; a split list should still
+# read as a list of one-line entries. So a split is taken when it makes the
+# block shorter **and** at most a third of the items wrap at the narrower
+# measure. That keeps the case the old rule was right about — eight
+# fifty-seven-character items would each break into three narrow lines, and the
+# block being shorter does not make that a list anyone can scan.
 INGREDIENT_SUB_W = 390
-INGREDIENT_WRAP_TOLERANCE = 1.15
+
+# How many entries may run onto a second line before a split stops being a list
+# of entries. A third: at 14 ingredients that is four, which is what the real
+# collection produces at half measure.
+INGREDIENT_WRAP_SHARE = 3
 
 ELLIPSIS = "…"
 
@@ -329,15 +350,22 @@ def ingredient_layout(
         return full, 1
 
     target = max(round(width / INGREDIENT_SUB_W), 1)
+    best_rows, best_count = full, 1
     for count in range(target, 1, -1):
         # Two items per sub-column at least — a split that leaves one item
         # standing alone under a heading looks like a mistake, not a layout.
         if len(items) < 2 * count:
             continue
-        lines = len(wrap(text, chars_per_line(font_px, width // count)))
-        if lines <= full * INGREDIENT_WRAP_TOLERANCE:
-            return math.ceil(lines / count), count
-    return full, 1
+        narrow = chars_per_line(font_px, width // count)
+        per_item = [len(wrap(item, narrow)) for item in items]
+        if sum(1 for n in per_item if n > 1) > len(items) // INGREDIENT_WRAP_SHARE:
+            continue
+        rows = math.ceil(sum(per_item) / count)
+        # Strictly fewer rows, and ties go to one column: a list that gains
+        # nothing by being split is easier to read down than across.
+        if rows < best_rows:
+            best_rows, best_count = rows, count
+    return best_rows, best_count
 
 
 def cut_to_lines(text: str, limit: int, budget: int) -> tuple[str, bool]:
