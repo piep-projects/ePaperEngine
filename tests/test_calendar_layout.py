@@ -344,7 +344,13 @@ class TestColumns(unittest.TestCase):
         """[P29] — the header cost 140 px off all three columns to say the date
         a second time."""
         self.assertEqual(cl.COLUMN_TOP, cl.MARGIN)
-        self.assertEqual(cl.COLUMN_H, 1376)
+        self.assertEqual(cl.COLUMN_H, 1408)
+
+    def test_nothing_is_reserved_at_the_bottom(self) -> None:
+        """[P31] The calendar is a list that runs out, not a page with a
+        baseline — the columns end at the canvas."""
+        self.assertEqual(cl.MARGIN_BOTTOM, 0)
+        self.assertEqual(cl.COLUMN_BOTTOM, cl.CANVAS_H)
 
     def test_the_margin_is_the_measured_one_not_the_mockups(self) -> None:
         """[P30] 80 px left 17 % of the panel unused and were never measured —
@@ -555,8 +561,30 @@ class TestTemplateAgreesWithTheModel(unittest.TestCase):
         return int(found.group(1))
 
     def test_the_day_head_costs_what_the_model_charges(self) -> None:
-        head = self._px(".day h2", "height") + 2 + 14  # line, rule, air
-        self.assertEqual(head, cl.DAY_HEAD_H)
+        """Line plus air. **No rule** since P31 — see the test below."""
+        self.assertEqual(self._px(".day h2", "height") + 14, cl.DAY_HEAD_H)
+
+    def test_the_day_title_carries_no_rule(self) -> None:
+        """[P31] The mockup drew a 2 px line under every date; across three
+        columns that is a horizontal rule every few centimetres."""
+        block = re.search(r"\.day h2 \{(.*?)\}", self.CSS, re.S)
+        assert block is not None
+        self.assertNotIn("border", block.group(1))
+
+    def test_the_foot_is_flushed_to_the_outer_edge(self) -> None:
+        """[P31] It sits in the last column, at the edge of the page."""
+        foot = re.search(r"\.foot \{(.*?)\}", self.CSS, re.S)
+        row = re.search(r"\.legend \.row \{(.*?)\}", self.CSS, re.S)
+        assert foot is not None and row is not None
+        self.assertIn("text-align: right", foot.group(1))
+        self.assertIn("justify-content: flex-end", row.group(1))
+
+    def test_the_page_reserves_nothing_at_the_bottom(self) -> None:
+        main = re.search(r"      main \{(.*?)\}", self.CSS, re.S)
+        assert main is not None
+        found = re.search(r"padding:\s*([^;]+);", main.group(1))
+        assert found is not None
+        self.assertEqual(found.group(1).split()[2], "0")
 
     def test_the_gap_under_a_block_matches(self) -> None:
         self.assertIn(f"margin: 0 0 {cl.DAY_GAP}px 0", self.CSS)
@@ -583,8 +611,12 @@ class TestTemplateAgreesWithTheModel(unittest.TestCase):
         self.assertIn(f"gap: {cl.GUTTER}px", self.CSS)
 
     def test_no_rule_on_the_page_is_a_grey_hairline(self) -> None:
-        """Measured 2026-08-22: grey at 2 px dithers into a dotted trail."""
-        for rule in re.findall(r"border-bottom:\s*\d+px solid ([^;]+);", self.CSS):
+        """Measured 2026-08-22: grey at 2 px dithers into a dotted trail.
+
+        Since P31 the only rule left is the gutter between the columns; the
+        loop guards any that come back.
+        """
+        for rule in re.findall(r"border(?:-bottom)?:\s*\d+px solid ([^;]+);", self.CSS):
             self.assertEqual(rule.strip(), "#000")
         self.assertIn("background: #000", self.CSS)
 

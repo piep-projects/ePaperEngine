@@ -60,7 +60,9 @@
         box-sizing: border-box;
         width: 2560px;
         height: 1440px;
-        padding: 32px;
+        /* No margin at the bottom [P31]: the calendar is a list that runs
+           out, not a page with a baseline. */
+        padding: 32px 32px 0 32px;
       }
       /* **No box-sizing here.** The 3 px rule sits *under* the 100 px, not
          inside it — with border-box it landed at y = 177 and pulled all three
@@ -70,9 +72,14 @@
          The foot is anchored to the bottom of its column, so a line more than
          the model reserved would grow *upwards* into the last appointment
          rather than being clipped where nobody notices. */
+      /* Right-aligned [P31]: the foot sits at the outer edge of the last
+         column, and a block flushed to the page edge reads as a caption rather
+         than as an orphaned first column. The timestamp follows the legend —
+         a two-line block with two alignments would look like a mistake. */
       .legend .row {
         display: flex;
         align-items: center;
+        justify-content: flex-end;
         gap: 44px;
         height: 36px;
       }
@@ -103,6 +110,7 @@
         left: 0;
         right: 0;
         bottom: 0;
+        text-align: right;
       }
       /* Only drawn when a source failed or there is nothing to show — a note
          nobody needs is 36 px of appointments. Palette red, so the line itself
@@ -144,13 +152,16 @@
       .day {
         margin: 0 0 24px 0;
       }
+      /* No rule under the date [P31]. The mockup drew one under every day
+         title; across three columns that is a horizontal line every few
+         centimetres, and a bold 36 px date with air under it separates the
+         days by itself. */
       .day h2 {
         margin: 0 0 14px 0;
         height: 50px;
         line-height: 50px;
         font-size: 36px;
         font-weight: bold;
-        border-bottom: 2px solid #000;
         white-space: nowrap;
         overflow: hidden;
       }

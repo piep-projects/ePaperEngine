@@ -177,10 +177,12 @@ CALENDAR_KINDS: Final[tuple[str, ...]] = (
 CALENDAR_COLORS: Final[tuple[str, ...]] = ("blue", "green", "red", "yellow", "black")
 DEFAULT_CALENDAR_COLOR: Final = "blue"
 
-# Width of that bar. 2 px is the measured floor (FSD §7); 6 px is what reads as
-# a bar rather than a hairline at 1 m, and it is adjustable because the wall is
-# the only place to judge it.
-DEFAULT_CALENDAR_BAR_PX: Final = 6
+# Width of that bar. 2 px is the measured floor (FSD §7), 6 px was C8's figure —
+# **12 px since P31** [2026-08-23, an der Wand entschieden]: at 1 m six pixels
+# read as a mark next to the line, twelve read as the colour *of* the line,
+# which is what the bar is for. Still adjustable, because the wall is the only
+# place to judge it.
+DEFAULT_CALENDAR_BAR_PX: Final = 12
 
 # The **query** window, not the display window [Festlegung 2026-08-20]: the wall
 # shows as many complete day blocks as fit. 30 days is the ceiling of the

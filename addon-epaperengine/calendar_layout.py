@@ -65,6 +65,12 @@ CANVAS_H = 1440
 # off the edge. What 32 px looks like against the device frame is an eye at the
 # wall, and it was one.
 MARGIN = 32
+# **No margin at the bottom** [Festlegung P31, 2026-08-23, Wolfgang]. The
+# calendar is a list that runs out somewhere, not a composed page with a
+# baseline — whatever white is left under the last block is left over, not
+# designed. Costs nothing to give back: the columns simply end at the canvas.
+# The recipe view keeps its 32 px all round; it is a sheet, not a list.
+MARGIN_BOTTOM = 0
 GUTTER = 40
 CONTENT_W = CANVAS_W - 2 * MARGIN  # 2496
 COLUMNS = 3
@@ -84,9 +90,9 @@ COLUMN_W = (CONTENT_W - (COLUMNS - 1) * GUTTER) // COLUMNS  # 805
 # Measured over eight synthetic loads (0–7 appointments a day): 184 appointments
 # against 162, **+14 %**. The gain is lumpy — whole day blocks are the unit, so
 # at 2, 3, 5 and 7 a day it buys nothing and at 4 and 6 it buys 8 and 12.
-COLUMN_TOP = MARGIN                # 32
-COLUMN_BOTTOM = CANVAS_H - MARGIN  # 1408
-COLUMN_H = COLUMN_BOTTOM - COLUMN_TOP  # 1376
+COLUMN_TOP = MARGIN                       # 32
+COLUMN_BOTTOM = CANVAS_H - MARGIN_BOTTOM  # 1440
+COLUMN_H = COLUMN_BOTTOM - COLUMN_TOP     # 1408
 
 # The foot of the third column. Every line is 36 px (28 px type), with 24 px of
 # air between the last day block and the first foot line.
@@ -104,11 +110,15 @@ LEGEND_CHIP_GAP = 12
 LEGEND_GAP = 44      # between two legend entries
 
 # --- the day block ------------------------------------------------------------
-# From ``kal_spalte`` in the mockup generator: title, 52 px advance, a rule,
-# 14 px of air; every appointment 84 px plus 38 px per extra title line; 24 px
-# under the block.
+# From ``kal_spalte`` in the mockup generator: title, 52 px advance, then air;
+# every appointment 84 px plus 38 px per extra title line; 24 px under the block.
+#
+# **The rule under the day title is gone** [Festlegung P31, 2026-08-23,
+# Wolfgang]. The mockup drew a 2 px line under every date. With three columns of
+# day blocks that is one horizontal rule every few centimetres, and the bold
+# 36 px date plus the air under it separates the days perfectly well on its own.
 DAY_TITLE_PX = 36
-DAY_HEAD_H = 52 + 14   # 66 — title advance plus the rule and the air under it
+DAY_HEAD_H = 50 + 14   # 64 — title line plus the air under it, no rule
 DAY_GAP = 24           # air below a finished block
 EMPTY_DAY_H = 60       # "no appointments" in one 28 px line
 EMPTY_DAY_PX = 28
@@ -120,7 +130,12 @@ TIME_W = 185
 TITLE_PX = 32
 TITLE_DX = 215         # where the title starts inside the column
 LOCATION_PX = 24
-BAR_W = 6              # [Festlegung C8] — 2 px is the proven floor, 6 px reads as a bar
+# **12 px** [Festlegung P31, 2026-08-23, Wolfgang] — twice the 6 px of C8, which
+# were themselves three times the 2 px floor of FSD §7. At 1 m a 6 px bar reads
+# as a mark; 12 px reads as the *colour of the line*, which is what it is for.
+# It costs no line height and no text width: the bar is absolutely positioned
+# and the time still starts at 20 px.
+BAR_W = 12
 
 CUT_H = 46             # the "cut" marker under a block that did not fit
 
