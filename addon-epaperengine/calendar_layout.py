@@ -44,11 +44,33 @@ from recipe_layout import CHAR_RATIO, wrap
 # --- the canvas, 1:1 with the mockup ------------------------------------------
 CANVAS_W = 2560
 CANVAS_H = 1440
-MARGIN = 80
+
+# **32 px, not the mockup's 80** [Festlegung P30, 2026-08-23, Wolfgang]. The
+# 80 px came in with the mockup as a Satzspiegel and were carried into FSD §7 as
+# the basis of its character table — and `projektidee.md` §4 marks the whole
+# block "Vorschlag, nicht gemessen". They left **17 % of the panel unused**.
+#
+# What each direction actually buys, measured over eight loads (0–7 appointments
+# a day):
+#
+#   vertical    80 → 32 px: 184 → 219 appointments, **+19 %**. This is the whole
+#               gain — day blocks stack, so column height is what counts
+#   horizontal  80 → 32 px: the column grows 773 → 805 px, a title line 33 → 35
+#               characters, and the number of wrapped titles in a real day's
+#               worth stays at **1 of 24**. The column gives up 215 px to the
+#               bar and the time before a title starts, and the gutter is fixed.
+#               Horizontally this is composition, not capacity
+#
+# The panel shows 1:1 with no overscan [belegt, FSD §3.3], so nothing is lost
+# off the edge. What 32 px looks like against the device frame is an eye at the
+# wall, and it was one.
+MARGIN = 32
 GUTTER = 40
-CONTENT_W = CANVAS_W - 2 * MARGIN  # 2400
-COLUMN_W = 773                     # (2560 - 2*80 - 2*40) / 3 [Festlegung 2026-08-20]
+CONTENT_W = CANVAS_W - 2 * MARGIN  # 2496
 COLUMNS = 3
+# Derived rather than written down: the mockup's 773 px was (2400 − 80) / 3, and
+# a literal here would silently disagree with the margin above.
+COLUMN_W = (CONTENT_W - (COLUMNS - 1) * GUTTER) // COLUMNS  # 805
 
 # **There is no header** [Festlegung P29, 2026-08-23, Wolfgang]. The mockup put
 # the date at 64 px across the top and the legend beside it, and the first real
@@ -58,13 +80,13 @@ COLUMNS = 3
 #
 # So the date is said once, by the day title that has to be there anyway, and
 # legend and timestamp move to the **foot of the third column**. Columns one and
-# two run the full 1.280 px; only the third pays, and only for the foot.
+# two run the full height; only the third pays, and only for the foot.
 # Measured over eight synthetic loads (0–7 appointments a day): 184 appointments
 # against 162, **+14 %**. The gain is lumpy — whole day blocks are the unit, so
 # at 2, 3, 5 and 7 a day it buys nothing and at 4 and 6 it buys 8 and 12.
-COLUMN_TOP = MARGIN                # 80
-COLUMN_BOTTOM = CANVAS_H - MARGIN  # 1360
-COLUMN_H = COLUMN_BOTTOM - COLUMN_TOP  # 1280
+COLUMN_TOP = MARGIN                # 32
+COLUMN_BOTTOM = CANVAS_H - MARGIN  # 1408
+COLUMN_H = COLUMN_BOTTOM - COLUMN_TOP  # 1376
 
 # The foot of the third column. Every line is 36 px (28 px type), with 24 px of
 # air between the last day block and the first foot line.

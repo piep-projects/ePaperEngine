@@ -71,13 +71,22 @@ MANY_ITEMS = "\n".join(
 
 class TestMeasuring(unittest.TestCase):
     def test_characters_per_line_reproduces_the_fsd_table(self) -> None:
-        """FSD §7: 52 characters per 773 px column at 28 px, 45 at 32, 40 at 36."""
-        self.assertEqual(rl.chars_per_line(28), 52)
-        self.assertEqual(rl.chars_per_line(32), 45)
-        self.assertEqual(rl.chars_per_line(36), 40)
-        # …and the figure the mockup generator writes down for the smallest
-        # step ("28 px → ~52 Zeichen je Spalte, 24 px → ~61").
-        self.assertEqual(rl.chars_per_line(24), 61)
+        """FSD §7: 52 characters per **773 px** column at 28 px, 45 at 32, 40 at 36.
+
+        The width is now passed explicitly. FSD §7's table was measured against
+        the mockup's 773 px column, and since P30 dropped the margin to 32 px
+        the real column is 805 px — the *table* is still right, it simply no
+        longer describes the current column. What is being checked here is the
+        character model, not the layout: ``CHAR_RATIO`` is a property of DejaVu
+        Sans and must keep reproducing all four rows.
+        """
+        for font_px, expected in ((28, 52), (32, 45), (36, 40), (24, 61)):
+            self.assertEqual(rl.chars_per_line(font_px, 773), expected)
+
+    def test_the_wider_column_carries_more_of_a_line(self) -> None:
+        """What P30 bought sideways, in the one number that shows it."""
+        self.assertEqual(rl.COLUMN_W, 805)
+        self.assertEqual(rl.chars_per_line(28), 54)
 
     def test_a_source_line_costs_a_line_however_short_it_is(self) -> None:
         """The whole reason the character budget failed."""
@@ -116,7 +125,9 @@ class TestTypeSize(unittest.TestCase):
 
     def test_it_steps_down_before_it_shortens(self) -> None:
         """Shrinking is what the type steps are for; cutting is the last resort."""
-        column = rl.build_column(recipe("Suppe", "Salz", "Wort " * 260))
+        # 260 words fitted 28 px once the column grew by 96 px (P30) — the
+        # case has to stay a case, so it grows with the column.
+        column = rl.build_column(recipe("Suppe", "Salz", "Wort " * 340))
         self.assertLess(column.font_px, 28)
         self.assertFalse(column.truncated)
 
@@ -178,8 +189,15 @@ class TestItFits(unittest.TestCase):
                     )
 
     def test_what_does_not_fit_says_so(self) -> None:
-        """FSD §8.2: "wird gekürzt und das sichtbar vermerkt"."""
-        column = rl.build_columns([self.CASES["the recipe that was clipped"]] * 3)[0]
+        """FSD §8.2: "wird gekürzt und das sichtbar vermerkt".
+
+        The fixture had to grow when P30 gave every column 96 px more height:
+        the recipe that used to be clipped at three abreast now fits. That is
+        the change working, not the rule weakening — so the case is made large
+        enough that no type step and no cramped directions can save it.
+        """
+        huge = recipe("Suppe", "Salz\nPfeffer", "Wort " * 900)
+        column = rl.build_columns([huge] * 3)[0]
         self.assertTrue(column.truncated)
 
 
@@ -194,11 +212,17 @@ class TestTheWholeScreen(unittest.TestCase):
             self.assertGreaterEqual(used, rl.CONTENT_W - count, f"{count} recipes")
             self.assertLessEqual(used, rl.CONTENT_W, f"{count} recipes")
 
-    def test_the_widths_are_the_mockup_generator_s_own(self) -> None:
-        """COL3 = 773 and COL2 = 1180 are defined in tools/mockup-gen."""
-        self.assertEqual(rl.slot_width(3), 773)
-        self.assertEqual(rl.slot_width(2), 1180)
-        self.assertEqual(rl.slot_width(1), 2400)
+    def test_the_widths_follow_the_margin(self) -> None:
+        """The mockup generator writes COL3 = 773 and COL2 = 1180 — both are
+        (2400 − gutters) / n, i.e. the **80 px** margin it was drawn with. Since
+        P30 the margin is 32 px, so the same arithmetic gives 805 and 1228. The
+        rule is unchanged; only the number the rule is applied to moved, and
+        this test exists so the two cannot drift apart silently.
+        """
+        self.assertEqual(rl.slot_width(3), (rl.CONTENT_W - 2 * rl.GUTTER) // 3)
+        self.assertEqual(rl.slot_width(2), (rl.CONTENT_W - rl.GUTTER) // 2)
+        self.assertEqual(rl.slot_width(1), rl.CONTENT_W)
+        self.assertEqual((rl.slot_width(3), rl.slot_width(2), rl.slot_width(1)), (805, 1228, 2496))
 
     def test_one_recipe_flows_in_three_sub_columns(self) -> None:
         """Not one line 160 characters wide (FSD §7)."""

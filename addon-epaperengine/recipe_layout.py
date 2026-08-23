@@ -48,14 +48,27 @@ from typing import Any
 # --- the canvas, 1:1 with the mockup ------------------------------------------
 CANVAS_W = 2560
 CANVAS_H = 1440
-MARGIN = 80
+
+# **32 px, not the mockup's 80** [Festlegung P30, 2026-08-23, Wolfgang]. The
+# figure was never measured — `projektidee.md` §4 marks the block it comes from
+# "Vorschlag, nicht gemessen" — and it left 17 % of the panel unused. Measured
+# on the calendar view, the vertical half of that is worth **+19 %** of the
+# entries; the horizontal half is composition, because a column gives up a fixed
+# amount to its furniture before the text starts.
+#
+# For a recipe the vertical gain is 96 px of column, which is where the
+# truncation of FSD §8.2 lives — 66 % of this household's collection at three
+# recipes.
+MARGIN = 32
 GUTTER = 40
-CONTENT_W = CANVAS_W - 2 * MARGIN  # 2400
-COLUMN_H = CANVAS_H - 2 * MARGIN   # 1280
+CONTENT_W = CANVAS_W - 2 * MARGIN  # 2496
+COLUMN_H = CANVAS_H - 2 * MARGIN   # 1376
 
 # The base column of FSD §8.2 and the mockup: 773 px, the width the character
 # figures in FSD §7 were measured at.
-COLUMN_W = 773
+# Derived from the margin rather than written down: the mockup's 773 px was
+# (2400 − 80) / 3, and a literal would silently disagree with MARGIN above.
+COLUMN_W = (CONTENT_W - 2 * GUTTER) // 3  # 805
 
 # **The whole screen is used, whatever the number of recipes**
 # [Festlegung 2026-08-22]. Two recipes get half the canvas each, one gets all of

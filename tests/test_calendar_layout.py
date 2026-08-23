@@ -211,9 +211,12 @@ class TestDays(unittest.TestCase):
         self.assertGreater(len(entry.title_lines), 1)
         self.assertEqual(entry.height, cl.ENTRY_H + cl.ENTRY_LINE_H * (len(entry.title_lines) - 1))
 
-    def test_the_title_wraps_at_about_the_width_the_specification_names(self) -> None:
-        """FSD §8.1: titles over ~31 characters break into a second line."""
-        self.assertIn(cl.TITLE_CHARS, range(29, 35))
+    def test_the_title_wraps_where_the_column_actually_ends(self) -> None:
+        """FSD §8.1 says "~31 characters", measured against the mockup's 773 px
+        column. Since P30 the column is 805 px, so the figure is 35 — the model
+        is unchanged, the column it is applied to grew."""
+        self.assertEqual(cl.TITLE_CHARS, cl.chars_per_line(cl.TITLE_PX, cl.COLUMN_W - cl.TITLE_DX))
+        self.assertIn(cl.TITLE_CHARS, range(33, 38))
 
 
 class TestBirthdayEntries(unittest.TestCase):
@@ -341,7 +344,13 @@ class TestColumns(unittest.TestCase):
         """[P29] — the header cost 140 px off all three columns to say the date
         a second time."""
         self.assertEqual(cl.COLUMN_TOP, cl.MARGIN)
-        self.assertEqual(cl.COLUMN_H, 1280)
+        self.assertEqual(cl.COLUMN_H, 1376)
+
+    def test_the_margin_is_the_measured_one_not_the_mockups(self) -> None:
+        """[P30] 80 px left 17 % of the panel unused and were never measured —
+        `projektidee.md` §4 marks them "Vorschlag, nicht gemessen"."""
+        self.assertEqual(cl.MARGIN, 32)
+        self.assertEqual(cl.COLUMN_W, (cl.CONTENT_W - 2 * cl.GUTTER) // 3)
 
     def test_only_the_third_column_pays_for_the_foot(self) -> None:
         days = [self._day(3, TODAY + timedelta(n)) for n in range(20)]
