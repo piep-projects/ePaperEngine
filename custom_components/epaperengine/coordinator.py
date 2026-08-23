@@ -39,6 +39,9 @@ from homeassistant.util import dt as dt_util
 from . import mediapath
 from .addon import AddonClient, AddonError
 from .const import (
+    CALENDAR_KIND_BIRTHDAYS,
+    DEFAULT_CALENDAR_DAYS_BIRTHDAYS,
+    DEFAULT_CALENDAR_DAYS_EVENTS,
     DEFAULT_GUEST_ANGLE,
     DEFAULT_GUEST_OUTLINE,
     DEFAULT_GUEST_OUTLINE_COLOR,
@@ -53,6 +56,7 @@ from .const import (
     RENDER_INTERVAL_MIN,
     RESULT_IDLE,
     SIGNAL_STATE_UPDATED,
+    VIEW_CALENDAR,
     VIEW_GUESTS,
 )
 from . import scaling
@@ -668,6 +672,113 @@ class EPaperEngineCoordinator:
         stamp = (now or dt_util.utcnow()).timestamp()
         return int(stamp // (interval * 60))
 
+    # --- calendar (FSD §8.1, kalenderkonzept.md §7/§8) ------------------------
+    async def async_calendar_events(
+        self, *, refresh: bool = True
+    ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, str]]:
+        """``({entity_id: [event, …]}, {entity_id: "why it failed"})``.
+
+        **One call per source, and every failure caught on its own**
+        (kalenderkonzept §7.1). Measured on HA 2026.8.2 why that matters: a
+        non-existent entity inside a multi-target call is dropped *silently* —
+        200, no error, the key simply absent — and a call whose targets are all
+        gone answers 500. A collective call would therefore turn a dead
+        calendar into a quiet hole in the wall. One call each turns it into a
+        named line under the header.
+
+        ``refresh`` runs ``homeassistant.update_entity`` first. Not optional in
+        practice: a Remote Calendar over a published ICS polls every 24 h
+        (kalenderkonzept §8), and without this the wall reliably shows
+        yesterday. It is best effort — a source that cannot be refreshed is
+        still worth asking.
+        """
+        section = self.config.get("calendar") or {}
+        sources = [
+            source
+            for source in (section.get("sources") or [])
+            if isinstance(source, dict) and source.get("entity_id")
+        ]
+        if not sources:
+            return {}, {}
+
+        if refresh:
+            await self._async_refresh_calendars([str(s["entity_id"]) for s in sources])
+
+        now = dt_util.now()
+        # From **midnight**, not from now: "today" on the wall is the whole day.
+        # ``duration`` would start the window at this instant, and this morning's
+        # birthday — a 09:00–09:15 entry — would be gone from the wall by 09:16
+        # whatever the "show past entries" switch says.
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        events: dict[str, list[dict[str, Any]]] = {}
+        failed: dict[str, str] = {}
+        for source in sources:
+            entity_id = str(source["entity_id"])
+            days = (
+                section.get("query_days_birthdays") or DEFAULT_CALENDAR_DAYS_BIRTHDAYS
+                if source.get("kind") == CALENDAR_KIND_BIRTHDAYS
+                else section.get("query_days_events") or DEFAULT_CALENDAR_DAYS_EVENTS
+            )
+            try:
+                answer = await self.hass.services.async_call(
+                    "calendar",
+                    "get_events",
+                    {
+                        "entity_id": entity_id,
+                        "start_date_time": start.isoformat(),
+                        "end_date_time": (start + timedelta(days=int(days))).isoformat(),
+                    },
+                    blocking=True,
+                    return_response=True,
+                )
+            except Exception as err:  # noqa: BLE001 - one dead source must not stop the wall
+                _LOGGER.warning("Calendar %s did not answer: %s", entity_id, err)
+                failed[entity_id] = f"{type(err).__name__}: {err}"
+                continue
+            entry = (answer or {}).get(entity_id) or {}
+            events[entity_id] = list(entry.get("events") or [])
+        return events, failed
+
+    async def _async_refresh_calendars(self, entity_ids: list[str]) -> None:
+        """``homeassistant.update_entity`` on the sources, best effort."""
+        try:
+            await self.hass.services.async_call(
+                "homeassistant",
+                "update_entity",
+                {"entity_id": entity_ids},
+                blocking=True,
+            )
+        except Exception as err:  # noqa: BLE001 - a stale calendar beats no calendar
+            _LOGGER.debug("Could not refresh the calendar sources: %s", err)
+
+    async def async_calendar_probe(self) -> dict[str, Any]:
+        """What the panel's source table shows: entries per source, or the error.
+
+        Without the refresh — this runs while somebody is looking at a settings
+        page, and pulling three ICS files on every repaint would be rude to the
+        servers on the other end.
+        """
+        events, failed = await self.async_calendar_events(refresh=False)
+        return {
+            "counts": {entity_id: len(items) for entity_id, items in events.items()},
+            "failed": failed,
+            "at": dt_util.now().isoformat(),
+        }
+
+    async def async_render_document(self) -> dict[str, Any]:
+        """The render document, with the calendar filled in when it is needed.
+
+        The query is skipped for every other view — FSD §6.2 step 2 says "only
+        when the view is ``calendar``", and thirty days of three calendars on
+        every photo run would be work nobody reads.
+        """
+        document = self.render_document()
+        if document.get("view") != VIEW_CALENDAR:
+            return document
+        events, failed = await self.async_calendar_events()
+        document["calendar"] = {**document["calendar"], "events": events, "failed": failed}
+        return document
+
     def render_document(self) -> dict[str, Any]:
         """The single document the add-on pulls each run (FSD §6.2 step 1).
 
@@ -727,10 +838,26 @@ class EPaperEngineCoordinator:
                 "selection": list(cfg["recipes"].get("selection") or []),
                 "items": self._scaled_selection(),
             },
-            "calendar": {"sources": list(cfg["calendar"].get("sources") or [])},
-            "layout": {
-                "color_bar_px": cfg["calendar"].get("color_bar_px"),
-                "show_empty_days": cfg["calendar"].get("show_empty_days"),
+            # Sources, layout **and** the events themselves — the last of them
+            # filled in by ``async_render_document`` and only when the calendar
+            # is what is going on the wall. ``now`` travels with it because the
+            # add-on container has no idea what time zone this household is in,
+            # and "today" is the value the whole page hangs on.
+            "calendar": {
+                **{
+                    key: cfg["calendar"].get(key)
+                    for key in (
+                        "query_days_events",
+                        "query_days_birthdays",
+                        "color_bar_px",
+                        "show_empty_days",
+                        "show_past_today",
+                    )
+                },
+                "sources": list(cfg["calendar"].get("sources") or []),
+                "now": dt_util.now().isoformat(),
+                "events": {},
+                "failed": {},
             },
         }
 

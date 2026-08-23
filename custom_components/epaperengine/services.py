@@ -7,7 +7,11 @@ add-on, two are for automations — the front-ends use the WebSocket API instead
 ``get_render_data``
     the add-on pulls one document per run (FSD §6.2 step 1). ``SupportsResponse
     .ONLY`` — this is a question, not a command, and the payload would blow the
-    16 KB entity-attribute limit once recipes are in it.
+    16 KB entity-attribute limit once recipes are in it. When the resolved view
+    is ``calendar`` the appointments are fetched here and travel with it, the
+    same way the recipe text does: the entities live in Home Assistant, and so
+    does ``homeassistant.update_entity``, which an ICS-backed source needs
+    before it is worth asking (kalenderkonzept §8).
 
 ``report_run``
     the add-on reports the outcome (FSD §6.2 step 10). The specification says
@@ -95,7 +99,11 @@ def async_register_services(hass: HomeAssistant) -> None:
     """Register the services (idempotent — setup may run again on reload)."""
 
     async def _get_render_data(call: ServiceCall) -> ServiceResponse:
-        return _coordinator(hass).render_document()
+        # Async since 2026-08-23: when the calendar is the target view this
+        # asks ``calendar.get_events`` per source first (FSD §6.2 step 2,
+        # kalenderkonzept §7.1). Every other view is answered from memory as
+        # before.
+        return await _coordinator(hass).async_render_document()
 
     async def _report_run(call: ServiceCall) -> None:
         data: dict[str, Any] = dict(call.data)

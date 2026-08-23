@@ -31,7 +31,7 @@ const ICON = "mdi:image-frame"; // const.py PANEL_ICON
 // cache state. It also draws the permission line in one place instead of half way
 // down three pages.
 const TABS = ["overview", "views", "calendar", "recipes", "photos", "guests", "settings"];
-const TABS_PENDING = new Set(["calendar"]);
+const TABS_PENDING = new Set([]);
 
 const VIEWS = ["calendar", "recipes", "photos", "guests", "error"];
 // What may be pinned by hand. ``error`` is a system state, not a choice.
@@ -67,6 +67,23 @@ const GUEST_COLORS = {
   blue: "#1e3cb4",
   green: "#1e8c46",
 };
+
+// The colour of a calendar bar (const.py CALENDAR_COLORS, and the COLORS table
+// of the add-on's calendar_layout.py). **Spectra primaries only, minus white**
+// — the same rule the guest greeting follows [P23]; a 6 px bar in a dithered
+// near-blue is a speckle, and a white one is no bar at all.
+const CALENDAR_COLORS = {
+  blue: "#1e3cb4",
+  green: "#1e8c46",
+  red: "#dc1e1e",
+  yellow: "#f0c81e",
+  black: "#000000",
+};
+
+// A source is either a diary or a birthday list (const.py CALENDAR_KINDS). The
+// difference is the age line, the single start time and the exemption from the
+// "hide today's past entries" filter.
+const CALENDAR_KINDS = ["events", "birthdays"];
 
 // ---------------------------------------------------------------------------
 // i18n — same mechanism and the same catalogs as the card (i18n concept §4/§7).
@@ -256,6 +273,7 @@ class EPaperEnginePanel extends HTMLElement {
     this._status = null;
     this._photos = null;
     this._backgrounds = null; // { total, backgrounds, folder } of the guest page
+    this._calendar = null; // { counts, failed } of the last calendar probe
     this._recipes = null; // { hits, total, cache } of the last search
     this._picked = []; // the selected recipes in full, for the slot cards
     this._forecast = new Map(); // uid → {fit, chars}, filled from the searches
@@ -478,6 +496,25 @@ class EPaperEnginePanel extends HTMLElement {
     this._render();
   }
 
+  // --- calendar (FSD §8.1) --------------------------------------------------
+  /**
+   * How many entries each configured source answers with, and which do not.
+   *
+   * The one thing the configuration document cannot say: whether the entity
+   * behind ``calendar.wolfgang`` is alive. Measured on HA 2026.8.2 — a
+   * non-existent entity is dropped from a collective ``get_events`` **without
+   * an error**, so "no number here" is the only signal there is.
+   */
+  async _probeCalendar() {
+    this._calendar = this._calendar || { loading: true };
+    try {
+      this._calendar = await this._call({ type: "epaperengine/calendar/probe" });
+    } catch (err) {
+      this._calendar = { counts: {}, failed: {}, error: this._message(err) };
+    }
+    this._render();
+  }
+
   /** Switch guest mode on or off. State, not configuration — no Save button. */
   async _setGuests(active) {
     try {
@@ -638,6 +675,9 @@ class EPaperEnginePanel extends HTMLElement {
     // so a household member is not sent into a guaranteed "unauthorized".
     if (tab === "guests" && !this._backgrounds && this.isAdmin) this._loadBackgrounds();
     if (tab === "recipes") this._loadRecipes();
+    // Admin-only command, so a household member is not sent into a guaranteed
+    // "unauthorized" just by opening the page.
+    if (tab === "calendar" && this.isAdmin) this._probeCalendar();
     this._render();
   }
 
@@ -832,6 +872,7 @@ class EPaperEnginePanel extends HTMLElement {
     const body = {
       overview: () => this._pageOverview(),
       views: () => this._pageViews(),
+      calendar: () => this._pageCalendar(),
       recipes: () => this._pageRecipes(),
       photos: () => this._pagePhotos(),
       guests: () => this._pageGuests(),
@@ -1067,6 +1108,145 @@ class EPaperEnginePanel extends HTMLElement {
       </div>
       <div class="note">${esc(t("panel.views.schedules.overlap"))}</div>
     </div>`;
+  }
+
+  // --- page: calendar (FSD §8.1, kalenderkonzept.md Teil A) -----------------
+  // Deliberately source-agnostic, exactly as the mockup draws it: a list of
+  // entities with a person and a colour. What is behind one — M365 publish ICS,
+  // Google, CalDAV, Local Calendar — never appears on this page, which is the
+  // whole point of going through calendar.get_events. Moving Wolfgang's diary
+  // from Microsoft to an IMAP provider later costs a line in this table and
+  // nothing in the renderer.
+  _pageCalendar() {
+    const cal = this._draft.calendar || {};
+    const sources = cal.sources || [];
+    const admin = this.isAdmin;
+    const lock = admin ? "" : "disabled";
+    const probe = this._calendar || {};
+    const counts = probe.counts || {};
+    const failed = probe.failed || {};
+
+    // Every calendar entity Home Assistant knows about. Read out of hass
+    // directly rather than through a command of our own — the panel already
+    // holds the state machine, and this list is what it is for.
+    const entities = Object.keys((this._hass || {}).states || {})
+      .filter((id) => id.startsWith("calendar."))
+      .sort();
+
+    const rows = sources
+      .map((source, index) => {
+        const id = source.entity_id || "";
+        // A configured entity that no longer exists must stay selectable, or
+        // saving the page would quietly drop it.
+        const options = (entities.includes(id) || !id ? entities : [id, ...entities])
+          .map((candidate) => {
+            const label = ((this._hass.states[candidate] || {}).attributes || {}).friendly_name;
+            const missing = entities.includes(candidate) ? "" : " " + t("panel.calendar.gone");
+            return '<option value="' + esc(candidate) + '"' + (candidate === id ? " selected" : "") +
+              ">" + esc(candidate + (label ? " — " + label : "") + missing) + "</option>";
+          })
+          .join("");
+        const kinds = CALENDAR_KINDS.map(
+          (kind) =>
+            '<option value="' + esc(kind) + '"' + (source.kind === kind ? " selected" : "") + ">" +
+            esc(t("panel.calendar.kind." + kind)) + "</option>",
+        ).join("");
+        const swatches = Object.entries(CALENDAR_COLORS)
+          .map(
+            ([token, hex]) =>
+              '<button class="swatch ' + (source.color === token ? "on" : "") +
+              '" data-src-color="' + index + ":" + esc(token) + '" title="' +
+              esc(t("guests.color." + token)) + '" ' + lock + '><span style="background:' +
+              esc(hex) + '"></span></button>',
+          )
+          .join("");
+        const answer = failed[id]
+          ? '<span class="bad" title="' + esc(failed[id]) + '">' + esc(t("panel.calendar.failed")) + "</span>"
+          : id in counts
+            ? esc(String(counts[id]))
+            : '<span class="muted">' + esc(probe.loading ? t("common.loading") : "—") + "</span>";
+        return (
+          "<tr>" +
+          '<td><select data-src-entity="' + index + '" ' + lock + ">" + options + "</select></td>" +
+          '<td><input data-src-person="' + index + '" value="' + esc(source.person || "") + '" ' + lock + "></td>" +
+          '<td><select data-src-kind="' + index + '" ' + lock + ">" + kinds + "</select></td>" +
+          '<td><div class="swatches">' + swatches + "</div></td>" +
+          "<td>" + answer + "</td>" +
+          '<td><button class="plain" data-src-remove="' + index + '" ' + lock + ">✕</button></td>" +
+          "</tr>"
+        );
+      })
+      .join("");
+
+    return `
+      ${admin ? "" : `<div class="card" style="grid-column: 1 / -1"><div class="note warn">${esc(t("error.no_admin"))}</div></div>`}
+
+      <div class="card" style="grid-column: 1 / -1">
+        <h2>${esc(t("panel.calendar.sources"))}</h2>
+        <div class="hint">${esc(t("panel.calendar.sources.hint"))}</div>
+        ${
+          sources.length
+            ? `<table><thead><tr>
+                <th>${esc(t("panel.calendar.entity"))}</th>
+                <th>${esc(t("panel.calendar.person"))}</th>
+                <th>${esc(t("panel.calendar.kind"))}</th>
+                <th>${esc(t("panel.calendar.color"))}</th>
+                <th>${esc(t("panel.calendar.entries"))}</th>
+                <th></th></tr></thead><tbody>${rows}</tbody></table>`
+            : `<div class="muted">${esc(t("panel.calendar.sources.none"))}</div>`
+        }
+        ${
+          probe.error
+            ? `<div class="note bad">${esc(probe.error)}</div>`
+            : ""
+        }
+        <div class="actions">
+          <button class="plain" id="calendar-add" ${entities.length && admin ? "" : "disabled"}>${esc(
+            t("panel.calendar.add"),
+          )}</button>
+          <button class="plain" id="calendar-probe" ${lock}>${esc(t("panel.calendar.recount"))}</button>
+          <button class="primary" data-save="calendar" ${lock}>${esc(t("common.save"))}</button>
+        </div>
+        ${entities.length ? "" : `<div class="note warn">${esc(t("panel.calendar.no_entities"))}</div>`}
+      </div>
+
+      <div class="card">
+        <h2>${esc(t("panel.calendar.window"))}</h2>
+        <label>${esc(t("panel.calendar.days_events"))}</label>
+        <div class="inline">
+          <input id="calendar-days-events" value="${esc(fmtNum(cal.query_days_events ?? 30))}" ${lock}>
+          <span class="unit">${esc(t("panel.calendar.days"))}</span>
+        </div>
+        <label>${esc(t("panel.calendar.days_birthdays"))}</label>
+        <div class="inline">
+          <input id="calendar-days-birthdays" value="${esc(fmtNum(cal.query_days_birthdays ?? 30))}" ${lock}>
+          <span class="unit">${esc(t("panel.calendar.days"))}</span>
+        </div>
+        <div class="note">${esc(t("panel.calendar.window.hint"))}</div>
+        <div class="actions"><button class="primary" data-save="calendar" ${lock}>${esc(t("common.save"))}</button></div>
+      </div>
+
+      <div class="card">
+        <h2>${esc(t("panel.calendar.look"))}</h2>
+        <label>${esc(t("panel.calendar.bar"))}</label>
+        <div class="inline">
+          <input id="calendar-bar-px" value="${esc(fmtNum(cal.color_bar_px ?? 6))}" ${lock}>
+          <span class="unit">${esc(t("panel.guests.font.px"))}</span>
+        </div>
+        <div class="muted">${esc(t("panel.calendar.bar.hint"))}</div>
+        <div class="row" style="margin-top:12px">
+          <input type="checkbox" id="calendar-empty-days" ${cal.show_empty_days ? "checked" : ""} ${lock}>
+          <label for="calendar-empty-days">${esc(t("panel.calendar.empty_days"))}</label>
+        </div>
+        <div class="muted">${esc(t("panel.calendar.empty_days.hint"))}</div>
+        <div class="row" style="margin-top:12px">
+          <input type="checkbox" id="calendar-past-today" ${cal.show_past_today ? "checked" : ""} ${lock}>
+          <label for="calendar-past-today">${esc(t("panel.calendar.past_today"))}</label>
+        </div>
+        <div class="muted">${esc(t("panel.calendar.past_today.hint"))}</div>
+        <div class="actions"><button class="primary" data-save="calendar" ${lock}>${esc(t("common.save"))}</button></div>
+      </div>
+    `;
   }
 
   // --- page: recipes --------------------------------------------------------
@@ -1658,6 +1838,54 @@ class EPaperEnginePanel extends HTMLElement {
         this._moveSlot(Number(button.dataset.slot), button.dataset.slotMove === "up" ? -1 : 1);
     });
 
+    // --- calendar
+    on("#calendar-add", () => {
+      this._collect();
+      const used = new Set((this._draft.calendar.sources || []).map((source) => source.entity_id));
+      const free = Object.keys((this._hass || {}).states || {})
+        .filter((id) => id.startsWith("calendar.") && !used.has(id))
+        .sort();
+      // The next unused colour, so two calendars never arrive sharing one bar.
+      const taken = new Set((this._draft.calendar.sources || []).map((source) => source.color));
+      const palette = Object.keys(CALENDAR_COLORS);
+      this._draft.calendar.sources = [
+        ...(this._draft.calendar.sources || []),
+        {
+          entity_id: free[0] || "",
+          person: "",
+          color: palette.find((token) => !taken.has(token)) || palette[0],
+          kind: "events",
+        },
+      ];
+      this._render();
+    });
+    on("#calendar-probe", () => {
+      this._calendar = { loading: true };
+      this._render();
+      this._probeCalendar();
+    });
+    root.querySelectorAll("[data-src-remove]").forEach((button) => {
+      button.onclick = () => {
+        this._collect();
+        const index = Number(button.dataset.srcRemove);
+        this._draft.calendar.sources = (this._draft.calendar.sources || []).filter(
+          (_, position) => position !== index,
+        );
+        this._render();
+      };
+    });
+    root.querySelectorAll("[data-src-color]").forEach((button) => {
+      button.onclick = () => {
+        // Read the page first — the swatch repaints the card, and a half-typed
+        // person would be rebuilt from the draft and lost.
+        this._collect();
+        const [index, token] = button.dataset.srcColor.split(":");
+        const sources = this._draft.calendar.sources || [];
+        if (sources[Number(index)]) sources[Number(index)].color = token;
+        this._render();
+      };
+    });
+
     // --- photos
     on("#reload-photos", () => this._loadPhotos());
 
@@ -1727,6 +1955,36 @@ class EPaperEnginePanel extends HTMLElement {
       this._draft.views.manual_timeout_h = number("#manual-timeout", this._draft.views.manual_timeout_h);
       const fallback = value("#fallback-view");
       if (fallback) this._draft.views.fallback = fallback;
+    }
+    if (this._tab === "calendar") {
+      // The rows are rebuilt from the DOM rather than patched in place: the
+      // index in the data attribute is the row's position, and reading the
+      // whole table at once is the only way that survives a removal.
+      const rows = [...root.querySelectorAll("[data-src-entity]")];
+      this._draft.calendar.sources = rows.map((select, index) => {
+        const person = root.querySelector('[data-src-person="' + index + '"]');
+        const kind = root.querySelector('[data-src-kind="' + index + '"]');
+        const previous = (this._draft.calendar.sources || [])[index] || {};
+        return {
+          entity_id: select.value || "",
+          person: person ? person.value.trim() : "",
+          kind: kind ? kind.value : "events",
+          color: previous.color || "blue",
+        };
+      });
+      this._draft.calendar.query_days_events = number(
+        "#calendar-days-events",
+        this._draft.calendar.query_days_events,
+      );
+      this._draft.calendar.query_days_birthdays = number(
+        "#calendar-days-birthdays",
+        this._draft.calendar.query_days_birthdays,
+      );
+      this._draft.calendar.color_bar_px = number("#calendar-bar-px", this._draft.calendar.color_bar_px);
+      const empty = root.querySelector("#calendar-empty-days");
+      const past = root.querySelector("#calendar-past-today");
+      if (empty) this._draft.calendar.show_empty_days = !!empty.checked;
+      if (past) this._draft.calendar.show_past_today = !!past.checked;
     }
     if (this._tab === "photos") {
       this._draft.photos.rotation_interval_min = number(

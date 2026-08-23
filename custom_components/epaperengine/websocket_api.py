@@ -30,6 +30,7 @@ from homeassistant.helpers import config_validation as cv
 from .const import (
     DOMAIN,
     VIEWS,
+    WS_CALENDAR_PROBE,
     WS_CONFIG_GET,
     WS_CONFIG_SET,
     WS_DISPLAY_TEST,
@@ -69,6 +70,7 @@ def async_register(hass: HomeAssistant) -> None:
         ws_recipes_sync,
         ws_guests_set,
         ws_guests_backgrounds,
+        ws_calendar_probe,
     ):
         websocket_api.async_register_command(hass, handler)
 
@@ -350,3 +352,24 @@ async def ws_guests_backgrounds(hass, connection, msg) -> None:
         connection.send_error(msg["id"], "not_loaded", "ePaperEngine is not set up")
         return
     connection.send_result(msg["id"], await coordinator.async_background_list())
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({vol.Required("type"): WS_CALENDAR_PROBE})
+@websocket_api.async_response
+async def ws_calendar_probe(hass, connection, msg) -> None:
+    """How many entries each configured calendar answers with — and which do not.
+
+    Admin-only, like every other read that touches configuration rather than
+    the wall: the sources are set on this page, and the answer names entities
+    somebody who only picks tonight's recipe has no business enumerating.
+
+    No ``update_entity`` here (see ``async_calendar_probe``): this fires while a
+    settings page is open, and re-pulling three published ICS files on every
+    repaint would be rude to the servers answering them.
+    """
+    coordinator = _coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_loaded", "ePaperEngine is not set up")
+        return
+    connection.send_result(msg["id"], await coordinator.async_calendar_probe())

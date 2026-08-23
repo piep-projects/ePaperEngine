@@ -89,6 +89,11 @@ WS_RECIPES_GET: Final = f"{DOMAIN}/recipes/get"
 WS_RECIPES_SYNC: Final = f"{DOMAIN}/recipes/sync"
 WS_GUESTS_SET: Final = f"{DOMAIN}/guests/set"
 WS_GUESTS_BACKGROUNDS: Final = f"{DOMAIN}/guests/backgrounds"
+# What the calendar page needs beyond the config document: how many entries each
+# configured source actually answers with, and whether it answers at all. Read
+# on demand rather than pushed into the status — it is a question somebody asks
+# while setting the page up, not something the card shows every 15 seconds.
+WS_CALENDAR_PROBE: Final = f"{DOMAIN}/calendar/probe"
 
 # --- Services (FSD §3.1) ------------------------------------------------------
 SERVICE_GET_RENDER_DATA: Final = "get_render_data"
@@ -150,6 +155,49 @@ DISPLAY_PROBE_INTERVAL_MIN: Final = 15
 # is the one that does not happen, and the panel's "Sync now" covers the moment
 # somebody actually wants it now.
 DEFAULT_RECIPE_SYNC_INTERVAL_H: Final = 24
+
+# --- Calendar (FSD §8.1, kalenderkonzept.md Teil A) ---------------------------
+# A source is either a diary or a birthday list, and the difference is not
+# cosmetic: a birthday carries an age computed from its description, shows only
+# its start time, and stays on the wall all day even when today's past entries
+# are hidden — it is not an appointment anybody can be late for.
+CALENDAR_KIND_EVENTS: Final = "events"
+CALENDAR_KIND_BIRTHDAYS: Final = "birthdays"
+CALENDAR_KINDS: Final[tuple[str, ...]] = (
+    CALENDAR_KIND_EVENTS,
+    CALENDAR_KIND_BIRTHDAYS,
+)
+
+# The colour of the bar beside a line [Festlegung C8]. **Spectra primaries
+# only**, minus white — the same rule as the guest greeting [P23]: any other
+# value is reproduced by dithering it out of these six, and a 6 px bar of
+# dithered near-blue is a speckle rather than a mark. White is left out because
+# a white bar on a white page is no bar. The add-on's ``calendar_layout.COLORS``
+# holds the hex values; tests/test_calendar_layout.py keeps the two in step.
+CALENDAR_COLORS: Final[tuple[str, ...]] = ("blue", "green", "red", "yellow", "black")
+DEFAULT_CALENDAR_COLOR: Final = "blue"
+
+# Width of that bar. 2 px is the measured floor (FSD §7); 6 px is what reads as
+# a bar rather than a hairline at 1 m, and it is adjustable because the wall is
+# the only place to judge it.
+DEFAULT_CALENDAR_BAR_PX: Final = 6
+
+# The **query** window, not the display window [Festlegung 2026-08-20]: the wall
+# shows as many complete day blocks as fit. 30 days is the ceiling of the
+# question, and birthdays get their own because one wants time to buy a present.
+DEFAULT_CALENDAR_DAYS_EVENTS: Final = 30
+DEFAULT_CALENDAR_DAYS_BIRTHDAYS: Final = 30
+
+# Days without appointments are shown so the run of days has no holes
+# [Festlegung 2026-08-20]. It costs about 126 px — roughly 1.5 appointments —
+# which is why it can be switched off.
+DEFAULT_CALENDAR_SHOW_EMPTY_DAYS: Final = True
+
+# Whether an appointment that is already over still stands on the wall today.
+# Off by default (the mockup's switch): at six in the evening the morning's
+# stand-up is noise. Birthdays and all-day entries are exempt from the filter —
+# a birthday vanishing at 09:16 would be a trap, not a setting.
+DEFAULT_CALENDAR_SHOW_PAST_TODAY: Final = False
 
 # --- Guests (FSD §8.4) --------------------------------------------------------
 # The script faces the add-on ships (``addon-epaperengine/fonts/``). Listed here

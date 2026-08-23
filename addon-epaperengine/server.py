@@ -38,6 +38,7 @@ import aiohttp
 from aiohttp import web
 from PIL import Image
 
+import calendar_layout
 import delivery
 import guest_layout
 import imaging
@@ -323,6 +324,7 @@ def _write_state(state: dict[str, Any]) -> None:
 # --- the views ----------------------------------------------------------------
 # Stable English tokens, the same ones ``const.py`` defines on the integration
 # side (FSD §3.0a). The add-on only ever sees them, never a label.
+VIEW_CALENDAR = "calendar"
 VIEW_PHOTOS = "photos"
 VIEW_RECIPES = "recipes"
 VIEW_GUESTS = "guests"
@@ -354,6 +356,8 @@ def _render_view(
     Chromium, a view nobody has built yet — so that ``run_pipeline`` has exactly
     one place to catch and one policy to apply.
     """
+    if view == VIEW_CALENDAR:
+        return _render_calendar(document, text)
     if view == VIEW_PHOTOS:
         return _render_photos(document, engine)
     if view == VIEW_RECIPES:
@@ -374,6 +378,59 @@ def _render_view(
             {"error_page": "on request"},
         )
     raise ViewNotBuilt(f"view '{view}' has no template yet (phase 5)")
+
+
+def _render_calendar(
+    document: dict[str, Any], text: wall_text.WallText
+) -> tuple[Image.Image, dict[str, Any]]:
+    """The calendar view (FSD §8.1, kalenderkonzept.md Teil A).
+
+    **No calendar is queried here.** The events travel in the render document
+    the same way the recipes do [Festlegung 2026-08-23]: ``calendar.get_events``
+    is answered inside Home Assistant, where the entities live, where
+    ``homeassistant.update_entity`` can be run first (kalenderkonzept §8 makes
+    that mandatory for an ICS-backed source), and where the
+    ``?return_response`` question does not arise. What is not in the document
+    does not exist as far as the wall is concerned.
+
+    ``now`` comes from the document, not from this container's clock: the
+    integration knows Home Assistant's time zone, and "today" is the one value
+    the whole page hangs on.
+    """
+    section = document.get("calendar") or {}
+    now = _document_now(section.get("now"))
+    page = calendar_layout.build_page(document, now=now, text=text)
+
+    html = renderer.render_html(
+        VIEW_CALENDAR,
+        {
+            "language": text.language,
+            "t": text,
+            "page": page.as_dict(),
+            "updated": text("calendar.updated", time=now.strftime(text("format.clock"))),
+        },
+        WORK_DIR,
+    )
+    shot = renderer.screenshot(html, WORK_DIR / "calendar.png", WORK_DIR)
+    return imaging.dither_spectra(shot), {
+        "days": page.shown_days,
+        "entries": page.shown_entries,
+        # The two numbers worth reading in the log: how much of the window did
+        # not fit on the wall, and whether a single day had to be cut.
+        "days_dropped": page.dropped_days,
+        "entries_cut": page.cut_entries,
+        "sources": len(page.legend),
+        "notes": page.notes,
+    }
+
+
+def _document_now(value: Any) -> datetime:
+    """Home Assistant's local time, as the document carries it."""
+    try:
+        return datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        _LOGGER.warning("Render document has no usable 'now' (%r) — using the container clock", value)
+        return datetime.now().astimezone()
 
 
 def _render_photos(

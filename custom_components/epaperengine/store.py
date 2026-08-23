@@ -21,6 +21,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from .const import (
+    DEFAULT_CALENDAR_BAR_PX,
+    DEFAULT_CALENDAR_DAYS_BIRTHDAYS,
+    DEFAULT_CALENDAR_DAYS_EVENTS,
+    DEFAULT_CALENDAR_SHOW_EMPTY_DAYS,
+    DEFAULT_CALENDAR_SHOW_PAST_TODAY,
     DEFAULT_GUEST_ANGLE,
     DEFAULT_GUEST_OUTLINE,
     DEFAULT_GUEST_OUTLINE_COLOR,
@@ -71,12 +76,17 @@ def default_config() -> dict[str, Any]:
         # Per view: a HA ``schedule`` helper entity plus its rank. Overlapping
         # windows are not an error — the lowest rank wins (FSD §5).
         "schedule": {},
+        # Quellenagnostisch (FSD §8.1): what is behind an entity — M365 publish
+        # ICS, Google, CalDAV, Local Calendar — never reaches this document.
+        # ``kind`` is the one distinction that does: ``birthdays`` turns the
+        # description into an age and keeps the entry up all day.
         "calendar": {
-            "sources": [],  # [{entity_id, person, color}]
-            "query_days_events": 30,
-            "query_days_birthdays": 30,
-            "color_bar_px": 6,
-            "show_empty_days": True,
+            "sources": [],  # [{entity_id, person, color, kind}]
+            "query_days_events": DEFAULT_CALENDAR_DAYS_EVENTS,
+            "query_days_birthdays": DEFAULT_CALENDAR_DAYS_BIRTHDAYS,
+            "color_bar_px": DEFAULT_CALENDAR_BAR_PX,
+            "show_empty_days": DEFAULT_CALENDAR_SHOW_EMPTY_DAYS,
+            "show_past_today": DEFAULT_CALENDAR_SHOW_PAST_TODAY,
         },
         # The cached collection itself lives in its own store (``STORE_RECIPES``,
         # FSD §9.1); what is configuration is the account, the sync clock and
