@@ -337,6 +337,19 @@ class TestColumns(unittest.TestCase):
         self.assertEqual(cl.COLUMN_W * 3 + cl.GUTTER * 2, cl.CONTENT_W - 1)
         self.assertEqual(cl.COLUMN_TOP + cl.COLUMN_H, cl.COLUMN_BOTTOM)
 
+    def test_the_columns_start_at_the_margin_because_there_is_no_header(self) -> None:
+        """[P29] — the header cost 140 px off all three columns to say the date
+        a second time."""
+        self.assertEqual(cl.COLUMN_TOP, cl.MARGIN)
+        self.assertEqual(cl.COLUMN_H, 1280)
+
+    def test_only_the_third_column_pays_for_the_foot(self) -> None:
+        days = [self._day(3, TODAY + timedelta(n)) for n in range(20)]
+        columns = cl.fill_columns(days, [cl.COLUMN_H, cl.COLUMN_H, cl.COLUMN_H - 96])
+        self.assertLessEqual(sum(day.height for day in columns[0]), cl.COLUMN_H)
+        self.assertLessEqual(sum(day.height for day in columns[1]), cl.COLUMN_H)
+        self.assertLessEqual(sum(day.height for day in columns[2]), cl.COLUMN_H - 96)
+
 
 class TestTheMockupLoad(unittest.TestCase):
     """The claim of FSD §8.1: three columns carry 22 appointments on 9 days.
@@ -381,13 +394,13 @@ class TestPage(unittest.TestCase):
 
     def test_the_legend_names_every_source(self) -> None:
         page = cl.build_page(self._document(), now=datetime(2026, 8, 23, 12, 0), text=TEXT)
-        self.assertEqual(page.legend, [{"label": "Wolfgang", "hex": cl.COLORS["blue"]}])
+        self.assertEqual(page.legend, [[{"label": "Wolfgang", "hex": cl.COLORS["blue"]}]])
 
     def test_a_source_without_a_person_still_gets_a_label(self) -> None:
         document = self._document()
         document["calendar"]["sources"][0]["person"] = ""
         page = cl.build_page(document, now=datetime(2026, 8, 23, 12, 0), text=TEXT)
-        self.assertEqual(page.legend[0]["label"], "a")
+        self.assertEqual(page.legend[0][0]["label"], "a")
 
     def test_a_failed_source_is_named_on_the_wall(self) -> None:
         page = cl.build_page(
@@ -397,13 +410,27 @@ class TestPage(unittest.TestCase):
         )
         self.assertEqual(page.notes, [TEXT("calendar.source_failed", person="Wolfgang")])
 
-    def test_a_note_shortens_the_columns_rather_than_pushing_them_off(self) -> None:
+    def test_a_note_grows_the_foot_rather_than_the_page(self) -> None:
+        plain = cl.build_page(self._document(), now=datetime(2026, 8, 23, 12, 0), text=TEXT)
         with_note = cl.build_page(
             self._document(failed={"calendar.a": "boom"}),
             now=datetime(2026, 8, 23, 12, 0),
             text=TEXT,
         )
-        self.assertEqual(with_note.column_top, cl.COLUMN_TOP + cl.NOTE_H)
+        self.assertEqual(with_note.foot_h, plain.foot_h + cl.FOOT_LINE)
+
+    def test_the_foot_is_the_lines_it_actually_holds(self) -> None:
+        """Legend row, timestamp, 24 px of air — measured, not assumed, because
+        the foot is anchored to the bottom and a line too many grows *upwards*
+        into the last appointment."""
+        page = cl.build_page(self._document(), now=datetime(2026, 8, 23, 12, 0), text=TEXT)
+        self.assertEqual(page.foot_h, cl.FOOT_GAP + 2 * cl.FOOT_LINE)
+
+    def test_the_stamp_travels_with_the_page(self) -> None:
+        page = cl.build_page(
+            self._document(), now=datetime(2026, 8, 23, 12, 0), text=TEXT, stamp="X"
+        )
+        self.assertEqual(page.stamp, "X")
 
     def test_no_source_is_said_out_loud(self) -> None:
         page = cl.build_page(
@@ -428,10 +455,51 @@ class TestPage(unittest.TestCase):
         source = cl.read_source({"entity_id": "calendar.a", "color": "#123456"})
         self.assertIn(source.color, cl.COLORS)
 
-    def test_the_headline_is_todays_date_without_the_today_prefix(self) -> None:
+    def test_the_date_is_said_exactly_once(self) -> None:
+        """The defect that removed the header [P29]: the page carried "Sunday,
+        August 23" at 64 px *and* "Today · Sunday, August 23" right under it."""
         page = cl.build_page(self._document(), now=datetime(2026, 8, 23, 12, 0), text=TEXT)
-        self.assertEqual(page.headline, "Sonntag, 23. August")
-        self.assertNotIn("Heute", page.headline)
+        titles = [day["title"] for column in page.columns for day in column]
+        self.assertEqual(sum(1 for t in titles if "23. August" in t), 1)
+        self.assertTrue(titles[0].startswith("Heute"))
+
+
+class TestFoot(unittest.TestCase):
+    """The foot is anchored to the bottom of the third column, so a line more
+    than the model reserved does not vanish off the canvas — it grows *upwards*
+    into the last appointment. Its height is therefore measured."""
+
+    def _legend(self, *labels):
+        return [{"label": label, "hex": "#000"} for label in labels]
+
+    def test_three_ordinary_names_are_one_line(self) -> None:
+        """Measured: Wolfgang · Ehefrau · Geburtstage = 613 px of 773."""
+        rows = cl.legend_lines(self._legend("Wolfgang", "Ehefrau", "Geburtstage"))
+        self.assertEqual(len(rows), 1)
+
+    def test_names_that_do_not_fit_break_into_a_second_line(self) -> None:
+        rows = cl.legend_lines(
+            self._legend("Wolfgang", "Ehefrau", "Geburtstage", "Firmentermine", "Vereinssachen")
+        )
+        self.assertGreater(len(rows), 1)
+        self.assertEqual(sum(len(row) for row in rows), 5)
+
+    def test_no_legend_line_is_wider_than_the_column(self) -> None:
+        labels = ["Wolfgang", "Ehefrau", "Geburtstage", "Ferien der Kinder", "Müllabfuhr"]
+        for row in cl.legend_lines(self._legend(*labels)):
+            width = sum(
+                cl.LEGEND_CHIP_W + cl.LEGEND_CHIP_GAP + cl._text_w(who["label"]) for who in row
+            ) + cl.LEGEND_GAP * (len(row) - 1)
+            self.assertLessEqual(width, cl.COLUMN_W)
+
+    def test_a_single_name_too_wide_for_the_column_still_gets_its_own_line(self) -> None:
+        rows = cl.legend_lines(self._legend("x" * 200))
+        self.assertEqual(len(rows), 1)
+
+    def test_the_height_follows_the_lines(self) -> None:
+        self.assertEqual(cl.foot_height(1, 0), cl.FOOT_GAP + 2 * cl.FOOT_LINE)
+        self.assertEqual(cl.foot_height(2, 1), cl.FOOT_GAP + 4 * cl.FOOT_LINE)
+        self.assertEqual(cl.foot_height(0, 0, stamp=False), 0)
 
 
 class TestCatalogs(unittest.TestCase):
@@ -511,24 +579,23 @@ class TestTemplateAgreesWithTheModel(unittest.TestCase):
             self.assertEqual(rule.strip(), "#000")
         self.assertIn("background: #000", self.CSS)
 
-    def test_the_header_puts_the_columns_where_the_model_expects_them(self) -> None:
-        """80 + 100 + 3 + 37 = 220. The first real image got this wrong by
-        exactly the rule: ``box-sizing: border-box`` on the header draws the
-        border inside the 100 px, and every column moved up with it."""
-        self.assertEqual(self._px("header", "height"), cl.HEADER_H)
-        rule = re.search(r"header \{(.*?)\}", self.CSS, re.S)
-        assert rule is not None
-        self.assertNotIn("box-sizing", rule.group(1))
-        border = re.search(r"border-bottom:\s*(\d+)px", rule.group(1))
-        assert border is not None
-        self.assertEqual(int(border.group(1)), cl.HEADER_RULE_PX)
-        self.assertEqual(self._px(".columns", "margin-top"), cl.HEADER_GAP)
-        self.assertEqual(
-            cl.MARGIN + cl.HEADER_H + cl.HEADER_RULE_PX + cl.HEADER_GAP, cl.COLUMN_TOP
-        )
+    def test_the_page_carries_no_header_at_all(self) -> None:
+        """[P29] — the whole element is gone, not merely emptied."""
+        self.assertNotIn("<header", self.CSS)
+        self.assertNotIn("page.headline", self.CSS)
 
-    def test_the_note_line_costs_what_the_model_reserves(self) -> None:
-        self.assertEqual(self._px(".notes", "height"), cl.NOTE_H)
+    def test_every_foot_line_is_the_height_the_model_reserves(self) -> None:
+        self.assertEqual(self._px(".legend .row", "height"), cl.FOOT_LINE)
+        for selector in (".legend .who", ".stamp", ".notes .line"):
+            self.assertEqual(self._px(selector, "line-height"), cl.FOOT_LINE)
+
+    def test_the_legend_swatch_gaps_are_the_ones_the_model_measured_with(self) -> None:
+        row = re.search(r"\.legend \.row \{(.*?)\}", self.CSS, re.S)
+        who = re.search(r"\.legend \.who \{(.*?)\}", self.CSS, re.S)
+        assert row is not None and who is not None
+        self.assertIn(f"gap: {cl.LEGEND_GAP}px", row.group(1))
+        self.assertIn(f"gap: {cl.LEGEND_CHIP_GAP}px", who.group(1))
+        self.assertEqual(self._px(".legend .chip", "width"), cl.LEGEND_CHIP_W)
 
 
 if __name__ == "__main__":

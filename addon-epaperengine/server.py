@@ -399,16 +399,16 @@ def _render_calendar(
     """
     section = document.get("calendar") or {}
     now = _document_now(section.get("now"))
-    page = calendar_layout.build_page(document, now=now, text=text)
+    page = calendar_layout.build_page(
+        document,
+        now=now,
+        text=text,
+        stamp=text("calendar.updated", time=now.strftime(text("format.clock"))),
+    )
 
     html = renderer.render_html(
         VIEW_CALENDAR,
-        {
-            "language": text.language,
-            "t": text,
-            "page": page.as_dict(),
-            "updated": text("calendar.updated", time=now.strftime(text("format.clock"))),
-        },
+        {"language": text.language, "t": text, "page": page.as_dict()},
         WORK_DIR,
     )
     shot = renderer.screenshot(html, WORK_DIR / "calendar.png", WORK_DIR)

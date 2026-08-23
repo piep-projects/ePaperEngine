@@ -50,26 +50,36 @@ CONTENT_W = CANVAS_W - 2 * MARGIN  # 2400
 COLUMN_W = 773                     # (2560 - 2*80 - 2*40) / 3 [Festlegung 2026-08-20]
 COLUMNS = 3
 
-# The header: 64 px date on the left, legend and timestamp on the right, a 3 px
-# black rule at y = 180. The columns start 140 px below the margin.
+# **There is no header** [Festlegung P29, 2026-08-23, Wolfgang]. The mockup put
+# the date at 64 px across the top and the legend beside it, and the first real
+# image showed what that costs: the page said "Sunday, August 23" in the header
+# and "Today · Sunday, August 23" as the first day title — the same date twice —
+# and the 140 px it took came off **all three** columns.
 #
-# The three numbers are separated because they add up, and the first render got
-# the sum wrong by exactly the rule: ``box-sizing: border-box`` on the header
-# draws the border *inside* the 100 px, which put the rule at y = 177 and every
-# column 3 px too high. Harmless here — it only created slack — but the same
-# mistake one line further down clips a column silently. The test reads all
-# three out of the stylesheet and adds them up.
-HEADER_H = 100
-HEADER_RULE_PX = 3
-HEADER_GAP = 37                    # air between the rule and the first day title
-COLUMN_TOP = MARGIN + HEADER_H + HEADER_RULE_PX + HEADER_GAP  # 220
+# So the date is said once, by the day title that has to be there anyway, and
+# legend and timestamp move to the **foot of the third column**. Columns one and
+# two run the full 1.280 px; only the third pays, and only for the foot.
+# Measured over eight synthetic loads (0–7 appointments a day): 184 appointments
+# against 162, **+14 %**. The gain is lumpy — whole day blocks are the unit, so
+# at 2, 3, 5 and 7 a day it buys nothing and at 4 and 6 it buys 8 and 12.
+COLUMN_TOP = MARGIN                # 80
 COLUMN_BOTTOM = CANVAS_H - MARGIN  # 1360
-COLUMN_H = COLUMN_BOTTOM - COLUMN_TOP  # 1140
+COLUMN_H = COLUMN_BOTTOM - COLUMN_TOP  # 1280
 
-# A failing source costs one line under the header rule — and only then
-# (FSD §8.1 has no room to spare, and a note nobody needs is 44 px of
-# appointments). The columns move down by exactly that much.
-NOTE_H = 44
+# The foot of the third column. Every line is 36 px (28 px type), with 24 px of
+# air between the last day block and the first foot line.
+#
+# **The height is measured, not assumed.** The legend is as wide as the names in
+# it; four sources with long names do not fit one 773 px line. A foot is
+# anchored to the bottom of its column, so one line more than reserved does not
+# overflow downwards where it would be clipped — it grows *upwards*, into the
+# last appointment. Hence ``foot_lines`` below.
+FOOT_GAP = 24
+FOOT_LINE = 36
+FOOT_PX = 28
+LEGEND_CHIP_W = 34   # the mockup's swatch
+LEGEND_CHIP_GAP = 12
+LEGEND_GAP = 44      # between two legend entries
 
 # --- the day block ------------------------------------------------------------
 # From ``kal_spalte`` in the mockup generator: title, 52 px advance, a rule,
@@ -452,27 +462,46 @@ def day_title(day: date, today: date, say: Any) -> str:
 
 
 # --- filling the columns ------------------------------------------------------
-def fill_columns(days: list[Day], column_h: int = COLUMN_H) -> list[list[Day]]:
+def fill_columns(days: list[Day], heights: list[int] | int | None = None) -> list[list[Day]]:
     """Day block after day block, as long as the next one fits **completely**.
 
     [Festlegung 2026-08-20, FSD §8.1.] What is left over when the third column
     is full is simply not shown — the query window is the ceiling of the
     *query*, not of the display.
+
+    ``heights`` is **per column** since P29: the third one is shorter by its
+    foot. A single number still works, for the tests that only care about the
+    packing rule.
     """
-    columns: list[list[Day]] = [[] for _ in range(COLUMNS)]
+    if heights is None:
+        heights = COLUMN_H
+    if isinstance(heights, int):
+        heights = [heights] * COLUMNS
+    columns: list[list[Day]] = [[] for _ in heights]
     index, used = 0, 0
     for day in days:
-        block = _fit(day, column_h)
-        if block is None:
-            continue
-        while index < COLUMNS and used + block.height > column_h:
+        while index < len(heights) and used + _floor(day, heights[index]) > heights[index]:
             index += 1
             used = 0
-        if index >= COLUMNS:
+        if index >= len(heights):
             break
+        block = _fit(day, heights[index])
+        if block is None:
+            continue
         columns[index].append(block)
         used += block.height
     return columns
+
+
+def _floor(day: Day, column_h: int) -> int:
+    """What the block will cost in a column of ``column_h`` — cut height included.
+
+    Asked *before* the column is chosen, because a day taller than any column
+    must not push the cursor through all three of them looking for room that
+    does not exist.
+    """
+    block = _fit(day, column_h)
+    return block.height if block is not None else 0
 
 
 def _fit(day: Day, column_h: int) -> Day | None:
@@ -494,17 +523,55 @@ def _fit(day: Day, column_h: int) -> Day | None:
     return Day(day.day, day.title, kept, day.today, dropped)
 
 
+# --- the foot of the third column ---------------------------------------------
+def _text_w(text: str, font_px: int = FOOT_PX) -> float:
+    """How wide a run of DejaVu Sans is, by the same model the columns use."""
+    return len(text) * CHAR_RATIO * font_px
+
+
+def legend_lines(legend: list[dict[str, str]], width: int = COLUMN_W) -> list[list[dict[str, str]]]:
+    """Break the legend into lines that actually fit the column.
+
+    Three names of the length this household uses come to 613 px of 773
+    [gemessen] — one line. Four would not, and a legend that silently needs a
+    second line grows the foot *upwards* into the last appointment, because the
+    foot is anchored to the bottom. So it is measured rather than hoped for.
+    """
+    lines: list[list[dict[str, str]]] = []
+    current: list[dict[str, str]] = []
+    used = 0.0
+    for who in legend:
+        cost = LEGEND_CHIP_W + LEGEND_CHIP_GAP + _text_w(who["label"])
+        extra = LEGEND_GAP if current else 0
+        if current and used + extra + cost > width:
+            lines.append(current)
+            current, used = [who], cost
+        else:
+            current.append(who)
+            used += extra + cost
+    if current:
+        lines.append(current)
+    return lines
+
+
+def foot_height(legend_rows: int, notes: int, stamp: bool = True) -> int:
+    """What the foot reserves at the bottom of the third column."""
+    rows = legend_rows + notes + (1 if stamp else 0)
+    return FOOT_GAP + FOOT_LINE * rows if rows else 0
+
+
 # --- the whole page -----------------------------------------------------------
 @dataclass
 class Page:
     """What the template draws."""
 
-    headline: str
-    legend: list[dict[str, str]]
+    legend: list[list[dict[str, str]]]
     columns: list[list[dict[str, Any]]]
     notes: list[str]
+    stamp: str
     bar_px: int
-    column_top: int
+    foot_h: int
+    column_h: int
     shown_days: int
     shown_entries: int
     dropped_days: int
@@ -512,12 +579,13 @@ class Page:
 
     def as_dict(self) -> dict[str, Any]:
         return {
-            "headline": self.headline,
             "legend": self.legend,
             "columns": self.columns,
             "notes": self.notes,
+            "stamp": self.stamp,
             "bar_px": self.bar_px,
-            "column_top": self.column_top,
+            "foot_h": self.foot_h,
+            "column_h": self.column_h,
         }
 
 
@@ -526,6 +594,7 @@ def build_page(
     *,
     now: datetime,
     text: Any = None,
+    stamp: str | None = None,
 ) -> Page:
     """The render document's ``calendar`` section → one measured page."""
     say = text or (lambda key, **fields: key)
@@ -556,18 +625,24 @@ def build_page(
     elif not days:
         notes.append(say("calendar.no_events"))
 
-    top = COLUMN_TOP + (NOTE_H if notes else 0)
-    columns = fill_columns(days, COLUMN_H - (NOTE_H if notes else 0))
+    # Legend, notes and timestamp all live in the foot of the third column
+    # [P29]. Only that column is shortened; one and two run the full height.
+    if stamp is None:
+        stamp = say("calendar.updated", time=now.strftime(say("format.clock")))
+    rows = legend_lines([{"label": source.label, "hex": source.hex} for source in sources])
+    foot_h = foot_height(len(rows), len(notes))
+    columns = fill_columns(days, [COLUMN_H, COLUMN_H, COLUMN_H - foot_h])
     shown = [day for column in columns for day in column]
 
     bar_px = int(section.get("color_bar_px") or BAR_W)
     return Page(
-        headline=written_date(today, say),
-        legend=[{"label": source.label, "hex": source.hex} for source in sources],
+        legend=rows,
         columns=[[day.as_dict() for day in column] for column in columns],
         notes=notes,
+        stamp=stamp,
         bar_px=max(min(bar_px, 24), 2),
-        column_top=top,
+        foot_h=foot_h,
+        column_h=COLUMN_H,
         shown_days=len(shown),
         shown_entries=sum(len(day.entries) for day in shown),
         dropped_days=len(days) - len(shown),
