@@ -83,6 +83,51 @@ class TestMeasuring(unittest.TestCase):
         for font_px, expected in ((28, 52), (32, 45), (36, 40), (24, 61)):
             self.assertEqual(rl.chars_per_line(font_px, 773), expected)
 
+    def test_the_character_ratio_matches_the_real_font(self) -> None:
+        """``CHAR_RATIO`` against DejaVu Sans itself [gemessen 2026-08-23, P32].
+
+        It was derived from FSD §7's table and reproduced it, which is not the
+        same as being right — the table could have been wrong too. So it is
+        measured against the very file Chromium draws with, the way the guest
+        greeting measures its script faces (P21).
+
+        Two traps this guards. **The wrong DejaVu**: the add-on image also
+        carries ``DejaVuSansCondensed``, and fontconfig lists it under the
+        family "DejaVu Sans" as well — ``fc-match`` resolves to the Book face,
+        but a future image might not. **The wrong sample**: measured on German
+        recipe prose, not on an alphabet; average glyph width is a property of
+        the language as much as of the typeface.
+
+        Skipped where the font is not installed, so CI needs no font package.
+        """
+        candidates = [
+            pathlib.Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+            pathlib.Path("/usr/share/fonts/dejavu/DejaVuSans.ttf"),
+        ]
+        path = next((c for c in candidates if c.exists()), None)
+        if path is None:
+            self.skipTest("DejaVu Sans is not installed here")
+        try:
+            from PIL import ImageFont
+        except ImportError:
+            self.skipTest("Pillow is not installed here")
+
+        probe = (
+            "Kürbis waschen, entkernen und in grobe Würfel schneiden — schälen muss "
+            "man Hokkaido nicht. Zwiebel und Ingwer fein hacken und in Butter glasig "
+            "dünsten, dabei nicht bräunen lassen."
+        )
+        for font_px in (22, 24, 26, 28, 32, 36):
+            width = ImageFont.truetype(str(path), font_px).getlength(probe) / len(probe)
+            for column in (773, rl.COLUMN_W):
+                measured = int(column // width)
+                self.assertLessEqual(
+                    abs(rl.chars_per_line(font_px, column) - measured),
+                    1,
+                    f"{font_px} px on {column} px: model "
+                    f"{rl.chars_per_line(font_px, column)}, font {measured}",
+                )
+
     def test_the_wider_column_carries_more_of_a_line(self) -> None:
         """What P30 bought sideways, in the one number that shows it."""
         self.assertEqual(rl.COLUMN_W, 805)
