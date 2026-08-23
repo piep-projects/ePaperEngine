@@ -53,13 +53,16 @@
         height: 1440px;
         padding: 80px;
       }
+      /* **No box-sizing here.** The 3 px rule sits *under* the 100 px, not
+         inside it — with border-box it landed at y = 177 and pulled all three
+         columns 3 px up with it (measured on the first real calendar image).
+         80 + 100 + 3 + 37 = 220, the y the mockup starts the columns at. */
       header {
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
         height: 100px;
         border-bottom: 3px solid #000;
-        box-sizing: border-box;
       }
       h1 {
         margin: 0;

@@ -511,6 +511,22 @@ class TestTemplateAgreesWithTheModel(unittest.TestCase):
             self.assertEqual(rule.strip(), "#000")
         self.assertIn("background: #000", self.CSS)
 
+    def test_the_header_puts_the_columns_where_the_model_expects_them(self) -> None:
+        """80 + 100 + 3 + 37 = 220. The first real image got this wrong by
+        exactly the rule: ``box-sizing: border-box`` on the header draws the
+        border inside the 100 px, and every column moved up with it."""
+        self.assertEqual(self._px("header", "height"), cl.HEADER_H)
+        rule = re.search(r"header \{(.*?)\}", self.CSS, re.S)
+        assert rule is not None
+        self.assertNotIn("box-sizing", rule.group(1))
+        border = re.search(r"border-bottom:\s*(\d+)px", rule.group(1))
+        assert border is not None
+        self.assertEqual(int(border.group(1)), cl.HEADER_RULE_PX)
+        self.assertEqual(self._px(".columns", "margin-top"), cl.HEADER_GAP)
+        self.assertEqual(
+            cl.MARGIN + cl.HEADER_H + cl.HEADER_RULE_PX + cl.HEADER_GAP, cl.COLUMN_TOP
+        )
+
     def test_the_note_line_costs_what_the_model_reserves(self) -> None:
         self.assertEqual(self._px(".notes", "height"), cl.NOTE_H)
 

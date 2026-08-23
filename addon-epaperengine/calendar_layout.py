@@ -52,8 +52,17 @@ COLUMNS = 3
 
 # The header: 64 px date on the left, legend and timestamp on the right, a 3 px
 # black rule at y = 180. The columns start 140 px below the margin.
-HEADER_RULE_Y = MARGIN + 100
-COLUMN_TOP = MARGIN + 140          # 220
+#
+# The three numbers are separated because they add up, and the first render got
+# the sum wrong by exactly the rule: ``box-sizing: border-box`` on the header
+# draws the border *inside* the 100 px, which put the rule at y = 177 and every
+# column 3 px too high. Harmless here — it only created slack — but the same
+# mistake one line further down clips a column silently. The test reads all
+# three out of the stylesheet and adds them up.
+HEADER_H = 100
+HEADER_RULE_PX = 3
+HEADER_GAP = 37                    # air between the rule and the first day title
+COLUMN_TOP = MARGIN + HEADER_H + HEADER_RULE_PX + HEADER_GAP  # 220
 COLUMN_BOTTOM = CANVAS_H - MARGIN  # 1360
 COLUMN_H = COLUMN_BOTTOM - COLUMN_TOP  # 1140
 
