@@ -5,3 +5,6 @@ __pycache__/
 # macOS cruft
 .DS_Store
 ._*
+
+# mkdocs build output
+site/

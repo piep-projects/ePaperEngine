@@ -154,3 +154,26 @@ class TestTheHashIsNotStoredWhileThePushIsOff(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheServiceDescriptionKeepsUp(unittest.TestCase):
+    """``services.yaml`` is only a selector, so a missing option costs nothing
+    at runtime — ``services.py`` validates against ``RUN_RESULTS`` and would
+    have let ``push_off`` through regardless. What it costs is the automation
+    editor: the value the add-on really reports would not be offered there, and
+    a list that is wrong in the one place users read it is worse than no list.
+    """
+
+    def test_every_run_result_is_offered(self) -> None:
+        const = (COMPONENT / "const.py").read_text("utf-8")
+        block = re.search(r"RUN_RESULTS[^=]*=\s*\((.*?)\)", const, re.S)
+        assert block is not None
+        names = re.findall(r"RESULT_[A-Z_]+", block.group(1))
+        values = {
+            name: re.search(rf'{name}: Final = "([^"]+)"', const).group(1) for name in names
+        }
+        yaml = (COMPONENT / "services.yaml").read_text("utf-8")
+        offered = re.search(r"result:.*?options:(.*?)\n    view:", yaml, re.S)
+        assert offered is not None, "services.yaml: no result option list"
+        for value in values.values():
+            self.assertIn(f"- {value}", offered.group(1), f"services.yaml: {value} missing")

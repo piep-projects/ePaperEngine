@@ -1,0 +1,93 @@
+site_name: ePaperEngine
+site_description: A Samsung EM32DX colour e-paper panel on the wall, driven from Home Assistant — no cloud
+site_url: https://piep-projects.github.io/ePaperEngine/
+repo_url: https://github.com/piep-projects/ePaperEngine
+repo_name: piep-projects/ePaperEngine
+edit_uri: edit/main/docs/
+copyright: MIT © piep-projects
+
+theme:
+  name: material
+  icon:
+    logo: material/image-frame
+  palette:
+    - scheme: default
+      primary: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - search.suggest
+
+# English is the base language and lives at the site root; German is a full
+# translation under /de/. The page *files* pair up by suffix: `kalender.md` (en)
+# next to `kalender.de.md` (de). Keeping one set of file names means every
+# in-page link (`[Installation](installation.md)`) resolves in both languages.
+# Same arrangement as GardenESP, same reason.
+plugins:
+  - search
+  - i18n:
+      docs_structure: suffix
+      reconfigure_material: true
+      reconfigure_search: true
+      languages:
+        - locale: en
+          default: true
+          name: English
+          build: true
+        - locale: de
+          name: Deutsch
+          build: true
+          site_description: Ein Samsung EM32DX Farb-E-Paper an der Wand, gesteuert aus Home Assistant — ohne Cloud
+          nav_translations:
+            Start: Start
+            Getting started: Einstieg
+            Installation: Installation
+            The display: Das Display
+            Using ePaperEngine: Bedienung
+            Views & priority: Ansichten & Vorrang
+            Calendar: Kalender
+            Recipes: Rezepte
+            Photos & guests: Fotos & Gäste
+            Automations & services: Automationen & Dienste
+            Help: Hilfe
+            Troubleshooting: Fehlersuche
+
+# Make `mkdocs build --strict` catch dead cross-page anchors. Without this they
+# are only INFO, and a German heading with umlauts slugs differently from the
+# English one it was translated from — exactly the link that breaks unnoticed.
+validation:
+  links:
+    anchors: warn
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - tables
+
+nav:
+  - Start: index.md
+  - Getting started:
+      - Installation: installation.md
+      - The display: display.md
+  - Using ePaperEngine:
+      - Views & priority: ansichten.md
+      - Calendar: kalender.md
+      - Recipes: rezepte.md
+      - Photos & guests: fotos-gaeste.md
+      - Automations & services: automationen.md
+  - Help:
+      - Troubleshooting: fehlersuche.md

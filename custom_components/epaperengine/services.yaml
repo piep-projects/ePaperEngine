@@ -13,6 +13,7 @@ report_run:
             - pushed
             - unchanged
             - push_failed
+            - push_off
             - render_failed
     view:
       required: true
