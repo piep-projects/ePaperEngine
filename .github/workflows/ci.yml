@@ -17,6 +17,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      # Pillow, and nothing else. Two test modules measure text with the very
+      # font file the add-on ships (calendar and guest layout), and without it
+      # they fail to *import* — 115 tests silently disappeared from this job
+      # between 2026-08-23 and 2026-08-24 while it reported a plain red cross
+      # nobody looked at. Everything else in this suite is standard library on
+      # purpose; the tests that need Chromium or aiohttp skip themselves.
+      - name: Install Pillow
+        run: python -m pip install --quiet pillow
+
       - name: Run unittest suite
         run: python -m unittest discover -s tests -v
 
