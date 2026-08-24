@@ -53,6 +53,7 @@ plugins:
             Installation: Installation
             The display: Das Display
             Using ePaperEngine: Bedienung
+            Dashboard: Dashboard
             Views & priority: Ansichten & Vorrang
             Calendar: Kalender
             Recipes: Rezepte
@@ -84,6 +85,7 @@ nav:
       - Installation: installation.md
       - The display: display.md
   - Using ePaperEngine:
+      - Dashboard: dashboard.md
       - Views & priority: ansichten.md
       - Calendar: kalender.md
       - Recipes: rezepte.md

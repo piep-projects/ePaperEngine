@@ -39,4 +39,5 @@ the Supervisor read different files and do not collide.
 
 1. [Install both parts](installation.md)
 2. [Point it at the display](display.md)
-3. [Decide what goes on the wall when](ansichten.md)
+3. [Put the card on a dashboard](dashboard.md)
+4. [Decide what goes on the wall when](ansichten.md)

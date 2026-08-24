@@ -45,7 +45,8 @@ Fehler: innerhalb des Kandidaten `schedule` gewinnt der niedrigste Rang.
 ### Eine Ansicht von Hand setzen
 
 Jeder im Haushalt darf eine Ansicht wählen — auf der Übersichtsseite des
-Panels, über die Chips der Lovelace-Karte oder mit dem Dienst `set_view`. Diese
+Panels, über die Chips der [Lovelace-Karte](dashboard.md) oder mit dem Dienst
+`set_view`. Diese
 Übersteuerung hält **`manual_timeout_h`** Stunden (ab Werk 4; `0` heißt „bis
 jemand zurückschaltet"), danach übernimmt wieder die Automatik.
 

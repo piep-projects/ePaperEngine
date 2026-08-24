@@ -2,17 +2,9 @@
 
 ## Die Lovelace-Karte
 
-Eine Karte vom Typ `custom:epaperengine-card` auf ein beliebiges Dashboard
-legen. Sie zeigt, was an der Wand hängt, warum diese Ansicht gewählt wurde und
-wann zuletzt gesendet wurde — und trägt die fünf Ansichts-Chips, damit ein
-Wechsel nicht den Umweg über die Seitenleiste braucht.
-
-```yaml
-type: custom:epaperengine-card
-```
-
-Die Kartenressource wird selbst registriert; unter **Einstellungen →
-Dashboards → Ressourcen** ist nichts einzutragen.
+`custom:epaperengine-card` zeigt, was an der Wand hängt, warum diese Ansicht
+gewählt wurde und wann zuletzt gesendet wurde, und trägt die Chips zum Wechseln
+— Hinzufügen und Konfigurieren steht unter **[Dashboard](dashboard.md)**.
 
 ## Entities
 

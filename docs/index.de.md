@@ -41,4 +41,5 @@ sich nicht ins Gehege.
 
 1. [Beide Teile installieren](installation.md)
 2. [Auf das Display zeigen](display.md)
-3. [Festlegen, wann was an der Wand steht](ansichten.md)
+3. [Die Karte auf ein Dashboard legen](dashboard.md)
+4. [Festlegen, wann was an der Wand steht](ansichten.md)

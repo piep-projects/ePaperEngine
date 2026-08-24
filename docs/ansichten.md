@@ -45,7 +45,7 @@ within the `schedule` candidate the lowest rank wins.
 ### Setting a view by hand
 
 Anyone in the household can pick a view — from the panel's overview, from the
-chips on the Lovelace card, or with the `set_view` service. That override lasts
+chips on the [Lovelace card](dashboard.md), or with the `set_view` service. That override lasts
 **`manual_timeout_h`** hours (4 by default; `0` means "until switched back"),
 and then the automatic order takes over again.
 

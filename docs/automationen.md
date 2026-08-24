@@ -2,16 +2,9 @@
 
 ## The Lovelace card
 
-Add a card of type `custom:epaperengine-card` to any dashboard. It shows what is
-on the wall, why that view was chosen, when the last push happened — and carries
-the five view chips, so switching the wall does not need the sidebar panel.
-
-```yaml
-type: custom:epaperengine-card
-```
-
-The card resource is registered automatically; there is nothing to add under
-**Settings → Dashboards → Resources**.
+`custom:epaperengine-card` shows what is on the wall, why that view was chosen
+and when the last push happened, and carries the chips for switching it — see
+**[Dashboard](dashboard.md)** for adding and configuring it.
 
 ## Entities
 
