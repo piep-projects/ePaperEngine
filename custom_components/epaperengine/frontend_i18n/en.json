@@ -69,6 +69,8 @@
   "panel.display.reachable": "Display reachable",
   "panel.display.unreachable": "Display not reachable",
   "panel.display.unknown": "Display not checked yet",
+  "panel.head.dashboard": "Dashboard",
+  "panel.head.dashboard_title": "Back to the dashboard",
   "panel.tab.overview": "Overview",
   "panel.tab.views": "Views",
   "panel.tab.calendar": "Calendar",

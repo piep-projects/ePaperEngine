@@ -23,6 +23,11 @@
 
 const APP_NAME = "ePaperEngine";
 const ICON = "mdi:image-frame"; // shared with the sidebar panel (const.py PANEL_ICON)
+
+// The return path for the panel's "Dashboard" button; the panel reads both
+// (epaperengine-panel.js RETURN_KEY / DASHBOARD_KEY).
+const RETURN_KEY = "epaperengine:return";
+const DASHBOARD_KEY = "epaperengine:dashboard";
 const PANEL_PATH = "/epaperengine"; // const.py PANEL_URL_PATH
 const POLL_MS = 15000;
 
@@ -214,6 +219,14 @@ class EPaperEngineCard extends HTMLElement {
   }
 
   connectedCallback() {
+    // Remember the dashboard this card is on, so the panel can come back here
+    // even when it was opened from the sidebar and no trip was ever started.
+    // Written on every activation → the last view the card was shown on wins.
+    try {
+      localStorage.setItem(DASHBOARD_KEY, location.pathname + location.search);
+    } catch (err) {
+      /* private mode — the panel falls back to the default dashboard */
+    }
     this._timer = setInterval(() => this._load(), POLL_MS);
     document.addEventListener("visibilitychange", this._onVisible);
     if (this._hass) this._load();
@@ -275,6 +288,12 @@ class EPaperEngineCard extends HTMLElement {
   }
 
   _openPanel() {
+    // The precise return path: this exact trip started here.
+    try {
+      sessionStorage.setItem(RETURN_KEY, location.pathname + location.search);
+    } catch (err) {
+      /* private mode — the panel falls back to DASHBOARD_KEY, then to "/" */
+    }
     history.pushState(null, "", PANEL_PATH);
     window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true, composed: true }));
   }

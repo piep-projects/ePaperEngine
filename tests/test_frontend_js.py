@@ -136,6 +136,73 @@ class TestWebSocketCommands(unittest.TestCase):
             )
 
 
+class TestWayBackToTheDashboard(unittest.TestCase):
+    """The panel's one escape hatch, and the two storage keys it hangs on.
+
+    A custom panel fills the whole frame. With the Home Assistant sidebar
+    collapsed — which is what a narrow window or a tablet gives you — there is
+    nothing left to click but the browser's Back, and that is unreliable here:
+    the panel can also be entered straight from the sidebar entry, where there is
+    no "back" to speak of. So the header carries a ``Dashboard`` button, and the
+    card writes down where it should lead.
+
+    The keys are written in **two files**, plain strings on both sides — exactly
+    the drift this module was built for. If they part ways nothing errors: the
+    button silently lands on the default dashboard instead of the one the visitor
+    came from, and no log anywhere says so.
+    """
+
+    PANEL, CARD = FILES
+
+    def _keys(self, path: pathlib.Path) -> set[str]:
+        return set(re.findall(r'"(epaperengine:[a-z]+)"', path.read_text(encoding="utf-8")))
+
+    def test_the_header_carries_the_button(self) -> None:
+        source = self.PANEL.read_text(encoding="utf-8")
+        self.assertIn('id="to-dashboard"', source, "no way out of the panel")
+        self.assertIn('on("#to-dashboard"', source, "the button is drawn but never wired")
+
+    def test_the_label_is_translated(self) -> None:
+        """Not humanizeKey() — that would turn the key into "Dashboard title"."""
+        catalogs = COMPONENT / "frontend_i18n"
+        for key in ("panel.head.dashboard", "panel.head.dashboard_title"):
+            for catalog in sorted(catalogs.glob("*.json")):
+                self.assertIn(
+                    key,
+                    catalog.read_text(encoding="utf-8"),
+                    f"{catalog.name}: {key} missing",
+                )
+
+    def test_both_files_use_the_same_storage_keys(self) -> None:
+        panel, card = self._keys(self.PANEL), self._keys(self.CARD)
+        self.assertEqual(
+            panel,
+            card,
+            "panel and card disagree about the return-path keys",
+        )
+        self.assertEqual(len(panel), 2, f"expected two keys, found {sorted(panel)}")
+
+    def test_the_card_writes_both(self) -> None:
+        """One per route: the session key for the trip that started at the gear,
+        the local one for the sidebar route, where no trip was ever started."""
+        source = self.CARD.read_text(encoding="utf-8")
+        self.assertIn("sessionStorage.setItem(RETURN_KEY", source)
+        self.assertIn("localStorage.setItem(DASHBOARD_KEY", source)
+
+    def test_every_storage_access_is_guarded(self) -> None:
+        """A browser in private mode throws on the *getter* too, not just on the
+        write — an unguarded read takes the whole panel down with it."""
+        for path in FILES:
+            source = path.read_text(encoding="utf-8")
+            for match in re.finditer(r"(session|local)Storage\.(get|set)Item", source):
+                before = source[max(0, match.start() - 200) : match.start()]
+                self.assertIn(
+                    "try {",
+                    before,
+                    f"{path.name}: unguarded {match.group(0)} at offset {match.start()}",
+                )
+
+
 def _ws_constants() -> dict[str, str]:
     """``{"WS_STATUS": "epaperengine/status", …}`` out of ``const.py``."""
     const = (COMPONENT / "const.py").read_text(encoding="utf-8")

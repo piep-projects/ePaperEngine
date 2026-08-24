@@ -69,6 +69,8 @@
   "panel.display.reachable": "Display erreichbar",
   "panel.display.unreachable": "Display nicht erreichbar",
   "panel.display.unknown": "Display noch nicht geprüft",
+  "panel.head.dashboard": "Dashboard",
+  "panel.head.dashboard_title": "Zurück zum Dashboard",
   "panel.tab.overview": "Übersicht",
   "panel.tab.views": "Ansichten",
   "panel.tab.calendar": "Kalender",

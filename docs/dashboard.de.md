@@ -67,7 +67,13 @@ Knopf, der ihn beendet — *Besuch ist wieder weg*.
 sofort zurück. Die Fehleransicht hat keinen Chip — sie ist nichts, was jemand
 wählt.
 
-Das **Zahnrad** in der Kopfzeile öffnet das Panel in der Seitenleiste.
+Das **Zahnrad** in der Kopfzeile öffnet das Panel in der Seitenleiste. Der
+Knopf **Dashboard** in der Kopfzeile des Panels führt zurück — und zwar auf
+genau das Dashboard, von dem aus das Zahnrad gedrückt wurde. Wurde das Panel
+direkt über die Seitenleiste geöffnet, führt er auf das Dashboard, auf dem die
+Karte zuletzt zu sehen war, sonst auf das Standard-Dashboard. Ohne ihn wäre das
+Panel eine Sackgasse, sobald die Seitenleiste eingeklappt ist — auf einem Tablet
+der Normalfall.
 
 ## Was absichtlich nicht darauf ist
 

@@ -65,7 +65,12 @@ ends it — *Visitors have left*.
 overrides the priority for `manual_timeout_h` hours; *Automatic* hands it back
 immediately. The error view has no chip — it is not something anyone chooses.
 
-The **gear** in the header opens the sidebar panel.
+The **gear** in the header opens the sidebar panel. The **Dashboard** button in
+the panel's own header leads back — to the very dashboard the gear was pressed
+on. When the panel was opened straight from the sidebar it leads to the
+dashboard the card was last seen on, and failing that to the default dashboard.
+Without it the panel is a dead end as soon as the sidebar is collapsed, which on
+a tablet is the normal case.
 
 ## What is deliberately not on it
 

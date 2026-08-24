@@ -47,6 +47,16 @@ const PINNABLE = ["calendar", "recipes", "photos", "guests"];
 // activity condition for. Anything else could never win a comparison.
 const CANDIDATES = ["manual", "guests", "recipes", "schedule", "fallback"];
 
+// Where the header's "Dashboard" goes back to. Both keys are written by the
+// card (epaperengine-card.js) — two of them, because the panel is reachable two
+// ways: the session key is the dashboard whose card sent us here on this trip,
+// the local key the last dashboard that card was shown on at all, which is what
+// is left when the panel was opened straight from the sidebar. Same mechanism as
+// GardenESP; history.back() is no substitute, it has no answer for the sidebar
+// route.
+const RETURN_KEY = "epaperengine:return";
+const DASHBOARD_KEY = "epaperengine:dashboard";
+
 const POLL_MS = 15000;
 const SEARCH_DEBOUNCE_MS = 250;
 
@@ -122,6 +132,7 @@ const I18N_EMERGENCY = {
   "panel.tab.display": "Display",
   "panel.action.render": "Update the wall",
   "panel.action.push": "Send the picture again",
+  "panel.head.dashboard": "Dashboard",
 };
 const _i18nFetches = new Map();
 let _i18n = { lang: null, cat: {}, base: {}, degraded: false };
@@ -752,6 +763,7 @@ class EPaperEnginePanel extends HTMLElement {
           border-bottom: 1px solid var(--divider-color); flex: none; flex-wrap: wrap;
         }
         header .title { font-size: 1.25rem; font-weight: 700; flex: 1; }
+        header button.back { flex: none; }
         .status-dot { display: inline-flex; align-items: center; gap: 6px;
                       color: var(--secondary-text-color); font-size: 0.87rem; }
         .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--disabled-text-color, #9e9e9e); }
@@ -892,7 +904,13 @@ class EPaperEnginePanel extends HTMLElement {
   }
 
   /**
-   * Icon, name, and whether the display answers. **No controls.**
+   * Icon, name, whether the display answers — and the one way back out.
+   *
+   * **No wall controls.** "Render now" and "Push now" used to sit here; they are
+   * gone (P36, see the file header). "Dashboard" is not one of them: it acts on
+   * the browser, not on the wall, and it is the only thing in this panel that
+   * cannot live with its subject — its subject is somewhere else. Without it the
+   * panel is a dead end whenever the HA sidebar is collapsed or narrow.
    *
    * "Render now" and "Push now" used to sit here, on every page, explained by a
    * title attribute — which no touch device ever shows. They are rare acts, not
@@ -916,7 +934,26 @@ class EPaperEnginePanel extends HTMLElement {
       <ha-icon icon="${ICON}"></ha-icon>
       <div class="title">${esc(APP_NAME)}</div>
       <span class="status-dot"><span class="dot ${cls}"></span>${esc(label)}</span>
+      <button id="to-dashboard" class="plain back" title="${esc(t("panel.head.dashboard_title"))}">${esc(t("panel.head.dashboard"))}</button>
     `;
+  }
+
+  /**
+   * Leave the panel for the dashboard the visitor came from.
+   *
+   * Deliberately a full navigation, not the card's pushState/location-changed
+   * hop: this is the escape hatch, and it has to work from a cold panel where no
+   * router state was ever built up. Reading storage is wrapped because a browser
+   * in private mode throws on the *getter*, not on the write.
+   */
+  _toDashboard() {
+    let target = null;
+    try {
+      target = sessionStorage.getItem(RETURN_KEY) || localStorage.getItem(DASHBOARD_KEY);
+    } catch (err) {
+      /* private mode — fall through to the default dashboard */
+    }
+    location.href = target || "/";
   }
 
   _nav() {
@@ -1844,6 +1881,7 @@ class EPaperEnginePanel extends HTMLElement {
     root.querySelectorAll("nav a").forEach((link) => {
       link.onclick = () => this._go(link.dataset.tab);
     });
+    on("#to-dashboard", () => this._toDashboard());
     on("#do-render", () => this._render_now(false));
     on("#do-push", () => this._render_now(true));
 
