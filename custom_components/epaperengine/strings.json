@@ -29,6 +29,7 @@
           "pushed": "Pushed",
           "unchanged": "Unchanged — nothing pushed",
           "push_failed": "Display did not answer",
+          "push_off": "Push switched off",
           "render_failed": "Render failed"
         }
       },

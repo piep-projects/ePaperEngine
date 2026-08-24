@@ -11,7 +11,6 @@
   "calendar.today": "Today · {date}",
   "calendar.turns": "— turns {age}",
   "calendar.untitled": "(no title)",
-  "calendar.updated": "updated {time}",
   "error.headline": "ePaperEngine cannot render the wall right now",
   "error.hint": "Details in Home Assistant under ePaperEngine.",
   "error.idle": "No error on record.",

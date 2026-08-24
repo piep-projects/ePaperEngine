@@ -29,6 +29,7 @@
           "pushed": "Gepusht",
           "unchanged": "Unverändert — nichts gepusht",
           "push_failed": "Display hat nicht geantwortet",
+          "push_off": "Senden ist abgeschaltet",
           "render_failed": "Rendern fehlgeschlagen"
         }
       },

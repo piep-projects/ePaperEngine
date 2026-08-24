@@ -435,17 +435,34 @@ class TestPage(unittest.TestCase):
         self.assertEqual(with_note.foot_h, plain.foot_h + cl.FOOT_LINE)
 
     def test_the_foot_is_the_lines_it_actually_holds(self) -> None:
-        """Legend row, timestamp, 24 px of air — measured, not assumed, because
-        the foot is anchored to the bottom and a line too many grows *upwards*
-        into the last appointment."""
+        """One legend row and 24 px of air — measured, not assumed, because the
+        foot is anchored to the bottom and a line too many grows *upwards* into
+        the last appointment. Since P38 there is no timestamp line."""
         page = cl.build_page(self._document(), now=datetime(2026, 8, 23, 12, 0), text=TEXT)
-        self.assertEqual(page.foot_h, cl.FOOT_GAP + 2 * cl.FOOT_LINE)
+        self.assertEqual(page.foot_h, cl.FOOT_GAP + cl.FOOT_LINE)
+
+    def test_the_page_carries_no_timestamp(self) -> None:
+        """[P38] The one thing that made every calendar image unique. A stamp
+        on the minute defeats the hash lock of FSD 11: all four scheduled runs
+        an hour became real pushes with a visible refresh of the wall."""
+        page = cl.build_page(self._document(), now=datetime(2026, 8, 23, 12, 0), text=TEXT)
+        self.assertEqual(page.stamp, "")
+
+    def test_two_runs_a_quarter_hour_apart_build_the_very_same_page(self) -> None:
+        """The property the wall actually cares about — same content, same
+        picture, so the hash lock says ``unchanged`` and nothing is pushed."""
+        first = cl.build_page(self._document(), now=datetime(2026, 8, 23, 12, 0), text=TEXT)
+        later = cl.build_page(self._document(), now=datetime(2026, 8, 23, 12, 15), text=TEXT)
+        self.assertEqual(first.as_dict(), later.as_dict())
 
     def test_the_stamp_travels_with_the_page(self) -> None:
+        """The hook is still there for a caller that wants a foot line, and it
+        pays for its own height."""
         page = cl.build_page(
             self._document(), now=datetime(2026, 8, 23, 12, 0), text=TEXT, stamp="X"
         )
         self.assertEqual(page.stamp, "X")
+        self.assertEqual(page.foot_h, cl.FOOT_GAP + 2 * cl.FOOT_LINE)
 
     def test_no_source_is_said_out_loud(self) -> None:
         page = cl.build_page(
@@ -523,7 +540,7 @@ class TestCatalogs(unittest.TestCase):
     KEYS = (
         "format.day_title", "format.clock", "calendar.today", "calendar.all_day",
         "calendar.empty", "calendar.turns", "calendar.untitled", "calendar.cut",
-        "calendar.updated", "calendar.source_failed", "calendar.no_sources",
+        "calendar.source_failed", "calendar.no_sources",
         "calendar.no_events",
     )
 

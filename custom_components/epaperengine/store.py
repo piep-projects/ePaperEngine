@@ -57,6 +57,10 @@ def default_config() -> dict[str, Any]:
             "mdc_pin": None,
             "mac": None,
             "renderer_url": None,  # add-on address, FSD §3.2
+            # FSD §14: there is exactly one display and only one instance may
+            # push to it. On by default — a fresh installation is the one that
+            # serves the wall until somebody says otherwise.
+            "push_enabled": True,
         },
         # Where the image store lives (FSD §3.4). A *configured* path, not the
         # constant the specification writes, and the reason is measured: Home

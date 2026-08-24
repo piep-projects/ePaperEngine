@@ -40,6 +40,7 @@ from . import mediapath
 from .addon import AddonClient, AddonError
 from .const import (
     CALENDAR_KIND_BIRTHDAYS,
+    CALENDAR_REFRESH_MIN_GAP_S,
     DEFAULT_CALENDAR_DAYS_BIRTHDAYS,
     DEFAULT_CALENDAR_DAYS_EVENTS,
     DEFAULT_GUEST_ANGLE,
@@ -153,6 +154,7 @@ class EPaperEngineCoordinator:
         self._recipe_timer: CALLBACK_TYPE | None = None
         self._manual_timer: CALLBACK_TYPE | None = None
         self._pending: tuple[str, bool] = ("startup", False)
+        self._calendar_refreshed_at: datetime | None = None
         self._debouncer = Debouncer(
             hass,
             _LOGGER,
@@ -740,7 +742,25 @@ class EPaperEngineCoordinator:
         return events, failed
 
     async def _async_refresh_calendars(self, entity_ids: list[str]) -> None:
-        """``homeassistant.update_entity`` on the sources, best effort."""
+        """``homeassistant.update_entity`` on the sources, best effort.
+
+        Skipped when the sources were pulled less than
+        ``CALENDAR_REFRESH_MIN_GAP_S`` ago: "Sync now" pulls them itself and then
+        asks for a render run, and that run arrives within a second or two —
+        without the gap a single press would fetch every published ICS twice.
+        Nothing else comes this close; the timed net is 15 minutes apart.
+        """
+        now = dt_util.utcnow()
+        if (
+            self._calendar_refreshed_at is not None
+            and (now - self._calendar_refreshed_at).total_seconds()
+            < CALENDAR_REFRESH_MIN_GAP_S
+        ):
+            _LOGGER.debug("Calendar sources were just refreshed, not pulling again")
+            return
+        # Stamped before the call, not after: a source that times out must not
+        # turn into a retry loop.
+        self._calendar_refreshed_at = now
         try:
             await self.hass.services.async_call(
                 "homeassistant",
@@ -763,6 +783,34 @@ class EPaperEngineCoordinator:
             "counts": {entity_id: len(items) for entity_id, items in events.items()},
             "failed": failed,
             "at": dt_util.now().isoformat(),
+        }
+
+    async def async_calendar_sync(self) -> dict[str, Any]:
+        """What "Sync now" does: pull the sources, count them, redraw the wall.
+
+        The other button on that page ("recount") deliberately does *not* pull:
+        it fires while somebody is looking at a settings page. This one is a
+        deliberate press, so it does the whole chain — ``update_entity`` on every
+        source, a fresh ``get_events`` for the numbers on screen, and a render
+        run, because otherwise a calendar that was just corrected still waits up
+        to 15 minutes for the timed net.
+
+        The render is *requested*, not awaited: the add-on answers 202 and works
+        asynchronously (FSD §3.2), and the panel would be holding a spinner for
+        a picture it is not showing.
+
+        ``on_wall`` says whether that run will actually redraw the calendar. A
+        wall currently showing photos takes the fresh data and shows none of it —
+        ``async_render_document`` queries the calendar for no other view — and
+        without this flag "Sync now" would look broken to whoever pressed it.
+        """
+        events, failed = await self.async_calendar_events(refresh=True)
+        self.async_request_render("calendar_sync")
+        return {
+            "counts": {entity_id: len(items) for entity_id, items in events.items()},
+            "failed": failed,
+            "at": dt_util.now().isoformat(),
+            "on_wall": self.target.view == VIEW_CALENDAR,
         }
 
     async def async_render_document(self) -> dict[str, Any]:
@@ -814,6 +862,10 @@ class EPaperEngineCoordinator:
                 "host": cfg["display"].get("host"),
                 "mdc_pin": cfg["display"].get("mdc_pin"),
                 "mac": cfg["display"].get("mac"),
+                # The one-display rule of FSD §14, as a value the add-on can
+                # act on. Missing means on: an installation from before this
+                # key must not go quiet on its own.
+                "push_enabled": cfg["display"].get("push_enabled", True),
             },
             # Root of the image store (FSD §3.4). ``None`` means the add-on falls
             # back to ``/media/epaperengine`` — see the note in ``store.py`` for

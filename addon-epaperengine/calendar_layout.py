@@ -631,7 +631,7 @@ def build_page(
     *,
     now: datetime,
     text: Any = None,
-    stamp: str | None = None,
+    stamp: str = "",
 ) -> Page:
     """The render document's ``calendar`` section → one measured page."""
     say = text or (lambda key, **fields: key)
@@ -662,12 +662,18 @@ def build_page(
     elif not days:
         notes.append(say("calendar.no_events"))
 
-    # Legend, notes and timestamp all live in the foot of the third column
-    # [P29]. Only that column is shortened; one and two run the full height.
-    if stamp is None:
-        stamp = say("calendar.updated", time=now.strftime(say("format.clock")))
+    # Legend and notes live in the foot of the third column [P29]. Only that
+    # column is shortened; one and two run the full height.
+    #
+    # **There is no timestamp any more** [P38]. It used to read "updated 10:17"
+    # off ``format.clock`` — and a stamp carrying the *minute* makes every
+    # calendar image unique, so the hash lock of FSD 11 never says ``unchanged``
+    # and each of the four scheduled runs an hour turned into a real push with a
+    # visible refresh. The page still says how fresh it is, just by its content:
+    # past appointments drop out as the day goes on. Callers may still pass a
+    # foot line of their own; nothing in the product does.
     rows = legend_lines([{"label": source.label, "hex": source.hex} for source in sources])
-    foot_h = foot_height(len(rows), len(notes))
+    foot_h = foot_height(len(rows), len(notes), stamp=bool(stamp))
     columns = fill_columns(days, [COLUMN_H, COLUMN_H, COLUMN_H - foot_h])
     shown = [day for column in columns for day in column]
 

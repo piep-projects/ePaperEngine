@@ -70,6 +70,7 @@ WORK_DIR = DATA_DIR / "render"
 RESULT_PUSHED = "pushed"
 RESULT_UNCHANGED = "unchanged"
 RESULT_PUSH_FAILED = "push_failed"
+RESULT_PUSH_OFF = "push_off"
 RESULT_RENDER_FAILED = "render_failed"
 
 # Empty unless the entrypoint ran through ``with-contenv`` (see run.sh) — s6
@@ -399,12 +400,7 @@ def _render_calendar(
     """
     section = document.get("calendar") or {}
     now = _document_now(section.get("now"))
-    page = calendar_layout.build_page(
-        document,
-        now=now,
-        text=text,
-        stamp=text("calendar.updated", time=now.strftime(text("format.clock"))),
-    )
+    page = calendar_layout.build_page(document, now=now, text=text)
 
     html = renderer.render_html(
         VIEW_CALENDAR,
@@ -709,9 +705,39 @@ def _deliver(
     """Steps 6 to 10 of §6.2 — the half that is the same for every view."""
     display_cfg = document.get("display") or {}
     layout = media_layout.media_paths((document.get("media") or {}).get("root"))
+    digest = delivery.fingerprint(final)
+
+    # --- the wall belongs to somebody else -----------------------------------
+    # FSD §14: there is exactly **one** display, and only one Home Assistant
+    # instance may push to it — two renderers would overwrite each other. The
+    # switch is what makes the rule enforceable instead of a note in a document:
+    # the run happens, the image and the preview are written, the panel stays
+    # fully usable for development, and the MDC push is the single step skipped.
+    #
+    # The hash is deliberately **not** stored. ``state["image_hash"]`` means
+    # "what this instance last put on the wall", and with the push off it put
+    # nothing there. Storing it would arm the gate of FSD §11 against a picture
+    # the display never received: switching the push back on would answer
+    # ``unchanged`` and leave whatever hangs there hanging.
+    if not display_cfg.get("push_enabled", True):
+        imaging.save_png(final, IMAGE_PATH)
+        preview = imaging.preview_bytes(final, imaging.PREVIEW_CURRENT)
+        PREVIEW_PATH.write_bytes(preview)
+        warning = delivery.copy_to_media(
+            [
+                (IMAGE_PATH.read_bytes(), layout.wall / "current.png"),
+                (preview, layout.preview / "current.jpg"),
+            ]
+        )
+        return Outcome(
+            result=RESULT_PUSH_OFF,
+            view=view,
+            image_hash=digest,
+            warning=warning,
+            detail=detail,
+        )
 
     # --- step 6: has anything changed? ---------------------------------------
-    digest = delivery.fingerprint(final)
     if force:
         detail = {**detail, "forced": True}
     if not force and state.get("image_hash") == digest and IMAGE_PATH.exists():

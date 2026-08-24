@@ -8,16 +8,23 @@
  *
  * The card's rule "no control that only starts what happens anyway" does **not**
  * hold here: this is where things get tried out, and nobody wants to wait for
- * the next 15-minute net while doing so. Hence the two header buttons
+ * the next 15-minute net while doing so. Hence the two wall buttons
  * [Festlegung 2026-08-20]:
  *
- *   Render now  — a run right away; pushed only on a changed image hash
- *   Push now    — sends the current image **even when unchanged**, stepping over
- *                 the hash gate of FSD §11. A second "force push" button on the
- *                 display page would be the same thing twice, so there is none.
+ *   Update the wall      — a run right away; pushed only on a changed image hash
+ *   Send the picture     — sends the current image **even when unchanged**,
+ *   again                  stepping over the hash gate of FSD §11. A second
+ *                          "force push" button on the display page would be the
+ *                          same thing twice, so there is none.
+ *
+ * **Where the actions live** [Festlegung P36]: with their subject, not in the
+ * header. The wall as a whole is the overview's subject, so both sit there,
+ * beside the last-push line that is the reason anybody reaches for them. The
+ * calendar sync sits on the calendar page, the recipe sync on the recipe page,
+ * the background rescan on the guest page. The header carries no control at all
+ * — it was explained by a `title` attribute, and no touch device shows one.
  *
  * Editing is draft-based per card: `_draft` is a working copy, committed on Save.
- * Pages for calendar and guests arrive with those views (phase 5).
  */
 
 const APP_NAME = "ePaperEngine";
@@ -113,8 +120,8 @@ const I18N_EMERGENCY = {
   "panel.tab.views": "Views",
   "panel.tab.photos": "Photos",
   "panel.tab.display": "Display",
-  "panel.action.render": "Render now",
-  "panel.action.push": "Push now",
+  "panel.action.render": "Update the wall",
+  "panel.action.push": "Send the picture again",
 };
 const _i18nFetches = new Map();
 let _i18n = { lang: null, cat: {}, base: {}, degraded: false };
@@ -274,6 +281,8 @@ class EPaperEnginePanel extends HTMLElement {
     this._photos = null;
     this._backgrounds = null; // { total, backgrounds, folder } of the guest page
     this._calendar = null; // { counts, failed } of the last calendar probe
+    this._calendarSync = null; // { at, on_wall } of the last "Sync now"
+    this._calendarSyncing = false;
     this._recipes = null; // { hits, total, cache } of the last search
     this._picked = []; // the selected recipes in full, for the slot cards
     this._forecast = new Map(); // uid → {fit, chars}, filled from the searches
@@ -286,6 +295,7 @@ class EPaperEnginePanel extends HTMLElement {
     this._error = null;
     this._probe = null; // result of the explicit "Test connection"
     this._previewUrl = null;
+    this._previewFor = null; // the image hash the current signature was made for
     this._fullUrl = null; // signed full-size image, ready for the link
     this._built = false;
     this._timer = null;
@@ -342,6 +352,22 @@ class EPaperEnginePanel extends HTMLElement {
     if (!this._hass || !this._config) return;
     try {
       this._status = await this._call({ type: "epaperengine/status" });
+      // A new picture hangs on the wall: sign the preview again.
+      //
+      // ``preview_path`` is a **constant** path — always …/preview/current.jpg,
+      // never a name that carries the version — so a repaint alone re-sets the
+      // same src and shows the same picture. Nothing here would ever update it,
+      // which is what the "reload preview" button used to paper over. The image
+      // hash is the honest trigger: it changes exactly when the wall changed,
+      // and a fresh signature is a different URL, so the browser has to fetch.
+      //
+      // The order holds: the add-on writes the media copy *before* it reports
+      // the run, so a hash that reached Home Assistant is a file that exists.
+      // An ``unchanged`` run leaves the hash alone (nothing to fetch), and a
+      // failed push never writes the copy (the old preview is then the truth).
+      if (((this._status || {}).last_push || {}).hash !== this._previewFor) {
+        await this._signPreview();
+      }
       // …and that promise only holds if the repaint is skipped while a field
       // has focus. Inputs are rebuilt from the draft on every render and the
       // draft is only read on Save, so a poll arriving mid-word would take the
@@ -390,6 +416,9 @@ class EPaperEnginePanel extends HTMLElement {
 
   async _signPreview() {
     const status = this._status || {};
+    // Remembered before the await, so a run that finishes mid-signature is not
+    // mistaken for the one this signature belongs to.
+    this._previewFor = (status.last_push || {}).hash || null;
     this._previewUrl = await this._sign(status.preview_path);
     // Signed **here**, not when the link is clicked. A `window.open()` that
     // happens after an `await` has lost the user gesture that permitted it, and
@@ -512,7 +541,37 @@ class EPaperEnginePanel extends HTMLElement {
     } catch (err) {
       this._calendar = { counts: {}, failed: {}, error: this._message(err) };
     }
+    this._calendarSync = null; // the numbers no longer come from a source pull
     this._render();
+  }
+
+  /**
+   * "Sync now" — the deliberate press, as opposed to "recount".
+   *
+   * Three things in one because they are one intention: pull every source
+   * through homeassistant.update_entity, count what they answer with, and ask
+   * for a render run. Without the last step a calendar somebody just corrected
+   * on their phone still waits up to 15 minutes for the timed net.
+   *
+   * The run is only queued, never awaited — the add-on answers 202 and works
+   * on. What the answer does carry is on_wall: a wall showing photos takes the
+   * fresh data and shows none of it, and saying so beats looking broken.
+   */
+  async _syncCalendar() {
+    this._calendarSyncing = true;
+    this._render();
+    try {
+      const answer = await this._call({ type: "epaperengine/calendar/sync" });
+      this._calendar = answer;
+      this._calendarSync = { at: answer.at, on_wall: !!answer.on_wall };
+      this._error = null;
+    } catch (err) {
+      this._calendarSync = null;
+      this._error = this._message(err);
+    }
+    this._calendarSyncing = false;
+    this._render();
+    await this._refreshStatus();
   }
 
   /** Switch guest mode on or off. State, not configuration — no Save button. */
@@ -729,7 +788,13 @@ class EPaperEnginePanel extends HTMLElement {
                    border-left: 3px solid var(--primary-color); padding-left: 17px; }
         nav a.pending { color: var(--secondary-text-color); }
         .content { flex: 1; overflow-y: auto; padding: 20px; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px; align-items: start; }
+        /* One column of cards beside the nav, never several: the nav is column
+           one, the cards are column two. An auto-fit grid used to spread them
+           over the whole desktop width, which put unrelated cards side by side
+           and made every line as wide as the screen. The cap keeps the column
+           readable; wide content (thumbnails, chips) still fills it. */
+        .grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px;
+                align-items: start; max-width: 800px; }
         .card {
           background: var(--card-background-color); border-radius: 12px; padding: 16px;
           box-shadow: var(--ha-card-box-shadow, 0 1px 3px rgba(0,0,0,0.12));
@@ -826,6 +891,16 @@ class EPaperEnginePanel extends HTMLElement {
     this._wire();
   }
 
+  /**
+   * Icon, name, and whether the display answers. **No controls.**
+   *
+   * "Render now" and "Push now" used to sit here, on every page, explained by a
+   * title attribute — which no touch device ever shows. They are rare acts, not
+   * everyday ones: saving in this panel already redraws the wall, and the timed
+   * net does it every 15 minutes anyway. Both now live on the overview, next to
+   * the last-push line that is the reason anybody reaches for them, with the
+   * explanation written out where it can be read.
+   */
   _header() {
     const display = (this._status && this._status.display) || {};
     let cls = "";
@@ -841,8 +916,6 @@ class EPaperEnginePanel extends HTMLElement {
       <ha-icon icon="${ICON}"></ha-icon>
       <div class="title">${esc(APP_NAME)}</div>
       <span class="status-dot"><span class="dot ${cls}"></span>${esc(label)}</span>
-      <button class="plain" id="do-render">${esc(t("panel.action.render"))}</button>
-      <button class="primary" id="do-push" title="${esc(t("panel.action.push.hint"))}">${esc(t("panel.action.push"))}</button>
     `;
   }
 
@@ -947,6 +1020,19 @@ class EPaperEnginePanel extends HTMLElement {
       </div>
 
       <div class="card">
+        <h2>${esc(t("panel.overview.actions"))}</h2>
+        <div class="hint">${esc(t("panel.overview.actions.hint"))}</div>
+        <div class="actions"><button class="primary" id="do-render">${esc(
+          t("panel.action.render"),
+        )}</button></div>
+        <div class="muted">${esc(t("panel.action.render.hint"))}</div>
+        <div class="actions"><button class="plain" id="do-push">${esc(
+          t("panel.action.push"),
+        )}</button></div>
+        <div class="muted">${esc(t("panel.action.push.hint"))}</div>
+      </div>
+
+      <div class="card">
         <h2>${esc(t("panel.overview.manual"))}</h2>
         <div class="hint">${esc(t("panel.overview.manual.hint"))}</div>
         <div class="chips">${chips}</div>
@@ -958,10 +1044,7 @@ class EPaperEnginePanel extends HTMLElement {
         <h2>${esc(t("panel.overview.preview"))}</h2>
         <div class="hint">${esc(t("panel.overview.preview.hint"))}</div>
         ${preview}
-        <div class="actions">
-          <button class="plain" id="reload-preview">${esc(t("panel.overview.preview.reload"))}</button>
-          ${fullLink}
-        </div>
+        ${fullLink ? `<div class="actions">${fullLink}</div>` : ""}
       </div>
     `;
   }
@@ -1126,6 +1209,20 @@ class EPaperEnginePanel extends HTMLElement {
     const counts = probe.counts || {};
     const failed = probe.failed || {};
 
+    // What the last "Sync now" did. It stays on the card rather than fading
+    // like the header notice: "the wall shows something else right now" is the
+    // answer to "why did nothing change", and that question comes late.
+    const sync = this._calendarSync;
+    const syncNote = !sync
+      ? ""
+      : sync.on_wall
+        ? `<div class="note">${esc(
+            t("panel.calendar.sync.done", { time: fmtTime(sync.at) || "" }),
+          )}</div>`
+        : `<div class="note warn">${esc(
+            t("panel.calendar.sync.other_view", { time: fmtTime(sync.at) || "" }),
+          )}</div>`;
+
     // Every calendar entity Home Assistant knows about. Read out of hass
     // directly rather than through a command of our own — the panel already
     // holds the state machine, and this list is what it is for.
@@ -1205,8 +1302,15 @@ class EPaperEnginePanel extends HTMLElement {
             t("panel.calendar.add"),
           )}</button>
           <button class="plain" id="calendar-probe" ${lock}>${esc(t("panel.calendar.recount"))}</button>
+          <button class="plain" id="calendar-sync" ${
+            lock || !sources.length || this._calendarSyncing ? "disabled" : ""
+          }>${esc(
+            this._calendarSyncing ? t("panel.calendar.sync.running") : t("panel.calendar.sync"),
+          )}</button>
           <button class="primary" data-save="calendar" ${lock}>${esc(t("common.save"))}</button>
         </div>
+        <div class="hint">${esc(t("panel.calendar.sync.hint"))}</div>
+        ${syncNote}
         ${entities.length ? "" : `<div class="note warn">${esc(t("panel.calendar.no_entities"))}</div>`}
       </div>
 
@@ -1463,7 +1567,7 @@ class EPaperEnginePanel extends HTMLElement {
           cache ? t("panel.photos.cache.count", { count: fmtNum(cache.total || 0) }) : t("common.loading"),
         )}</div>
         ${thumbs}
-        <div class="actions"><button class="plain" id="reload-photos">${esc(t("panel.overview.preview.reload"))}</button></div>
+        <div class="actions"><button class="plain" id="reload-photos">${esc(t("panel.photos.cache.reload"))}</button></div>
       </div>
     `;
   }
@@ -1695,7 +1799,17 @@ class EPaperEnginePanel extends HTMLElement {
         <input id="renderer-url" value="${esc(display.renderer_url || "")}" placeholder="http://homeassistant.local:8099" ${lock}>
         <div class="muted">${esc(t("panel.display.renderer.hint"))}</div>
         <div class="actions"><button class="primary" data-save="display" ${lock}>${esc(t("common.save"))}</button></div>
+      </div>
+
+      <div class="card">
+        <h2>${esc(t("panel.display.safety"))}</h2>
         <div class="note warn">${esc(t("panel.display.safety.hint"))}</div>
+        <div class="row" style="margin-top:12px">
+          <input type="checkbox" id="display-push" ${display.push_enabled === false ? "" : "checked"} ${lock}>
+          <label for="display-push">${esc(t("panel.display.push"))}</label>
+        </div>
+        <div class="muted">${esc(t("panel.display.push.hint"))}</div>
+        <div class="actions"><button class="primary" data-save="display" ${lock}>${esc(t("common.save"))}</button></div>
       </div>
 
       <div class="card">
@@ -1738,11 +1852,6 @@ class EPaperEnginePanel extends HTMLElement {
       chip.onclick = () => this._setView(chip.dataset.view || null);
     });
     on("#to-auto", () => this._setView(null));
-    on("#reload-preview", async () => {
-      await this._refreshStatus();
-      await this._signPreview();
-      this._render();
-    });
 
     // --- views
     root.querySelectorAll("[data-move]").forEach((button) => {
@@ -1860,9 +1969,16 @@ class EPaperEnginePanel extends HTMLElement {
       this._render();
     });
     on("#calendar-probe", () => {
+      this._collect();
       this._calendar = { loading: true };
       this._render();
       this._probeCalendar();
+    });
+    on("#calendar-sync", () => {
+      // Collect first: the press blurs whatever field was being typed in, and
+      // the repaint that follows would otherwise throw the draft away.
+      this._collect();
+      this._syncCalendar();
     });
     root.querySelectorAll("[data-src-remove]").forEach((button) => {
       button.onclick = () => {
@@ -2031,6 +2147,10 @@ class EPaperEnginePanel extends HTMLElement {
       this._draft.display.mdc_pin = value("#display-pin") || null;
       this._draft.display.mac = value("#display-mac") || null;
       this._draft.display.renderer_url = value("#renderer-url") || null;
+      // Missing means on (store.py): an installation from before the switch
+      // must not fall silent because the checkbox was not on the page yet.
+      const push = root.querySelector("#display-push");
+      if (push) this._draft.display.push_enabled = !!push.checked;
     }
   }
 }

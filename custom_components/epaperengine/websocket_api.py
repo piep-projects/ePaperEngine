@@ -31,6 +31,7 @@ from .const import (
     DOMAIN,
     VIEWS,
     WS_CALENDAR_PROBE,
+    WS_CALENDAR_SYNC,
     WS_CONFIG_GET,
     WS_CONFIG_SET,
     WS_DISPLAY_TEST,
@@ -71,6 +72,7 @@ def async_register(hass: HomeAssistant) -> None:
         ws_guests_set,
         ws_guests_backgrounds,
         ws_calendar_probe,
+        ws_calendar_sync,
     ):
         websocket_api.async_register_command(hass, handler)
 
@@ -373,3 +375,22 @@ async def ws_calendar_probe(hass, connection, msg) -> None:
         connection.send_error(msg["id"], "not_loaded", "ePaperEngine is not set up")
         return
     connection.send_result(msg["id"], await coordinator.async_calendar_probe())
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({vol.Required("type"): WS_CALENDAR_SYNC})
+@websocket_api.async_response
+async def ws_calendar_sync(hass, connection, msg) -> None:
+    """Pull the sources now, count them, and let the wall catch up.
+
+    The counterpart to ``calendar/probe``: same answer shape, plus ``on_wall``,
+    but this one *does* run ``homeassistant.update_entity`` first and asks for a
+    render run afterwards. Admin-only for the same reason as
+    ``guests/backgrounds`` — it does work on the other side, here on somebody
+    else's calendar server.
+    """
+    coordinator = _coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_loaded", "ePaperEngine is not set up")
+        return
+    connection.send_result(msg["id"], await coordinator.async_calendar_sync())

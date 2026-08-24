@@ -59,6 +59,7 @@ RESULT_IDLE: Final = "idle"                    # no run yet since installation
 RESULT_PUSHED: Final = "pushed"                # rendered, image changed, pushed
 RESULT_UNCHANGED: Final = "unchanged"          # rendered, same PNG hash, no push
 RESULT_PUSH_FAILED: Final = "push_failed"      # rendered and served, display mute
+RESULT_PUSH_OFF: Final = "push_off"            # rendered, push deliberately off
 RESULT_RENDER_FAILED: Final = "render_failed"  # no image — aborted, nothing pushed
 
 RUN_RESULTS: Final[tuple[str, ...]] = (
@@ -66,6 +67,7 @@ RUN_RESULTS: Final[tuple[str, ...]] = (
     RESULT_PUSHED,
     RESULT_UNCHANGED,
     RESULT_PUSH_FAILED,
+    RESULT_PUSH_OFF,
     RESULT_RENDER_FAILED,
 )
 
@@ -94,6 +96,10 @@ WS_GUESTS_BACKGROUNDS: Final = f"{DOMAIN}/guests/backgrounds"
 # on demand rather than pushed into the status — it is a question somebody asks
 # while setting the page up, not something the card shows every 15 seconds.
 WS_CALENDAR_PROBE: Final = f"{DOMAIN}/calendar/probe"
+# The deliberate press on the same page: pull the sources through
+# ``homeassistant.update_entity``, count what they answer with, and ask for a
+# render run so the wall catches up instead of waiting for the timed net.
+WS_CALENDAR_SYNC: Final = f"{DOMAIN}/calendar/sync"
 
 # --- Services (FSD §3.1) ------------------------------------------------------
 SERVICE_GET_RENDER_DATA: Final = "get_render_data"
@@ -145,6 +151,14 @@ RENDER_DEBOUNCE_S: Final = 20
 # is the integration's own ceiling so a reload does not start with a blank sensor
 # and a burst of handshakes.
 DISPLAY_PROBE_INTERVAL_MIN: Final = 15
+
+# --- Calendar (FSD §8.1) ------------------------------------------------------
+# How close together two source refreshes may sit. "Sync now" pulls the sources
+# itself and then asks for a render run, and that run — undebounced, so within a
+# second or two — would pull every published ICS a second time: one press, two
+# fetches per source. The gap collapses that pair and nothing else; every other
+# refresh comes from the timed net, 15 minutes apart.
+CALENDAR_REFRESH_MIN_GAP_S: Final = 30
 
 # --- Recipes (FSD §9) ---------------------------------------------------------
 # How often the collection is pulled from Paprika when nobody presses the

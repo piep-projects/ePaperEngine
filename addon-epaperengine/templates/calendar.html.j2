@@ -9,8 +9,10 @@
     columns   three of 805 px with a 40 px gutter, y 32 … 1408 — the 32 px
               margin is P30, not the mockup's 80 (which left 17 % of the
               panel unused for no measurable gain sideways)
-    foot      legend, any failure note and the timestamp at the **bottom of the
-              third column**, 36 px a line with 24 px of air above
+    foot      legend and any failure note at the **bottom of the third
+              column**, 36 px a line with 24 px of air above. No timestamp
+              [P38] — a stamp carrying the minute made every image unique and
+              turned every scheduled run into a real push
     day title 36 px bold, 50 px line, a rule, 14 px of air  (66 px of head)
     entry     84 px, plus 38 px for every further title line
     bar       6 px [Festlegung C8] — 2 px is the proven floor, 6 px reads as a
@@ -25,8 +27,8 @@
   showed the cost: "Sunday, August 23" in the header and "Today · Sunday,
   August 23" as the first day title — the same date twice — for 140 px off
   **all three** columns. Now the date is said once, by the day title that has
-  to be there anyway, and legend and timestamp sit at the foot of the third
-  column. Columns one and two run the full 1.280 px.
+  to be there anyway, and the legend sits at the foot of the third column.
+  Columns one and two run the full 1.408 px (1.280 px before P31).
 
   Two further deviations from the mockup, both measured rather than preferred:
   the rule under a day title and the gutter rule are **black**, not the
@@ -74,8 +76,8 @@
          rather than being clipped where nobody notices. */
       /* Right-aligned [P31]: the foot sits at the outer edge of the last
          column, and a block flushed to the page edge reads as a caption rather
-         than as an orphaned first column. The timestamp follows the legend —
-         a two-line block with two alignments would look like a mistake. */
+         than as an orphaned first column. Anything else in the foot follows
+         the legend — a block with two alignments would look like a mistake. */
       .legend .row {
         display: flex;
         align-items: center;
@@ -278,7 +280,9 @@
               </div>
               {%- endfor %}
             </div>
+            {%- if page.stamp %}
             <div class="stamp">{{ page.stamp }}</div>
+            {%- endif %}
           </div>
           {%- endif %}
         </section>

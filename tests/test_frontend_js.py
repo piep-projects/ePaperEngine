@@ -23,6 +23,7 @@ installed — the same trade the other guards make.
 
 from __future__ import annotations
 
+import ast
 import pathlib
 import re
 import unittest
@@ -88,6 +89,82 @@ class TestElementRegistration(unittest.TestCase):
         self.assertIsNotNone(name, "PANEL_CUSTOM_NAME not found in const.py")
         source = (COMPONENT / "panel" / "epaperengine-panel.js").read_text(encoding="utf-8")
         self.assertIn(f'customElements.define("{name.group(1)}"', source)
+
+
+class TestWebSocketCommands(unittest.TestCase):
+    """Every command the front-ends call has to exist and be registered.
+
+    The one failure mode nothing else here catches: a command string is written
+    twice — once in ``const.py`` and once in a template literal — and the two
+    drift. The panel then sends ``epaperengine/calendar/snyc``, Home Assistant
+    answers ``unknown_command``, and the only trace is a red note in the panel.
+
+    Pure stdlib again: ``ast`` over ``websocket_api.py``, a regular expression
+    over the two JavaScript files. No Home Assistant needed.
+    """
+
+    def setUp(self) -> None:
+        self.commands = _ws_constants()
+        self.registered, self.handlers = _ws_registered()
+
+    def test_the_front_ends_only_call_known_commands(self) -> None:
+        for path in FILES:
+            source = path.read_text(encoding="utf-8")
+            for command in re.findall(r'type:\s*"(epaperengine/[a-z_/]+)"', source):
+                self.assertIn(
+                    command,
+                    self.commands.values(),
+                    f"{path.name}: {command!r} is not defined in const.py",
+                )
+
+    def test_every_handler_is_registered(self) -> None:
+        """A decorated handler that nobody lists in ``async_register`` never
+        answers — the decorator alone does not register it."""
+        for const_name, function in self.handlers.items():
+            self.assertIn(
+                function,
+                self.registered,
+                f"{function}() carries {const_name} but is missing from async_register",
+            )
+
+    def test_every_command_has_a_handler(self) -> None:
+        for const_name in self.commands:
+            self.assertIn(
+                const_name,
+                self.handlers,
+                f"{const_name} is defined but no handler declares it",
+            )
+
+
+def _ws_constants() -> dict[str, str]:
+    """``{"WS_STATUS": "epaperengine/status", …}`` out of ``const.py``."""
+    const = (COMPONENT / "const.py").read_text(encoding="utf-8")
+    domain = re.search(r'^DOMAIN:\s*Final\s*=\s*"([^"]+)"', const, re.M)
+    assert domain, "DOMAIN not found in const.py"
+    found = re.findall(
+        r'^(WS_[A-Z_]+):\s*Final\s*=\s*f"\{DOMAIN\}/([a-z_/]+)"', const, re.M
+    )
+    return {name: f"{domain.group(1)}/{path}" for name, path in found}
+
+
+def _ws_registered() -> tuple[set[str], dict[str, str]]:
+    """``({registered handler names}, {WS constant: handler name})``."""
+    tree = ast.parse((COMPONENT / "websocket_api.py").read_text(encoding="utf-8"))
+    registered: set[str] = set()
+    handlers: dict[str, str] = {}
+    for node in ast.walk(tree):
+        # for handler in (ws_status, ws_render, …):
+        if isinstance(node, ast.For) and isinstance(node.iter, ast.Tuple):
+            registered |= {
+                element.id for element in node.iter.elts if isinstance(element, ast.Name)
+            }
+        if isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef):
+            for name in (
+                child.id for child in ast.walk(node) if isinstance(child, ast.Name)
+            ):
+                if name.startswith("WS_"):
+                    handlers[name] = node.name
+    return registered, handlers
 
 
 if __name__ == "__main__":
