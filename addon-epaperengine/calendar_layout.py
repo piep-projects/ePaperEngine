@@ -39,6 +39,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
+from anniversaries import strip_suffix, suffix_pattern, year_in_title
 from recipe_layout import CHAR_RATIO, wrap
 
 # --- the canvas, 1:1 with the mockup ------------------------------------------
@@ -153,10 +154,12 @@ COLORS: dict[str, str] = {
 }
 DEFAULT_COLOR = "blue"
 
-# A source is either a diary or a birthday list. The distinction is not
-# cosmetic: a birthday carries an age, shows only its start time, and stays on
-# the wall all day even when "hide today's past entries" is on — it is not an
-# appointment somebody can be late for.
+# A source is either a diary or a list of **anniversaries** — birthdays, wedding
+# days, name days, a jubilee [P41, 2026-08-31; the store value stays
+# ``birthdays`` so existing configurations keep working]. The distinction is not
+# cosmetic: an anniversary carries a year count, shows only its start time, and
+# stays on the wall all day even when "hide today's past entries" is on — it is
+# not an appointment somebody can be late for.
 KIND_EVENTS = "events"
 KIND_BIRTHDAYS = "birthdays"
 KINDS = (KIND_EVENTS, KIND_BIRTHDAYS)
@@ -282,30 +285,74 @@ def _local_date(moment: datetime | date) -> date:
     return moment.date() if isinstance(moment, datetime) else moment
 
 
-def birth_year(summary: str, description: str) -> tuple[str, int | None]:
-    """``("Erika Müller", 1946)`` — the title as it should read, plus the year.
+def _suffix_template(say: Any) -> str:
+    """The raw ``"— {years} Jahre"``, for recognising a written-back suffix.
 
-    Two carriers, in the order kalenderkonzept §6.1 fixes them: the
-    **description**, because then nothing technical shows up in a phone's
-    calendar app, and a trailing ``(1946)`` in the **title** as the fallback for
-    the day Home Assistant's dialog offers no description field. The bracket is
-    cut off the displayed title — it was a workaround, not a name.
+    ``say`` is a :class:`wall_text.WallText` in production and could be any
+    callable in a test, so the raw template is asked for defensively: without
+    it the count is simply appended as before, which is the old behaviour and
+    not a broken page.
     """
+    getter = getattr(say, "template", None)
+    return getter("calendar.years") if callable(getter) else ""
+
+
+def anniversary_year(
+    summary: str, description: str, suffix_text: str = ""
+) -> tuple[str, int | None]:
+    """``("Erika Müller (1946)", 1946)`` — the title as written, plus the year.
+
+    Two carriers, either of them enough: a ``(1946)`` in the **title**, and a
+    bare year in the **description**.
+
+    **The wall computes, always** [Festlegung P42, 2026-08-31]. When the
+    write-back has already put a count into the title, ``suffix_text`` is the
+    catalogue string that produced it and the suffix is stripped here before a
+    fresh one is appended. Handing the stored text through instead was measured
+    and rejected: a series title carries **one** number while the wall looks
+    **30 days ahead**, so between 2 and 31 December an anniversary falling in
+    January would read one year short. Computing also means the wall stays
+    right when the write-back fails or was never set up at all.
+
+    **The title is handed back untouched** [Festlegung P41, 2026-08-31]. Until
+    then the bracket was cut off, on the reasoning that it was a workaround
+    rather than a name — which held only as long as the year lived in the
+    description and the phone never showed it. It is the other way round now:
+    the year is written into the *title* precisely so that a phone's calendar
+    app shows it, and a wall that then hid it would be showing something else
+    than the household edits. So the wall reads
+    ``Erika Müller (1946) — wird 80``.
+
+    That the year cannot change is what makes this work: an **age** in the title
+    would be right for twelve months and a lie afterwards, and would have to be
+    rewritten into every entry every year. A year written once stays true, and
+    the age is the one part the renderer computes.
+
+    Cutting nothing also settles the case where both carriers are filled: the
+    description wins the *year*, and the title still reads as it was written —
+    where the old rule produced ``Erika Müller (1946) — wird 80`` from a title
+    it had refused to trim, for no reason a reader could see.
+    """
+    title = summary.strip()
+    if suffix_text:
+        title = strip_suffix(title, suffix_pattern(suffix_text))
+
     stripped = (description or "").strip()
     if stripped.isdigit() and YEAR_MIN <= int(stripped) <= YEAR_MAX:
-        return summary.strip(), int(stripped)
+        return title, int(stripped)
 
-    title = summary.strip()
-    if title.endswith(")") and "(" in title:
-        head, _, tail = title.rpartition("(")
-        candidate = tail[:-1].strip()
-        if candidate.isdigit() and YEAR_MIN <= int(candidate) <= YEAR_MAX:
-            return head.strip(), int(candidate)
-    return title, None
+    # Anywhere in the title, not only at the end: after a write-back the year
+    # sits in front of the suffix, and the suffix may be one this build does not
+    # recognise (an older catalogue wording, a hand-typed line).
+    return title, year_in_title(title)
 
 
-def age_on(when: date, year: int) -> int:
-    """The age the birthday child reaches on ``when``.
+def years_since(when: date, year: int) -> int:
+    """How many years lie between ``year`` and ``when``.
+
+    Was ``age_on`` until P41 [2026-08-31]: the list is not only birthdays but
+    anniversaries of every kind — weddings, name days, a company jubilee — and
+    an "age" is what only one of them has.
 
     A plain difference of years, and that is the whole answer to the
     29 February question kalenderkonzept §7.2 raises: which day a yearly
@@ -391,9 +438,17 @@ def _entries_for(
         summary = say("calendar.untitled")
 
     if source.kind == KIND_BIRTHDAYS:
-        summary, year = birth_year(summary, description)
+        summary, year = anniversary_year(
+            summary, description, _suffix_template(say)
+        )
         if year is not None:
-            summary = f"{summary} {say('calendar.turns', age=age_on(_local_date(start_value), year))}"
+            # **Ein Satz für jede Art von Jahrestag** [Festlegung P41]: "wird 80"
+            # stimmt für einen Geburtstag und ist für einen Hochzeitstag falsch.
+            # Was gefeiert wird, steht im Titel, wo der Haushalt es selbst
+            # schreibt; der Renderer steuert nur die Zahl bei, die sich jedes
+            # Jahr ändert — und genau die kann im Titel nicht stehen.
+            years = years_since(_local_date(start_value), year)
+            summary = f"{summary} {say('calendar.years', years=years)}"
         # A birthday has no location worth the 32 px, and its 09:00–09:15 is a
         # slot, not a duration (kalenderkonzept §6.1) — only the start shows.
         location = ""

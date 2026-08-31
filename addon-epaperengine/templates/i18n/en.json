@@ -9,7 +9,7 @@
   "calendar.no_sources": "No calendar configured yet — the ePaperEngine panel is where it goes.",
   "calendar.source_failed": "{person}: no data",
   "calendar.today": "Today · {date}",
-  "calendar.turns": "— turns {age}",
+  "calendar.years": "— {years} years",
   "calendar.untitled": "(no title)",
   "error.headline": "ePaperEngine cannot render the wall right now",
   "error.hint": "Details in Home Assistant under ePaperEngine.",

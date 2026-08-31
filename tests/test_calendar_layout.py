@@ -93,29 +93,45 @@ class TestPalette(unittest.TestCase):
 
 class TestBirthYear(unittest.TestCase):
     def test_the_description_carries_the_year(self) -> None:
-        self.assertEqual(cl.birth_year("Erika Müller", "1946"), ("Erika Müller", 1946))
+        self.assertEqual(cl.anniversary_year("Erika Müller", "1946"), ("Erika Müller", 1946))
 
-    def test_a_bracket_in_the_title_is_the_documented_fallback(self) -> None:
-        """kalenderkonzept §6.1: for the day the dialog offers no description."""
-        self.assertEqual(cl.birth_year("Erika Müller (1946)", ""), ("Erika Müller", 1946))
+    def test_a_bracket_in_the_title_carries_the_year(self) -> None:
+        """kalenderkonzept §6.1, since P41 the way the entries are written."""
+        self.assertEqual(
+            cl.anniversary_year("Erika Müller (1946)", ""), ("Erika Müller (1946)", 1946)
+        )
 
-    def test_the_bracket_is_cut_off_the_displayed_name(self) -> None:
-        title, _ = cl.birth_year("Erika Müller (1946)", "")
-        self.assertNotIn("(", title)
+    def test_the_bracket_stays_on_the_displayed_name(self) -> None:
+        """P41: the wall shows the title the phone shows, plus the age.
+
+        The reverse of what this asserted until 2026-08-31 — see the docstring
+        of ``anniversary_year``. The year is in the title *so that* it is visible.
+        """
+        title, year = cl.anniversary_year("Erika Müller (1946)", "")
+        self.assertEqual(title, "Erika Müller (1946)")
+        self.assertEqual(year, 1946)
+
+    def test_a_title_without_a_year_is_left_alone(self) -> None:
+        """A bracket that is not a year is part of the name, not a carrier."""
+        self.assertEqual(
+            cl.anniversary_year("Erika Müller (Tante)", ""), ("Erika Müller (Tante)", None)
+        )
 
     def test_a_note_in_the_description_is_not_a_year(self) -> None:
-        self.assertEqual(cl.birth_year("Erika", "ruft immer an"), ("Erika", None))
+        self.assertEqual(cl.anniversary_year("Erika", "ruft immer an"), ("Erika", None))
 
     def test_an_implausible_number_is_not_a_year(self) -> None:
-        self.assertEqual(cl.birth_year("Erika", "42"), ("Erika", None))
+        self.assertEqual(cl.anniversary_year("Erika", "42"), ("Erika", None))
 
     def test_the_description_wins_over_the_title(self) -> None:
-        self.assertEqual(cl.birth_year("Erika (1900)", "1946"), ("Erika (1900)", 1946))
+        """Only over the *year*. The title reads as written either way (P41)."""
+        self.assertEqual(cl.anniversary_year("Erika (1900)", "1946"), ("Erika (1900)", 1946))
+        self.assertEqual(cl.anniversary_year("Erika", "1946"), ("Erika", 1946))
 
-    def test_the_age_is_a_difference_of_years(self) -> None:
+    def test_the_count_is_a_difference_of_years(self) -> None:
         """And that is the whole 29 February answer — the source picks the day."""
-        self.assertEqual(cl.age_on(date(2026, 2, 28), 1946), 80)
-        self.assertEqual(cl.age_on(date(2026, 3, 1), 1946), 80)
+        self.assertEqual(cl.years_since(date(2026, 2, 28), 1946), 80)
+        self.assertEqual(cl.years_since(date(2026, 3, 1), 1946), 80)
 
 
 class TestDays(unittest.TestCase):
@@ -219,7 +235,9 @@ class TestDays(unittest.TestCase):
         self.assertIn(cl.TITLE_CHARS, range(33, 38))
 
 
-class TestBirthdayEntries(unittest.TestCase):
+class TestAnniversaryEntries(unittest.TestCase):
+    """Not only birthdays [P41]: weddings, name days, a jubilee — one wording."""
+
     def _days(self, description="1985", summary="Anna Berger"):
         return cl.build_days(
             [_source(kind=cl.KIND_BIRTHDAYS, color="red")],
@@ -230,13 +248,66 @@ class TestBirthdayEntries(unittest.TestCase):
             text=TEXT,
         )
 
-    def test_the_age_is_appended(self) -> None:
+    def test_the_year_count_is_appended(self) -> None:
         entry = self._days()[0].entries[0]
-        self.assertEqual(entry.title_lines[0], "Anna Berger — wird 41")
+        self.assertEqual(entry.title_lines[0], "Anna Berger — 41 Jahre")
 
-    def test_a_missing_year_costs_the_age_not_the_entry(self) -> None:
+    def test_the_year_may_ride_in_the_title(self) -> None:
+        """P41: it is written there so a phone's calendar app shows it, and the
+        wall shows the title as written rather than a second version of it."""
+        entry = self._days(summary="Anna Berger (1985)", description="")[0].entries[0]
+        self.assertEqual(entry.title_lines[0], "Anna Berger (1985) — 41 Jahre")
+
+    def test_the_wording_fits_an_anniversary_that_is_not_a_birthday(self) -> None:
+        """The reason the sentence is neutral: "wird 20" would be wrong here,
+        and ``get_events`` hands over no field that could say which kind it is
+        (kalenderkonzept §3.1 — five fields, and CATEGORIES is not among them).
+        What is being celebrated stands in the title, written by the household."""
+        entry = self._days(summary="Hochzeit Ulla & Christian (2006)",
+                           description="")[0].entries[0]
+        self.assertEqual(
+            " ".join(entry.title_lines),
+            "Hochzeit Ulla & Christian (2006) — 20 Jahre",
+        )
+        # Und er braucht zwei Zeilen: 43 Zeichen bei ~35 je Zeile. Das ist der
+        # gemessene Preis des Jahres im Titel (P41) — 38 px, gut 0,45 Termine.
+        self.assertEqual(len(entry.title_lines), 2)
+        self.assertEqual(entry.height, cl.ENTRY_H + cl.ENTRY_LINE_H)
+
+    def test_a_missing_year_costs_the_count_not_the_entry(self) -> None:
         entry = self._days(description="")[0].entries[0]
         self.assertEqual(entry.title_lines[0], "Anna Berger")
+
+    def test_a_written_back_suffix_is_replaced_not_doubled(self) -> None:
+        """P42: the calendar may already carry a count, put there by the sync.
+
+        Without stripping it the wall would read "… — 41 Jahre — 41 Jahre", and
+        it would grow by one suffix for every catalogue the entry passes."""
+        entry = self._days(summary="Anna Berger (1985) — 40 Jahre",
+                           description="")[0].entries[0]
+        self.assertEqual(" ".join(entry.title_lines), "Anna Berger (1985) — 41 Jahre")
+
+    def test_the_wall_computes_rather_than_trusting_the_stored_count(self) -> None:
+        """The reason for P42, measured: a series title carries **one** number
+        while the wall looks 30 days ahead. Here the stored count is a year
+        stale — as it is for a January anniversary during all of December — and
+        the wall still shows the right one for the day it is drawing."""
+        entry = self._days(summary="Anna Berger (1985) — 3 Jahre",
+                           description="")[0].entries[0]
+        self.assertEqual(" ".join(entry.title_lines), "Anna Berger (1985) — 41 Jahre")
+
+    def test_an_unrecognised_suffix_costs_the_suffix_not_the_year(self) -> None:
+        """A hand-typed line, or one from an older catalogue wording: the year
+        is still found under it, because the bracket is looked for anywhere."""
+        entry = self._days(summary="Anna Berger (1985) wird bald 41",
+                           description="")[0].entries[0]
+        self.assertEqual(
+            " ".join(entry.title_lines), "Anna Berger (1985) wird bald 41 — 41 Jahre"
+        )
+
+    def test_a_name_day_has_no_year_and_gets_no_number(self) -> None:
+        entry = self._days(summary="Namenstag Christian", description="")[0].entries[0]
+        self.assertEqual(entry.title_lines[0], "Namenstag Christian")
 
     def test_only_the_start_time_is_shown(self) -> None:
         """09:00–09:15 is a slot, not a duration (kalenderkonzept §6.1)."""
@@ -539,7 +610,7 @@ class TestCatalogs(unittest.TestCase):
 
     KEYS = (
         "format.day_title", "format.clock", "calendar.today", "calendar.all_day",
-        "calendar.empty", "calendar.turns", "calendar.untitled", "calendar.cut",
+        "calendar.empty", "calendar.years", "calendar.untitled", "calendar.cut",
         "calendar.source_failed", "calendar.no_sources",
         "calendar.no_events",
     )

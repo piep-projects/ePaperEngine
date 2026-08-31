@@ -81,6 +81,17 @@ class WallText:
             _LOGGER.warning("Placeholders of %r do not match %r", key, fields)
             return template
 
+    def template(self, key: str) -> str:
+        """The **unformatted** string, placeholders intact.
+
+        For the one caller that has to recognise its own output again rather
+        than produce it: the calendar strips a previously written ``— 80 Jahre``
+        before computing a fresh count [P42], and the pattern for that is
+        derived from ``"— {years} Jahre"``. Handing it the *formatted* text
+        would build a pattern that only ever matches the sample number.
+        """
+        return self._strings.get(key, key)
+
     def moment(self, when: datetime) -> str:
         """Format a timestamp the way the language writes it."""
         return when.strftime(self("format.datetime"))

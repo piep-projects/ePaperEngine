@@ -29,6 +29,10 @@ SHARED = (
         REPO_ROOT / "addon-epaperengine" / "recipe_layout.py",
         REPO_ROOT / "custom_components" / "epaperengine" / "recipe_layout.py",
     ),
+    (
+        REPO_ROOT / "addon-epaperengine" / "anniversaries.py",
+        REPO_ROOT / "custom_components" / "epaperengine" / "anniversaries.py",
+    ),
 )
 
 
@@ -48,7 +52,7 @@ class TestSharedModules(unittest.TestCase):
     def test_the_shared_module_needs_nothing_a_hass_install_lacks(self) -> None:
         """It travels into Home Assistant, where ``requirements`` is empty on
         purpose (manifest.json). Standard library only."""
-        allowed = {"math", "dataclasses", "typing", "__future__"}
+        allowed = {"math", "re", "datetime", "dataclasses", "typing", "__future__"}
         for origin, _copy in SHARED:
             tree = ast.parse(origin.read_text(encoding="utf-8"))
             for node in ast.walk(tree):
