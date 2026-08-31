@@ -16,11 +16,35 @@ Panel → **Calendar**. Each source is four things:
 | **Colour** | one of the panel's six primaries |
 | **Kind** | *appointments* or *birthdays* |
 
-**The kind matters.** A birthday source shows the age worked out from the year
-in the entry, shows only a start time, and — this is the point — is **exempt
-from the "hide today's past appointments" filter**. Without that exemption the
-same switch would throw a birthday off the wall at 09:16 on the very morning it
-is meant to be read.
+**The kind matters.** A birthday source shows the year count worked out from
+the year in the entry, shows only a start time, and — this is the point — is
+**exempt from the "hide today's past appointments" filter**. Without that
+exemption the same switch would throw a birthday off the wall at 09:16 on the
+very morning it is meant to be read.
+
+### Not only birthdays
+
+The kind is called *birthdays*, but it means **any anniversary** — a wedding
+day, a name day, a jubilee. That is why the suffix is neutral:
+
+```
+09:00   Erika Müller (1946) — 80 years
+09:00   Wedding Ulla & Christian (2006) — 20 years
+09:00   Name day Christian
+```
+
+**What is being celebrated goes in the title** — the wall only contributes the
+number. "Turns 80" would be wrong for a wedding, and the calendar offers no
+field the kind could be read from.
+
+**The year goes in brackets in the title:** `Erika Müller (1946)`. Then a phone's
+calendar app shows it too, and the wall shows the same thing plus the count.
+The **description** carries it as well — four digits and nothing else. Either
+one is enough; **both at once** leaves the bracket in the picture on top of the
+count.
+
+**A missing year costs the count, not the entry.** A name day has none, and that
+is not an error.
 
 ## What the page looks like
 

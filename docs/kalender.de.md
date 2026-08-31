@@ -17,11 +17,35 @@ Panel → **Kalender**. Jede Quelle ist vier Dinge:
 | **Farbe** | eine der sechs Primärfarben des Panels |
 | **Art** | *Termine* oder *Geburtstage* |
 
-**Die Art trägt Gewicht.** Eine Geburtstagsquelle zeigt das aus dem Jahr
-gerechnete Alter, zeigt nur die Anfangszeit — und ist, darauf kommt es an, vom
-Filter „vergangene Termine des heutigen Tages ausblenden" **ausgenommen**. Ohne
-diese Ausnahme würfe derselbe Schalter den Geburtstag um 09:16 an genau dem
-Morgen von der Wand, an dem er gelesen werden soll.
+**Die Art trägt Gewicht.** Eine Geburtstagsquelle zeigt die gerechnete
+Jahreszahl, zeigt nur die Anfangszeit — und ist, darauf kommt es an, vom Filter
+„vergangene Termine des heutigen Tages ausblenden" **ausgenommen**. Ohne diese
+Ausnahme würfe derselbe Schalter den Geburtstag um 09:16 an genau dem Morgen von
+der Wand, an dem er gelesen werden soll.
+
+### Nicht nur Geburtstage
+
+Die Art heißt *Geburtstage*, meint aber **jeden Jahrestag** — Hochzeitstag,
+Namenstag, Jubiläum. Deshalb ist der Zusatz neutral:
+
+```
+09:00   Erika Müller (1946) — 80 Jahre
+09:00   Hochzeit Ulla & Christian (2006) — 20 Jahre
+09:00   Namenstag Christian
+```
+
+**Was gefeiert wird, schreiben Sie in den Titel** — die Wand steuert nur die
+Zahl bei. Ein „wird 80" wäre bei einer Hochzeit falsch, und der Kalender liefert
+kein Feld, aus dem sich die Art ablesen ließe.
+
+**Das Jahr steht in Klammern im Titel:** `Erika Müller (1946)`. Dann zeigt es
+auch die Kalender-App am Telefon, und an der Wand steht dasselbe plus der Zahl.
+Alternativ trägt es die **Beschreibung** — dann nur die vier Ziffern und sonst
+nichts. Eines von beidem genügt; **beides zugleich** lässt die Klammer zusätzlich
+im Bild stehen.
+
+**Fehlt die Jahreszahl, kostet das die Zahl, nicht den Eintrag.** Ein Namenstag
+hat keine, und das ist kein Fehler.
 
 ## Wie die Seite aussieht
 
