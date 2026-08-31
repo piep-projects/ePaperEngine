@@ -56,8 +56,18 @@ is not an error.
 - **A colour bar** in the source's colour runs down each entry — 12 px by
   default, adjustable. At a metre's distance a 6 px bar reads as a mark *beside*
   the line; 12 px reads as the colour *of* the line.
-- **Empty days are shown** by default ("no appointments"), so the eye can count
-  days rather than read them. Switchable.
+- **Empty days are shown** by default, so the eye can count days rather than
+  read them — they carry a small dash instead of the words "no appointments".
+  The words said nothing the empty space does not already say, and the dash
+  saves 28 px a day. Switchable.
+- **Sundays are red**, the whole date line. A column is read by its dates, and a
+  red date is found from across the room.
+- **A multi-day appointment stands on every day it covers** — even when it is
+  not entered as all-day. The first day says "from 10:00", the days in between
+  "continues", the last "until 15:00". An appointment that ends before 6 in the
+  morning stays **one** entry on its own evening instead: a concert from 23:00
+  to 01:00 is not an appointment on the next day. Note that a fortnight's
+  holiday fills fourteen day blocks and so costs about four days of look-ahead.
 - **A day taller than a whole column** is cut and says so, rather than being
   skipped — skipping it would silently drop that day *and everything after it*.
 

@@ -25,6 +25,21 @@ Stimmt die **Vorschau** im Panel, aber die Wand nicht, hat das Display einen
 Push verpasst: **Bild erneut senden** auf der Übersicht. Dieser Knopf übergeht
 den Hash-Vergleich, und genau das ist der Unterschied zwischen den beiden.
 
+## Ein Update ist eingespielt, die Wand sieht aus wie vorher
+
+**Fast immer fehlt die zweite Hälfte.** ePaperEngine besteht aus Integration und
+Add-on, sie werden getrennt aktualisiert — und **HACS meldet nur die
+Integration**. Das Bild zeichnet aber das **Add-on**: Layout, Schrift, Farben und
+Seitenaufbau stecken dort, nicht in der Integration.
+
+**Add-on-Store → ⋮ → Nach Updates suchen**, dann bei ePaperEngine
+**Aktualisieren**. Danach zeigen beide dieselbe Versionsnummer — im Panel unter
+*Einstellungen* steht die des Add-ons, in HACS die der Integration.
+
+**Faustregel: sieht die Wand anders aus, war es das Add-on.** Ändert sich etwas
+an der Bedienung, war es die Integration. Ganze Beschreibung unter
+[Installation](installation.md#aktualisieren-beide-halften).
+
 ## `push_failed` — das Panel antwortet nicht
 
 1. **Einstellungen → Verbindung testen.** Der Test öffnet TLS:1515 und meldet

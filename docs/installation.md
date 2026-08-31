@@ -60,6 +60,26 @@ by the add-on itself, from the route towards the panel.
 
 Then continue with [the display](display.md).
 
+## Updating — **both halves**
+
+ePaperEngine is two parts that update **separately**, and this is the most
+common trap: **HACS only tells you about the integration.** An update installed
+there alone may change **nothing** about what is on the wall — the image is
+drawn by the add-on.
+
+| Part | How | What it changes |
+|---|---|---|
+| **Integration** | HACS reports a new version, then **restart Home Assistant** | panel, card, settings, scheduling, calendar queries |
+| **Add-on** | **Add-on store → ⋮ → Check for updates**, then **Update** on ePaperEngine | **the image itself** — layout, type, colours, page structure |
+
+Rule of thumb: **if the wall looks different, it was the add-on.** If something
+about the controls changed, it was the integration. After a release, check both
+— they carry the same version number.
+
+!!! note "If the store does not offer the new version"
+    "Check for updates" sometimes runs into a timeout and **keeps working in the
+    background**. Wait half a minute and reload the page; it will be there.
+
 ## Where the images live
 
 ePaperEngine reads your photos from, and writes its renderings into, a directory

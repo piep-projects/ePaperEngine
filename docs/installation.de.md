@@ -61,6 +61,27 @@ ermittelt das Add-on selbst aus der Route zum Panel.
 
 Weiter mit [dem Display](display.md).
 
+## Aktualisieren — **beide Hälften**
+
+ePaperEngine besteht aus zwei Teilen, die **getrennt** aktualisiert werden, und
+das ist die häufigste Stolperfalle: **HACS meldet nur die Integration.** Ein
+Update, das nur dort eingespielt wird, ändert an dem, was an der Wand steht,
+unter Umständen **gar nichts** — gezeichnet wird das Bild vom Add-on.
+
+| Teil | Weg | Was er ändert |
+|---|---|---|
+| **Integration** | HACS meldet eine neue Version, danach **Home Assistant neu starten** | Panel, Karte, Einstellungen, Zeitsteuerung, Kalenderabfrage |
+| **Add-on** | **Add-on-Store → ⋮ → Nach Updates suchen**, dann bei ePaperEngine **Aktualisieren** | **das Bild selbst** — Layout, Schrift, Farben, Seitenaufbau |
+
+Faustregel: **sieht die Wand anders aus, war es das Add-on.** Ändert sich etwas
+an der Bedienung, war es die Integration. Nach einem Release am besten beide
+nachsehen — sie tragen dieselbe Versionsnummer.
+
+!!! note "Wenn der Store die neue Version nicht anbietet"
+    „Nach Updates suchen" läuft manchmal in eine Zeitüberschreitung und
+    **arbeitet im Hintergrund weiter**. Eine halbe Minute warten und die Seite
+    neu laden, dann steht sie da.
+
 ## Wo die Bilder liegen
 
 ePaperEngine liest die Fotos aus einem Verzeichnis unter Home Assistants

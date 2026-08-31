@@ -57,8 +57,19 @@ hat keine, und das ist kein Fehler.
 - **Ein Farbbalken** in der Farbe der Quelle läuft an jedem Eintrag entlang — ab
   Werk 12 px, einstellbar. Auf einen Meter ist ein 6-px-Balken eine Marke
   *neben* der Zeile; 12 px sind die Farbe *der* Zeile.
-- **Leere Tage werden gezeigt** („keine Termine"), damit das Auge Tage zählen
-  kann statt sie zu lesen. Abschaltbar.
+- **Leere Tage werden gezeigt**, damit das Auge Tage zählen kann statt sie zu
+  lesen — sie tragen einen kleinen Strich statt der Worte „keine Termine". Die
+  Worte sagten nichts, was der leere Platz nicht schon sagt, und der Strich
+  spart 28 px je Tag. Abschaltbar.
+- **Sonntage stehen in Rot**, die ganze Datumszeile. Eine Spalte wird über ihre
+  Daten gelesen, und ein rotes Datum findet man aus Entfernung.
+- **Ein mehrtägiger Termin steht auf jedem seiner Tage** — auch wenn er nicht
+  als ganztägig eingetragen ist. Der erste Tag sagt „ab 10:00", die Tage
+  dazwischen „durchgehend", der letzte „bis 15:00". Ein Termin, der am nächsten
+  Morgen vor 6 Uhr endet, bleibt dagegen **ein** Eintrag an seinem Abend: ein
+  Konzert von 23:00 bis 01:00 ist kein Termin am nächsten Tag. Achtung: ein
+  vierzehntägiger Urlaub füllt vierzehn Tagesblöcke und kostet dadurch etwa
+  vier Tage Vorausschau.
 - **Ein Tag, der höher ist als eine ganze Spalte,** wird gekürzt und sagt das —
   statt übersprungen zu werden. Überspringen hieße, von diesem Tag *und allem
   danach* nichts zu zeigen.

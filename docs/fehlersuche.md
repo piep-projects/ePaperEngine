@@ -26,6 +26,21 @@ display missed a push — press **Send the picture again** on the overview. That
 one ignores the hash comparison, which is exactly the difference between the two
 buttons.
 
+## An update is installed, the wall looks the same as before
+
+**Almost always the second half is missing.** ePaperEngine is an integration and
+an add-on, updated separately — and **HACS only reports the integration**. The
+image, though, is drawn by the **add-on**: layout, type, colours and page
+structure live there, not in the integration.
+
+**Add-on store → ⋮ → Check for updates**, then **Update** on ePaperEngine.
+Afterwards both show the same version number — the panel's *Settings* page shows
+the add-on's, HACS shows the integration's.
+
+**Rule of thumb: if the wall looks different, it was the add-on.** If something
+about the controls changed, it was the integration. Full description under
+[Installation](installation.md#updating-both-halves).
+
 ## `push_failed` — the panel does not answer
 
 1. **Settings → Test connection.** It opens TLS:1515 and authenticates; the
