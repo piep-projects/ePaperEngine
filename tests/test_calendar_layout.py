@@ -235,6 +235,162 @@ class TestDays(unittest.TestCase):
         self.assertIn(cl.TITLE_CHARS, range(33, 38))
 
 
+class TestSpannedAppointments(unittest.TestCase):
+    """A timed appointment that covers several days [Festlegung 2026-08-31].
+
+    Reported from the wall: "1 September 10:00 – 14 September 15:00" stood on a
+    single day, labelled "10:00–15:00" — the start of the first day beside the
+    end of the last, which reads as a five-hour appointment. Only all-day
+    entries were ever spanned.
+
+    The evening keeps its old reading, and that is what makes this a rule rather
+    than a swap: 23:00–01:00 is one appointment on the evening it belongs to.
+    """
+
+    def _timed(self, start, end, summary="Urlaub", **extra):
+        return {"start": start, "end": end, "summary": summary, **extra}
+
+    def _run(self, event, today=TODAY, now=None):
+        days = cl.build_days(
+            [_source()], {"calendar.a": [event]}, today=today, now=now, text=TEXT
+        )
+        return [(day.day, entry.time_text)
+                for day in days for entry in day.entries]
+
+    def test_the_reported_case_stands_on_every_day_it_covers(self) -> None:
+        drawn = self._run(self._timed(
+            "2026-09-01T10:00:00+02:00", "2026-09-14T15:00:00+02:00",
+        ), today=date(2026, 8, 31))
+        self.assertEqual(len(drawn), 14)
+        self.assertEqual(drawn[0], (date(2026, 9, 1), TEXT("calendar.spans_from", time="10:00")))
+        self.assertEqual(drawn[7][1], TEXT("calendar.spans_through"))
+        self.assertEqual(drawn[-1], (date(2026, 9, 14), TEXT("calendar.spans_until", time="15:00")))
+
+    def test_a_running_appointment_that_began_before_today_is_on_the_wall(self) -> None:
+        """The worst of the three, because it is silent.
+
+        The old code put a timed appointment on its start day only, and
+        ``build_days`` drops days before today — so an appointment that started
+        last week and runs all next week produced **no entry at all** while it
+        was running.
+        """
+        drawn = self._run(self._timed(
+            "2026-08-18T10:00:00+02:00", "2026-08-27T15:00:00+02:00",
+        ), now=datetime(2026, 8, 23, 20, 0))
+        self.assertEqual([d for d, _ in drawn],
+                         [TODAY + timedelta(n) for n in range(5)])
+        self.assertEqual(drawn[0][1], TEXT("calendar.spans_through"))
+
+    def test_an_evening_that_runs_past_midnight_stays_one_appointment(self) -> None:
+        drawn = self._run(self._timed(
+            "2026-08-23T23:00:00+02:00", "2026-08-24T01:00:00+02:00", "Konzert",
+        ))
+        self.assertEqual(drawn, [(TODAY, "23:00–01:00")])
+
+    def test_past_the_morning_hour_it_is_two_days(self) -> None:
+        drawn = self._run(self._timed(
+            "2026-08-23T22:00:00+02:00", "2026-08-24T07:00:00+02:00", "Nachtschicht",
+        ))
+        self.assertEqual(drawn, [
+            (TODAY, TEXT("calendar.spans_from", time="22:00")),
+            (TODAY + timedelta(1), TEXT("calendar.spans_until", time="07:00")),
+        ])
+
+    def test_a_day_left_before_the_morning_is_not_a_day_it_was_on(self) -> None:
+        """And the day before it is run through, not finished.
+
+        "bis 00:00" reads as "ends when the day begins"; the appointment is on
+        that day from midnight to midnight.
+        """
+        drawn = self._run(self._timed(
+            "2026-08-23T09:00:00+02:00", "2026-08-25T00:00:00+02:00", "Messe",
+        ))
+        self.assertEqual(drawn, [
+            (TODAY, TEXT("calendar.spans_from", time="09:00")),
+            (TODAY + timedelta(1), TEXT("calendar.spans_through")),
+        ])
+
+    def test_a_day_that_is_only_run_through_sorts_with_the_all_day_entries(self) -> None:
+        """It has no time of its own, so it cannot sort by one."""
+        days = cl.build_days(
+            [_source()],
+            {"calendar.a": [
+                _event(TODAY + timedelta(1), "08:00", "09:00", "früh"),
+                self._timed("2026-08-23T10:00:00+02:00",
+                            "2026-08-26T15:00:00+02:00", "Urlaub"),
+            ]},
+            today=TODAY,
+            text=TEXT,
+        )
+        second = days[1]
+        self.assertEqual([e.title_lines[0] for e in second.entries], ["Urlaub", "früh"])
+
+    def test_an_anniversary_is_a_day_and_never_a_span(self) -> None:
+        """A wedding day drawn across a week is one line, not seven."""
+        drawn = self._run(
+            self._timed("2026-08-23T09:00:00+02:00",
+                        "2026-08-30T09:15:00+02:00", "Hochzeitstag"),
+        )
+        timed = cl.build_days(
+            [_source(kind=cl.KIND_BIRTHDAYS)],
+            {"calendar.a": [self._timed("2026-08-23T09:00:00+02:00",
+                                        "2026-08-30T09:15:00+02:00", "Hochzeitstag")]},
+            today=TODAY,
+            text=TEXT,
+        )
+        self.assertEqual(len(drawn), 8)                      # as an ordinary event
+        self.assertEqual(sum(len(d.entries) for d in timed), 1)
+
+    def test_a_single_day_appointment_is_untouched(self) -> None:
+        self.assertEqual(self._run(_event(TODAY, "09:00", "10:00")),
+                         [(TODAY, "09:00–10:00")])
+
+    def test_the_days_are_the_rule_on_its_own(self) -> None:
+        """``_timed_days`` without the labelling around it."""
+        span = cl._timed_days(datetime(2026, 9, 1, 10, 0), datetime(2026, 9, 3, 15, 0))
+        self.assertEqual(span, [date(2026, 9, n) for n in (1, 2, 3)])
+        # An end before the start is broken data, not a negative span.
+        self.assertEqual(cl._timed_days(datetime(2026, 9, 3, 10, 0),
+                                        datetime(2026, 9, 1, 10, 0)),
+                         [date(2026, 9, 3)])
+        # No end at all is the start day.
+        self.assertEqual(cl._timed_days(datetime(2026, 9, 1, 10, 0), None),
+                         [date(2026, 9, 1)])
+
+    def test_every_span_label_fits_the_time_column(self) -> None:
+        """The column is 185 px with ``overflow: hidden`` — it truncates silently.
+
+        "durchgehend" is the longest of them and clears the budget by 13 px, so
+        a third catalog is the case this guards: a longer word would be cut on
+        the wall with nothing in the log. Measured against the file Chromium
+        draws with, the way ``CHAR_RATIO`` is (P32); skipped where it is absent
+        so CI needs no font package.
+        """
+        candidates = [
+            pathlib.Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+            pathlib.Path("/usr/share/fonts/dejavu/DejaVuSans.ttf"),
+        ]
+        path = next((c for c in candidates if c.exists()), None)
+        if path is None:
+            self.skipTest("DejaVu Sans is not installed here")
+        try:
+            from PIL import ImageFont
+        except ImportError:
+            self.skipTest("Pillow is not installed here")
+
+        font = ImageFont.truetype(str(path), cl.TIME_PX)
+        for language in ("en", "de"):
+            say = wall_text.WallText(language)
+            for text in (say("calendar.spans_from", time="22:00"),
+                         say("calendar.spans_through"),
+                         say("calendar.spans_until", time="15:00"),
+                         say("calendar.all_day")):
+                self.assertLessEqual(
+                    font.getlength(text), cl.TIME_W,
+                    f"{language}: {text!r} is wider than the {cl.TIME_W} px time column",
+                )
+
+
 class TestAnniversaryEntries(unittest.TestCase):
     """Not only birthdays [P41]: weddings, name days, a jubilee — one wording."""
 

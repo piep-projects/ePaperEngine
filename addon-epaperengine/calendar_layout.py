@@ -140,6 +140,21 @@ BAR_W = 12
 
 CUT_H = 46             # the "cut" marker under a block that did not fit
 
+# **Where an evening stops being a second day** [Festlegung 2026-08-31,
+# Wolfgang, nach dem Fund unten]. A timed appointment is drawn on every day it
+# touches — except when it ends on the following day *before this hour*: then
+# 23:00–01:00 stays one appointment on the evening it belongs to, which is how
+# anyone reading the wall sees it, and how this module read every multi-day
+# appointment until today.
+#
+# The same rule quietly handles the exclusive end: an appointment ending at
+# 00:00 does not reach into that day at all.
+#
+# **This number is a convention, not a measurement** — there is nothing to
+# measure. 06:00 is the hour at which "we were out until…" turns into "the next
+# morning".
+OVERNIGHT_UNTIL_H = 6
+
 # The six Spectra primaries, minus white — a white bar on a white page is no
 # bar. Same rule as the guest greeting [P23]: a colour off the palette is
 # reproduced by dithering it out of these, and a 6 px bar of dithered near-blue
@@ -454,14 +469,19 @@ def _entries_for(
         location = ""
 
     # An all-day event covers every day of its span; ``end`` is exclusive, the
-    # way iCalendar writes it. A timed event that runs past midnight stays on
-    # the day it starts — showing "23:00–01:00" again on the next morning would
-    # be a second appointment as far as anyone reading the wall is concerned.
+    # way iCalendar writes it. A **timed** one covers its days too — see
+    # ``_timed_days`` for the one exception and for what this used to do.
     days: list[date] = [_local_date(start_value)]
     if all_day and isinstance(end_value, date):
         span = (_local_date(end_value) - days[0]).days
         days = [days[0] + timedelta(n) for n in range(max(span, 1))]
+    elif not all_day and source.kind != KIND_BIRTHDAYS:
+        # An anniversary is a day, never a span: its 09:00–09:15 is a slot
+        # (kalenderkonzept §6.1), and a household that draws a wedding day
+        # across a week wants that on one line, not on seven.
+        days = _timed_days(start_value, end_value)
 
+    spanned = len(days) > 1
     out: list[tuple[date, Entry]] = []
     for day in days:
         if not _visible(day, today, now, all_day, source, end_value, show_past_today):
@@ -469,6 +489,32 @@ def _entries_for(
         if all_day:
             when = say("calendar.all_day")
             order = (0, "", _fold(summary))
+        elif spanned:
+            # **Every day says the truth about itself** [Festlegung 2026-08-31,
+            # Wolfgang]. Repeating "10:00–15:00" on each of fourteen days would
+            # put the start of the first day next to the end of the last and
+            # read as a five-hour appointment — which is exactly what the wall
+            # showed before, on the first day only.
+            #
+            # A day that the appointment merely runs through has no time of its
+            # own, so it sorts with the all-day entries at the top of the block;
+            # only the first day has a clock to sort by. The last day sorts up
+            # there too — it began at midnight, before anything else that day.
+            if day == days[0]:
+                when = say("calendar.spans_from", time=_clock(start_value, say))
+                order = (1, _clock(start_value, say), _fold(summary))
+            elif day == _local_date(end_value):
+                # The *last drawn* day is not always the day it ends on:
+                # ``_timed_days`` gives back the night before when the
+                # appointment leaves the next one before the morning, and then
+                # this day is run through, not finished. Asking the end value
+                # rather than the position keeps "bis 00:00" — which reads as
+                # "ends when the day begins" — off the wall.
+                when = say("calendar.spans_until", time=_clock(end_value, say))
+                order = (0, "", _fold(summary))
+            else:
+                when = say("calendar.spans_through")
+                order = (0, "", _fold(summary))
         elif source.kind == KIND_BIRTHDAYS or not isinstance(end_value, datetime):
             when = _clock(start_value, say)
             order = (1, when, _fold(summary))
@@ -489,6 +535,33 @@ def _entries_for(
             )
         )
     return out
+
+
+def _timed_days(start: datetime | date, end: datetime | date | None) -> list[date]:
+    """The days a **timed** appointment is drawn on.
+
+    Until 2026-08-31 this was simply the start day, on the grounds that
+    "23:00–01:00 again on the next morning would be a second appointment as far
+    as anyone reading the wall is concerned". That is true of an evening and
+    wrong of everything longer: a 1 Sep 10:00 – 14 Sep 15:00 appointment stood
+    on **one** day, labelled "10:00–15:00" — the start of the first day beside
+    the end of the last. Worse, one that had *begun* before today produced no
+    entry at all and was gone from the wall while it was still running, because
+    its only day was already in the past.
+
+    So the span is drawn, and the evening keeps its exception: a day the
+    appointment leaves before :data:`OVERNIGHT_UNTIL_H` is not a day it was on.
+    That also covers the exclusive end — 00:00 reaches into nothing.
+    """
+    first = _local_date(start)
+    if not isinstance(end, datetime) or not isinstance(start, datetime):
+        return [first]
+    last = end.date()
+    if last > first and end.hour < OVERNIGHT_UNTIL_H:
+        last -= timedelta(days=1)
+    if last <= first:
+        return [first]
+    return [first + timedelta(n) for n in range((last - first).days + 1)]
 
 
 def _visible(
