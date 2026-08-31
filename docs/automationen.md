@@ -63,6 +63,43 @@ that was pointing at `guests`.
 
 Pull the Paprika collection now, outside the normal interval.
 
+### `epaperengine.sync_anniversaries`
+
+```yaml
+action: epaperengine.sync_anniversaries
+data:
+  dry_run: false
+```
+
+Writes the year count into the anniversary calendar itself, so a phone shows
+what the wall shows: `Erika Müller (1946)` becomes
+`Erika Müller (1946) — 80 years`.
+
+Only sources of kind **anniversaries** are touched, and only **CalDAV**
+calendars can be written to — a Local Calendar cannot be changed from outside
+and is skipped by name. The wall still computes the number itself; the written
+suffix is a convenience for the phone, not the source of truth. If this service
+fails, or is never set up, the wall is still right.
+
+**`dry_run` defaults to `true`** — the run then reports what it would change and
+changes nothing. Switch it off to actually write. `limit: 1` writes at most one
+entry, which is a good first attempt.
+
+A daily run is harmless: entries whose title is already correct cost no request
+at all.
+
+```yaml
+automation:
+  - alias: Keep anniversaries current
+    triggers:
+      - trigger: time
+        at: "04:30:00"
+    actions:
+      - action: epaperengine.sync_anniversaries
+        data:
+          dry_run: false
+```
+
 ## Examples
 
 **A greeting when the doorbell rings during a party**

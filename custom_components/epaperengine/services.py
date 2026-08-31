@@ -1,7 +1,7 @@
 """Services for ePaperEngine (FSD §3.1).
 
-Six. Two of them are the whole conversation between the integration and the
-add-on, two are for automations — the front-ends use the WebSocket API instead
+Seven. Two of them are the whole conversation between the integration and the
+add-on, the rest are for automations — the front-ends use the WebSocket API instead
 (``websocket_api.py``), because the browser is already connected there.
 
 ``get_render_data``
@@ -36,6 +36,13 @@ add-on, two are for automations — the front-ends use the WebSocket API instead
     pull the collection from Paprika now (FSD §9.2). ``SupportsResponse
     .OPTIONAL`` — an automation usually just wants the sync, but "how many came
     back" is worth having without a second call to a sensor.
+
+``sync_anniversaries``
+    write the year count into the anniversary calendar itself [P42], so a phone
+    shows what the wall shows. The one service here that changes data **outside
+    this house**, which is why ``dry_run`` defaults to true and why the response
+    lists every entry it looked at, changed or not. Meant for a daily automation:
+    a run that finds nothing to change does no HTTP at all.
 """
 
 from __future__ import annotations
@@ -56,6 +63,7 @@ from .const import (
     SERVICE_REPORT_RUN,
     SERVICE_SET_GUESTS,
     SERVICE_SET_VIEW,
+    SERVICE_SYNC_ANNIVERSARIES,
     SERVICE_SYNC_RECIPES,
     VIEWS,
 )
@@ -74,6 +82,17 @@ SET_VIEW_SCHEMA = vol.Schema({vol.Optional("view"): vol.In(VIEWS)})
 # anybody has, and a toggle that flips on an empty call is the kind of automation
 # that turns guest mode on at three in the morning.
 SET_GUESTS_SCHEMA = vol.Schema({vol.Required("active"): cv.boolean})
+
+# ``dry_run`` defaults to **true**, and that is a safety decision, not a style
+# one: this is the only service in the project that changes data on somebody
+# else's server. An automation that forgets the flag reports what it would do
+# and touches nothing. ``limit`` exists so the first live run can be one entry.
+SYNC_ANNIVERSARIES_SCHEMA = vol.Schema(
+    {
+        vol.Optional("dry_run", default=True): cv.boolean,
+        vol.Optional("limit"): vol.Any(None, vol.All(vol.Coerce(int), vol.Range(min=0))),
+    }
+)
 
 REPORT_RUN_SCHEMA = vol.Schema(
     {
@@ -130,6 +149,12 @@ def async_register_services(hass: HomeAssistant) -> None:
     async def _sync_recipes(call: ServiceCall) -> ServiceResponse:
         return await _coordinator(hass).async_sync_recipes()
 
+    async def _sync_anniversaries(call: ServiceCall) -> ServiceResponse:
+        return await _coordinator(hass).async_write_back_anniversaries(
+            dry_run=bool(call.data.get("dry_run", True)),
+            limit=call.data.get("limit"),
+        )
+
     if not hass.services.has_service(DOMAIN, SERVICE_GET_RENDER_DATA):
         hass.services.async_register(
             DOMAIN,
@@ -160,6 +185,14 @@ def async_register_services(hass: HomeAssistant) -> None:
             schema=vol.Schema({}),
             supports_response=SupportsResponse.OPTIONAL,
         )
+    if not hass.services.has_service(DOMAIN, SERVICE_SYNC_ANNIVERSARIES):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_SYNC_ANNIVERSARIES,
+            _sync_anniversaries,
+            schema=SYNC_ANNIVERSARIES_SCHEMA,
+            supports_response=SupportsResponse.OPTIONAL,
+        )
 
 
 def async_unregister_services(hass: HomeAssistant) -> None:
@@ -171,5 +204,6 @@ def async_unregister_services(hass: HomeAssistant) -> None:
         SERVICE_SET_VIEW,
         SERVICE_SET_GUESTS,
         SERVICE_SYNC_RECIPES,
+        SERVICE_SYNC_ANNIVERSARIES,
     ):
         hass.services.async_remove(DOMAIN, service)

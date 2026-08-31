@@ -119,6 +119,20 @@
           "description": "On when visitors are in the house, off when they have left."
         }
       }
+    },
+    "sync_anniversaries": {
+      "name": "Sync anniversaries",
+      "description": "Writes the year count into the anniversary calendar itself, so a phone shows what the wall shows. Only sources marked as anniversaries are touched, and only CalDAV ones can be written to. Entries whose title is already correct cost no request at all, so a daily automation is harmless.",
+      "fields": {
+        "dry_run": {
+          "name": "Dry run",
+          "description": "On by default. Reports what would change without altering anything. Switch it off to actually write."
+        },
+        "limit": {
+          "name": "At most",
+          "description": "How many entries may be written in this run. Leave empty for all — set it to 1 to try a single entry first."
+        }
+      }
     }
   }
 }

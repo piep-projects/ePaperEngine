@@ -73,3 +73,17 @@ set_guests:
       example: true
       selector:
         boolean:
+
+sync_anniversaries:
+  fields:
+    dry_run:
+      default: true
+      selector:
+        boolean:
+    limit:
+      example: 1
+      selector:
+        number:
+          min: 0
+          max: 1000
+          mode: box

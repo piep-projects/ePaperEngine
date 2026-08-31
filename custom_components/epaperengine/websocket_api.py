@@ -30,6 +30,7 @@ from homeassistant.helpers import config_validation as cv
 from .const import (
     DOMAIN,
     VIEWS,
+    WS_CALENDAR_ANNIVERSARIES,
     WS_CALENDAR_PROBE,
     WS_CALENDAR_SYNC,
     WS_CONFIG_GET,
@@ -40,6 +41,7 @@ from .const import (
     WS_PHOTOS_LIST,
     WS_RECIPES_GET,
     WS_RECIPES_SEARCH,
+    WS_RECIPES_SELECT,
     WS_RECIPES_SYNC,
     WS_RENDER,
     WS_SET_VIEW,
@@ -69,10 +71,12 @@ def async_register(hass: HomeAssistant) -> None:
         ws_recipes_search,
         ws_recipes_get,
         ws_recipes_sync,
+        ws_recipes_select,
         ws_guests_set,
         ws_guests_backgrounds,
         ws_calendar_probe,
         ws_calendar_sync,
+        ws_calendar_anniversaries,
     ):
         websocket_api.async_register_command(hass, handler)
 
@@ -294,22 +298,73 @@ def ws_recipes_get(hass, connection, msg) -> None:
     connection.send_result(msg["id"], {"recipes": coordinator.recipes.get(uids)})
 
 
-@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): WS_RECIPES_SYNC})
 @websocket_api.async_response
 async def ws_recipes_sync(hass, connection, msg) -> None:
     """Sync against Paprika right now (FSD §9.2).
 
-    Administrator-only, unlike the search: this one leaves the house and hits an
-    endpoint that is documented to ban by IP. It answers the *status* even when
-    the sync failed — "no credentials", "login refused" and "217 recipes" are
-    all answers to the same question, and the panel shows each of them plainly.
+    **Open to the household** [Festlegung 2026-08-31, Wolfgang]. It was
+    administrator-only, and the reason given was that it leaves the house and
+    hits an endpoint documented to ban by IP — but "are the new recipes here
+    yet?" is a question somebody asks while cooking (C11), and the answer to a
+    rate limit is a rate limit. ``RECIPE_SYNC_MIN_GAP_S`` is what replaced the
+    lock; a press inside the gap comes back ``skipped``.
+
+    It changes no configuration: the account is typed under Settings and stays
+    administrator business. It answers the *status* even when the sync failed —
+    "no credentials", "login refused" and "217 recipes" are all answers to the
+    same question, and the panel shows each of them plainly.
     """
     coordinator = _coordinator(hass)
     if coordinator is None:
         connection.send_error(msg["id"], "not_loaded", "ePaperEngine is not set up")
         return
     connection.send_result(msg["id"], await coordinator.async_sync_recipes())
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): WS_RECIPES_SELECT,
+        vol.Required("selection"): [cv.string],
+        vol.Optional("servings"): {cv.string: vol.Any(None, vol.Coerce(float))},
+    }
+)
+@websocket_api.async_response
+async def ws_recipes_select(hass, connection, msg) -> None:
+    """Put tonight's recipes on the wall — household business, not admin's.
+
+    The narrow command the earlier note asked for and did not invent. Picking
+    is stored *as configuration*, and that alone made it administrator-only;
+    the decision itself is the same kind as ``set_view`` and ``guests/set``.
+
+    Narrow is the whole safety argument: the schema admits a list of uids and a
+    map of portion counts, and ``async_set_recipe_selection`` builds the patch
+    from those two fields. The Paprika account lives in the same store section
+    and cannot be reached through here — which a relaxed ``config/set`` would
+    not have been able to promise.
+
+    The answer has the shape of ``config/set`` because the panel treats it the
+    same way, and the configuration is redacted for whoever is asking: this
+    command is open, reading the account is not.
+    """
+    coordinator = _coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_loaded", "ePaperEngine is not set up")
+        return
+    try:
+        config = await coordinator.async_set_recipe_selection(
+            list(msg["selection"]), msg.get("servings")
+        )
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_config", str(err))
+        return
+    connection.send_result(
+        msg["id"],
+        {
+            "config": _visible_config(config, connection.user.is_admin),
+            "status": coordinator.status_document(),
+        },
+    )
 
 
 # --- guests (FSD §8.4) --------------------------------------------------------
@@ -394,3 +449,36 @@ async def ws_calendar_sync(hass, connection, msg) -> None:
         connection.send_error(msg["id"], "not_loaded", "ePaperEngine is not set up")
         return
     connection.send_result(msg["id"], await coordinator.async_calendar_sync())
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): WS_CALENDAR_ANNIVERSARIES,
+        vol.Optional("dry_run", default=True): bool,
+        vol.Optional("limit"): vol.Any(None, vol.All(int, vol.Range(min=0))),
+    }
+)
+@websocket_api.async_response
+async def ws_calendar_anniversaries(hass, connection, msg) -> None:
+    """Write the year count back into the anniversary calendars [P42].
+
+    Admin-only, and for a stronger reason than the rest of this page: every
+    other command here reads, this one **changes entries in somebody's real
+    calendar on somebody else's server**. It is the only write in the project
+    that leaves the house.
+
+    ``dry_run`` defaults to ``True`` on the wire as well as in the transport, so
+    a caller that forgets the flag gets the harmless answer. ``limit`` caps how
+    many entries are saved — the first live run should be one.
+    """
+    coordinator = _coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_loaded", "ePaperEngine is not set up")
+        return
+    connection.send_result(
+        msg["id"],
+        await coordinator.async_write_back_anniversaries(
+            dry_run=bool(msg["dry_run"]), limit=msg.get("limit")
+        ),
+    )

@@ -63,6 +63,44 @@ Anheftung auf `guests` gleich mit weg.
 
 Holt die Paprika-Sammlung sofort, außer der Reihe.
 
+### `epaperengine.sync_anniversaries`
+
+```yaml
+action: epaperengine.sync_anniversaries
+data:
+  dry_run: false
+```
+
+Schreibt die Jahreszahl in den Jahrestagskalender selbst, damit am Handy
+dasselbe steht wie an der Wand: aus `Erika Müller (1946)` wird
+`Erika Müller (1946) — 80 Jahre`.
+
+Angefasst werden nur Quellen der Art **Jahrestage**, und beschreibbar sind nur
+**CalDAV**-Kalender — ein Local Calendar lässt sich von außen nicht ändern und
+wird namentlich übersprungen. Die Wand rechnet weiterhin selbst; der
+zurückgeschriebene Zusatz ist Bequemlichkeit fürs Handy, nicht die Quelle der
+Wahrheit. Fällt der Dienst aus oder wird er nie eingerichtet, stimmt die Wand
+trotzdem.
+
+**`dry_run` ist standardmäßig `true`** — der Lauf meldet dann, was er ändern
+würde, und ändert nichts. Zum wirklichen Schreiben ausschalten. `limit: 1`
+schreibt höchstens einen Eintrag, gut für den ersten Versuch.
+
+Ein täglicher Lauf ist harmlos: Einträge, deren Titel schon stimmt, kosten keine
+einzige Anfrage.
+
+```yaml
+automation:
+  - alias: Jahrestage nachtragen
+    triggers:
+      - trigger: time
+        at: "04:30:00"
+    actions:
+      - action: epaperengine.sync_anniversaries
+        data:
+          dry_run: false
+```
+
 ## Beispiele
 
 **Ein Gruß, wenn während einer Feier geklingelt wird**

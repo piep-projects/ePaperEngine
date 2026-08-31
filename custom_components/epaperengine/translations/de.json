@@ -119,6 +119,20 @@
           "description": "An, solange Besuch im Haus ist; aus, wenn er wieder weg ist."
         }
       }
+    },
+    "sync_anniversaries": {
+      "name": "Jahrestage zurückschreiben",
+      "description": "Schreibt die Jahreszahl in den Jahrestagskalender selbst, damit am Handy dasselbe steht wie an der Wand. Angefasst werden nur Quellen der Art „Jahrestage“, und beschreibbar sind nur CalDAV-Kalender. Einträge, deren Titel schon stimmt, kosten keine einzige Anfrage — ein täglicher Lauf ist deshalb harmlos.",
+      "fields": {
+        "dry_run": {
+          "name": "Nur ansehen",
+          "description": "Standardmäßig an. Meldet, was sich ändern würde, ohne etwas zu ändern. Zum wirklichen Schreiben ausschalten."
+        },
+        "limit": {
+          "name": "Höchstens",
+          "description": "Wie viele Einträge dieser Lauf schreiben darf. Leer lassen für alle — auf 1 setzen, um es erst an einem einzigen zu versuchen."
+        }
+      }
     }
   }
 }

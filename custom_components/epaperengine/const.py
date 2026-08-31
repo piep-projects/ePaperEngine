@@ -89,6 +89,13 @@ WS_DISPLAY_TEST: Final = f"{DOMAIN}/display/test"
 WS_RECIPES_SEARCH: Final = f"{DOMAIN}/recipes/search"
 WS_RECIPES_GET: Final = f"{DOMAIN}/recipes/get"
 WS_RECIPES_SYNC: Final = f"{DOMAIN}/recipes/sync"
+# What is cooked tonight — its own narrow command rather than a flag on
+# ``config/set`` [Festlegung 2026-08-31, Wolfgang]. The household picks the
+# recipes the same way it switches the view; writing *configuration* stays
+# administrator business. The difference is that this command builds its own
+# patch from two validated fields, so the Paprika account sitting in the same
+# store section cannot be reached through it.
+WS_RECIPES_SELECT: Final = f"{DOMAIN}/recipes/select"
 WS_GUESTS_SET: Final = f"{DOMAIN}/guests/set"
 WS_GUESTS_BACKGROUNDS: Final = f"{DOMAIN}/guests/backgrounds"
 # What the calendar page needs beyond the config document: how many entries each
@@ -100,6 +107,11 @@ WS_CALENDAR_PROBE: Final = f"{DOMAIN}/calendar/probe"
 # ``homeassistant.update_entity``, count what they answer with, and ask for a
 # render run so the wall catches up instead of waiting for the timed net.
 WS_CALENDAR_SYNC: Final = f"{DOMAIN}/calendar/sync"
+# Writing the year count back into the anniversary calendar [P42]. Its own
+# command rather than a flag on ``calendar/sync``: that one only reads, this one
+# changes somebody's real calendar on somebody else's server, and the two must
+# never be one button by accident. Defaults to a dry run.
+WS_CALENDAR_ANNIVERSARIES: Final = f"{DOMAIN}/calendar/anniversaries"
 
 # --- Services (FSD §3.1) ------------------------------------------------------
 SERVICE_GET_RENDER_DATA: Final = "get_render_data"
@@ -108,6 +120,7 @@ SERVICE_RENDER: Final = "render"
 SERVICE_SET_VIEW: Final = "set_view"
 SERVICE_SYNC_RECIPES: Final = "sync_recipes"
 SERVICE_SET_GUESTS: Final = "set_guests"
+SERVICE_SYNC_ANNIVERSARIES: Final = "sync_anniversaries"
 
 # --- Priority resolution (FSD §5) ---------------------------------------------
 # Candidates of the ordered priority list. ``manual``/``schedule``/``fallback``
@@ -161,6 +174,15 @@ DISPLAY_PROBE_INTERVAL_MIN: Final = 15
 CALENDAR_REFRESH_MIN_GAP_S: Final = 30
 
 # --- Recipes (FSD §9) ---------------------------------------------------------
+# How close together two Paprika syncs may sit. This is the replacement for a
+# lock, not an addition to one: "Sync now" was administrator-only *because* the
+# endpoint is documented to ban by IP (FSD §9.2), and opening it to the
+# household [2026-08-31, Wolfgang] without putting something in its place would
+# turn a button anybody can hold down into an IP ban. Short enough that "I just
+# added a recipe" still works on the second press, far below the interval below,
+# so a scheduled sync is never the one that gets skipped.
+RECIPE_SYNC_MIN_GAP_S: Final = 60
+
 # How often the collection is pulled from Paprika when nobody presses the
 # button. Hours, because the constraint is a rate limit and not freshness: FSD
 # §9.2 forbids a fetch per render run outright, and a household adds a recipe

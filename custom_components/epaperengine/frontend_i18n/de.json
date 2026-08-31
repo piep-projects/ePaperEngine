@@ -176,6 +176,7 @@
   "panel.recipes.sync.count": "{count} Rezepte im Cache",
   "panel.recipes.sync.pending": "{count} stehen noch aus — sie kommen beim nächsten Abgleich.",
   "panel.recipes.sync.done": "{count} geholt, {removed} entfernt",
+  "panel.recipes.sync.skipped": "Gerade erst abgeglichen — die Sammlung wurde vor einem Moment geholt.",
   "panel.recipes.error.no_credentials": "Noch kein Paprika-Konto hinterlegt.",
   "panel.recipes.error.sync": "Abgleich fehlgeschlagen: {msg}",
   "panel.recipes.selection": "An der Wand",

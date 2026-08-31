@@ -105,9 +105,28 @@ class TestSuffixPattern(unittest.TestCase):
 class TestPlan(unittest.TestCase):
     def test_it_reports_what_it_would_not_touch(self) -> None:
         changes = an.plan(
-            [("a", "Erika Müller (1946)"), ("b", "Namenstag Christian")], TODAY, DE
+            [
+                ("a", "Erika Müller (1946)", TODAY),
+                ("b", "Namenstag Christian", TODAY),
+            ],
+            DE,
         )
         self.assertEqual([c.changed for c in changes], [True, False])
+
+    def test_each_entry_counts_from_its_own_date(self) -> None:
+        """The reason ``plan`` takes a date per entry rather than one for all:
+        run on 20 December, an anniversary falling on 5 January belongs to the
+        next year, and the calendar app on the phone shows that title today."""
+        run_day, january = date(2026, 12, 20), date(2027, 1, 5)
+        changes = an.plan(
+            [
+                ("dec", "Erika Müller (1946)", run_day),
+                ("jan", "Hans Meier (1946)", january),
+            ],
+            DE,
+        )
+        self.assertEqual(changes[0].new, "Erika Müller (1946) — 80 Jahre")
+        self.assertEqual(changes[1].new, "Hans Meier (1946) — 81 Jahre")
 
 
 class TestAgainstTheRealCatalogue(unittest.TestCase):

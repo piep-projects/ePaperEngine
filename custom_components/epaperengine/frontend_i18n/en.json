@@ -176,6 +176,7 @@
   "panel.recipes.sync.count": "{count} recipes in the cache",
   "panel.recipes.sync.pending": "{count} still to fetch — they follow with the next sync.",
   "panel.recipes.sync.done": "{count} fetched, {removed} removed",
+  "panel.recipes.sync.skipped": "Just synced — the collection was fetched a moment ago.",
   "panel.recipes.error.no_credentials": "No Paprika account stored yet.",
   "panel.recipes.error.sync": "Sync failed: {msg}",
   "panel.recipes.selection": "On the wall",

@@ -106,10 +106,20 @@ def wanted_title(title: str, on: date, catalogue_text: str) -> str:
     return f"{base} {catalogue_text.format(years=count)}".strip()
 
 
-def plan(entries: list[tuple[str, str]], on: date, catalogue_text: str) -> list[Change]:
-    """Every entry, with its target title. Unchanged ones are kept in the list —
-    a dry run has to show what it decided *not* to touch just as much."""
+def plan(entries: list[tuple[str, str, date]], catalogue_text: str) -> list[Change]:
+    """Every entry, with its target title.
+
+    Each entry brings **its own** reference date — the occurrence its count
+    describes — because no single "today" is right for a whole calendar. A
+    series title carries one number, and on 20 December the entry for 5 January
+    has to read the January count. That is the same off-by-one the wall works
+    around by recomputing; the writer avoids it by asking each entry when it
+    happens next.
+
+    Unchanged ones are kept in the list: a dry run has to show what it decided
+    *not* to touch just as much.
+    """
     return [
         Change(uid=uid, old=title, new=wanted_title(title, on, catalogue_text))
-        for uid, title in entries
+        for uid, title, on in entries
     ]

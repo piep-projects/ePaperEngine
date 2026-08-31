@@ -36,7 +36,7 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.util import dt as dt_util
 
-from . import mediapath
+from . import caldav_writer, mediapath
 from .addon import AddonClient, AddonError
 from .const import (
     CALENDAR_KIND_BIRTHDAYS,
@@ -53,6 +53,7 @@ from .const import (
     DEFAULT_GUEST_NAME_PX,
     DEFAULT_RECIPE_SYNC_INTERVAL_H,
     DISPLAY_PROBE_INTERVAL_MIN,
+    RECIPE_SYNC_MIN_GAP_S,
     RENDER_DEBOUNCE_S,
     RENDER_INTERVAL_MIN,
     RESULT_IDLE,
@@ -155,6 +156,7 @@ class EPaperEngineCoordinator:
         self._manual_timer: CALLBACK_TYPE | None = None
         self._pending: tuple[str, bool] = ("startup", False)
         self._calendar_refreshed_at: datetime | None = None
+        self._recipe_synced_at: datetime | None = None
         self._debouncer = Debouncer(
             hass,
             _LOGGER,
@@ -385,15 +387,59 @@ class EPaperEngineCoordinator:
             return True
         return dt_util.utcnow() - parsed >= timedelta(hours=hours)
 
+    async def async_set_recipe_selection(
+        self, selection: list[str], servings: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """What is cooked tonight — the household's decision, not the admin's.
+
+        [Festlegung 2026-08-31, Wolfgang.] Picking a recipe was administrator
+        business only because it happened to be stored as configuration, and the
+        panel wrote it through ``config/set``. It is the same kind of decision
+        as ``set_view``: whoever may change what hangs on the shared wall may
+        choose what hangs there tonight.
+
+        **The patch is built here, never taken from the caller.** Exactly two
+        keys move. The Paprika account and the sync interval live in the same
+        store section, and a command that forwarded a caller's dict would be a
+        way for anybody to write them — which is the reason the narrow command
+        exists instead of a relaxed ``config/set``.
+
+        Everything else — the three-column cap, dropping a portion count for a
+        recipe nobody picked, the render run — already happens in
+        ``async_set_config``, and doing it a second time here is how the two
+        would drift apart.
+        """
+        patch: dict[str, Any] = {"selection": [str(uid) for uid in selection if uid]}
+        if servings is not None:
+            patch["servings"] = dict(servings)
+        return await self.async_set_config({"recipes": patch})
+
     async def async_sync_recipes(self) -> dict[str, Any]:
-        """Pull the collection from Paprika and tell everybody what came of it."""
+        """Pull the collection from Paprika and tell everybody what came of it.
+
+        Rate-limited rather than permission-limited since 2026-08-31: the button
+        is open to the household, and the endpoint is documented to ban by IP
+        (FSD §9.2). A press inside the gap answers the cache status with
+        ``skipped``, so the panel can say "just synced" instead of pretending to
+        have fetched.
+        """
+        now = dt_util.utcnow()
+        if (
+            self._recipe_synced_at is not None
+            and (now - self._recipe_synced_at).total_seconds() < RECIPE_SYNC_MIN_GAP_S
+        ):
+            _LOGGER.debug("Recipes were just synced, not asking Paprika again")
+            return {**self.recipes.status(), "skipped": True}
+        # Stamped before the call, not after: a sync that hangs must not become
+        # a way to hold the door open for a second one.
+        self._recipe_synced_at = now
         status = await self.recipes.async_sync()
         # The wall may be showing one of these very recipes, so a sync that
         # changed something is a reason to render — but only then.
         if status.get("fetched") or status.get("removed"):
             self.async_request_render("recipes")
         self._async_notify()
-        return status
+        return {**status, "skipped": False}
 
     def next_change_at(self) -> datetime | None:
         """When the wall is next due to change on its own.
@@ -811,6 +857,65 @@ class EPaperEngineCoordinator:
             "failed": failed,
             "at": dt_util.now().isoformat(),
             "on_wall": self.target.view == VIEW_CALENDAR,
+        }
+
+    async def async_write_back_anniversaries(
+        self, *, dry_run: bool = True, limit: int | None = None
+    ) -> dict[str, Any]:
+        """Write the year count into the anniversary calendars themselves [P42].
+
+        Only sources of kind ``birthdays`` — an appointment has no year in
+        brackets and nothing to compute, and running over a diary would be a way
+        to damage one for no gain.
+
+        Every source is tried on its own and its failure named, the same rule as
+        ``async_calendar_events``: one calendar served by Local Calendar (which
+        cannot be written back to at all) must not hide the result of the one
+        that can.
+
+        The default is a **dry run**. This is the only place in the project that
+        changes data on somebody else's server, and the answer shows what it
+        would do before it does it. ``limit`` caps how many entries are actually
+        saved, so the first live run can be one entry.
+        """
+        section = self.config.get("calendar") or {}
+        sources = [
+            source
+            for source in (section.get("sources") or [])
+            if isinstance(source, dict)
+            and source.get("entity_id")
+            and source.get("kind") == CALENDAR_KIND_BIRTHDAYS
+        ]
+
+        results: list[dict[str, Any]] = []
+        failed: dict[str, str] = {}
+        budget = limit
+        for source in sources:
+            entity_id = str(source["entity_id"])
+            try:
+                answer = await caldav_writer.async_write_back(
+                    self.hass, entity_id, dry_run=dry_run, limit=budget
+                )
+            except caldav_writer.WriteBackError as err:
+                failed[entity_id] = str(err)
+                continue
+            except Exception as err:  # noqa: BLE001 - one bad source must not hide the rest
+                _LOGGER.warning("Writing back to %s failed: %s", entity_id, err)
+                failed[entity_id] = f"{type(err).__name__}: {err}"
+                continue
+            results.append(answer)
+            if budget is not None:
+                # The cap is over the whole run, not per calendar: "try one
+                # entry" must mean one, even with two anniversary calendars.
+                budget = max(0, budget - answer["written"])
+
+        return {
+            "dry_run": dry_run,
+            "sources": results,
+            "failed": failed,
+            "changed": sum(r["changed"] for r in results),
+            "written": sum(r["written"] for r in results),
+            "at": dt_util.now().isoformat(),
         }
 
     async def async_render_document(self) -> dict[str, Any]:

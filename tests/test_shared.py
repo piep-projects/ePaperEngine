@@ -1,4 +1,4 @@
-"""The layout module exists twice, and it must be the same file (publish.py).
+"""Some files exist twice, and every copy must be the same file (publish.py).
 
 ``recipe_layout.py`` decides how a recipe is fitted into its column. The add-on
 **renders** with it; the integration **forecasts** with it, so the panel can say
@@ -14,6 +14,11 @@ The alternative was tried and did not survive a day. A coarse re-implementation
 in the integration told the user that a recipe would be shortened while the wall
 was rendering it in full, because it did not know that the ingredient list
 splits into sub-columns.
+
+``wall_text.py`` and the two wall catalogues travel for the same reason
+[2026-08-31]: the write-back has to append **exactly** the suffix the add-on
+strips off again. A second copy of that string, in another file, would drift —
+and the failure would be silent and cumulative, one extra suffix per day.
 """
 
 from __future__ import annotations
@@ -32,6 +37,18 @@ SHARED = (
     (
         REPO_ROOT / "addon-epaperengine" / "anniversaries.py",
         REPO_ROOT / "custom_components" / "epaperengine" / "anniversaries.py",
+    ),
+    (
+        REPO_ROOT / "addon-epaperengine" / "wall_text.py",
+        REPO_ROOT / "custom_components" / "epaperengine" / "wall_text.py",
+    ),
+    (
+        REPO_ROOT / "addon-epaperengine" / "templates" / "i18n" / "en.json",
+        REPO_ROOT / "custom_components" / "epaperengine" / "templates" / "i18n" / "en.json",
+    ),
+    (
+        REPO_ROOT / "addon-epaperengine" / "templates" / "i18n" / "de.json",
+        REPO_ROOT / "custom_components" / "epaperengine" / "templates" / "i18n" / "de.json",
     ),
 )
 
@@ -52,8 +69,13 @@ class TestSharedModules(unittest.TestCase):
     def test_the_shared_module_needs_nothing_a_hass_install_lacks(self) -> None:
         """It travels into Home Assistant, where ``requirements`` is empty on
         purpose (manifest.json). Standard library only."""
-        allowed = {"math", "re", "datetime", "dataclasses", "typing", "__future__"}
+        allowed = {
+            "math", "re", "datetime", "dataclasses", "typing", "__future__",
+            "json", "logging", "pathlib",
+        }
         for origin, _copy in SHARED:
+            if origin.suffix != ".py":
+                continue  # the wall catalogues travel along; they import nothing
             tree = ast.parse(origin.read_text(encoding="utf-8"))
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):

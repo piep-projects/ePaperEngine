@@ -443,8 +443,21 @@ class EPaperEnginePanel extends HTMLElement {
   async _save(sections) {
     const patch = {};
     for (const section of sections) patch[section] = this._draft[section];
+    await this._commit({ type: "epaperengine/config/set", config: patch });
+  }
+
+  /**
+   * Send one write command and adopt whatever it answered.
+   *
+   * Two commands share this: the administrator's config/set and the
+   * household's recipes/select. They answer the same shape deliberately, so
+   * what the page looks like after saving does not depend on who saved. The
+   * configuration that comes back is redacted for whoever asked, which is why
+   * the draft is rebuilt from the answer rather than from what was sent.
+   */
+  async _commit(message) {
     try {
-      const answer = await this._call({ type: "epaperengine/config/set", config: patch });
+      const answer = await this._call(message);
       this._config = answer.config;
       this._status = answer.status;
       this._draft = JSON.parse(JSON.stringify(answer.config));
@@ -684,10 +697,15 @@ class EPaperEnginePanel extends HTMLElement {
       this._syncing = false;
       this._error = status.error ? t("panel.recipes.error.sync", { msg: status.error }) : null;
       if (!status.error) {
-        this._notice = t("panel.recipes.sync.done", {
-          count: fmtNum(status.fetched ?? 0),
-          removed: fmtNum(status.removed ?? 0),
-        });
+        // A press inside the rate gap fetched nothing, and saying "0 fetched,
+        // 0 removed" would read like an empty collection rather than a button
+        // pressed twice. The gap is what replaced the administrator lock here.
+        this._notice = status.skipped
+          ? t("panel.recipes.sync.skipped")
+          : t("panel.recipes.sync.done", {
+              count: fmtNum(status.fetched ?? 0),
+              removed: fmtNum(status.removed ?? 0),
+            });
         setTimeout(() => {
           this._notice = null;
           this._render();
@@ -731,9 +749,19 @@ class EPaperEnginePanel extends HTMLElement {
    * rather than configuration, it is two clicks away from being undone, and
    * FSD §9.3 says setting it triggers a render run. A draft nobody committed
    * would mean picking a recipe and staring at an unchanged wall.
+   *
+   * Its own command since 2026-08-31, not config/set: the whole household may
+   * choose what is cooked, and config/set is administrator-only because the
+   * display PIN and the Paprika account go through it. Only the two fields
+   * below are sent, and the server builds the patch from them.
    */
   async _saveSelection() {
-    await this._save(["recipes"]);
+    const recipes = this._draft.recipes || {};
+    await this._commit({
+      type: "epaperengine/recipes/select",
+      selection: [...(recipes.selection || [])],
+      servings: { ...(recipes.servings || {}) },
+    });
     await this._loadRecipes();
   }
 
@@ -1397,7 +1425,11 @@ class EPaperEnginePanel extends HTMLElement {
   // C11 asked for it in as many words.
   _pageRecipes() {
     const cache = ((this._status || {}).recipes) || {};
-    const lock = this.isAdmin ? "" : "disabled";
+    // Nothing on this page is locked [2026-08-31, Wolfgang]. Picking the
+    // recipes and pressing "sync now" are both household business: the first is
+    // a decision about tonight, the second answers "are the new recipes here
+    // yet?" — the question C11 built this page around. What stays
+    // administrator-only is the Paprika account, and that lives under Settings.
 
     const synced = fmtDateTime(cache.synced_at);
     const cacheLine = cache.count
@@ -1426,7 +1458,7 @@ class EPaperEnginePanel extends HTMLElement {
           <div>${esc(cacheLine)}</div>
         </div>
         <div class="actions">
-          <button class="plain" id="sync-recipes" ${lock || (this._syncing ? "disabled" : "")}>${esc(
+          <button class="plain" id="sync-recipes" ${this._syncing ? "disabled" : ""}>${esc(
             this._syncing ? t("panel.recipes.sync.running") : t("panel.recipes.sync"),
           )}</button>
         </div>
@@ -1446,13 +1478,10 @@ class EPaperEnginePanel extends HTMLElement {
   }
 
   _cardSlots() {
-    // Picking writes ``recipes.selection``, and writing configuration is
-    // administrator business since phase 4 — so the buttons are locked for
-    // everybody else rather than failing on the round trip. [Offen: whether
-    // picking tonight's recipe should be open to the household the way
-    // ``set_view`` is. That would need its own narrow command; not invented
-    // here.]
-    const lock = this.isAdmin ? "" : "disabled";
+    // That open question is decided [2026-08-31, Wolfgang]: yes, the household
+    // picks tonight's recipe the way it switches the view. It did need its own
+    // narrow command, and it has one — epaperengine/recipes/select, which sends
+    // the selection and the portion counts and nothing else.
     const selection = ((this._draft.recipes || {}).selection || []).slice(0, RECIPE_SLOTS);
     // Ordered the way the columns stand on the wall, not the way the cache
     // answered — the slot number is the column number.
@@ -1493,15 +1522,15 @@ class EPaperEnginePanel extends HTMLElement {
                    <span class="muted">${esc(t("panel.recipes.servings.base"))} ${esc(base)}</span>
                    <label class="muted" for="serve-${esc(uid)}">${esc(t("panel.recipes.servings.target"))}</label>
                    <input id="serve-${esc(uid)}" data-servings="${esc(uid)}" inputmode="decimal"
-                          value="${esc(target == null ? "" : fmtNum(target))}" placeholder="${esc(base)}" ${lock}>
+                          value="${esc(target == null ? "" : fmtNum(target))}" placeholder="${esc(base)}">
                  </div>`
               : `<span class="muted">${esc(t("panel.recipes.servings.none"))}</span>`
           }
           <div class="rank">
-            <button class="plain small" data-slot-move="up" data-slot="${index}" title="${esc(t("panel.views.up"))}" ${index === 0 || lock ? "disabled" : ""}>▲</button>
-            <button class="plain small" data-slot-move="down" data-slot="${index}" title="${esc(t("panel.views.down"))}" ${index === selection.length - 1 || lock ? "disabled" : ""}>▼</button>
+            <button class="plain small" data-slot-move="up" data-slot="${index}" title="${esc(t("panel.views.up"))}" ${index === 0 ? "disabled" : ""}>▲</button>
+            <button class="plain small" data-slot-move="down" data-slot="${index}" title="${esc(t("panel.views.down"))}" ${index === selection.length - 1 ? "disabled" : ""}>▼</button>
           </div>
-          <button class="plain small" data-unpick="${esc(uid)}" ${lock}>✕</button>
+          <button class="plain small" data-unpick="${esc(uid)}">✕</button>
         </div>`;
       })
       .join("");
@@ -1526,7 +1555,6 @@ class EPaperEnginePanel extends HTMLElement {
     }
     const selection = (this._draft.recipes || {}).selection || [];
     const full = selection.length >= RECIPE_SLOTS;
-    const lock = this.isAdmin ? "" : "disabled";
 
     const rows = hits
       .map((hit) => {
@@ -1541,8 +1569,8 @@ class EPaperEnginePanel extends HTMLElement {
           <td style="width:1%">
             ${
               picked
-                ? `<button class="plain small" data-unpick="${esc(hit.uid)}" ${lock}>✕</button>`
-                : `<button class="plain small" data-pick="${esc(hit.uid)}" ${full || lock ? "disabled" : ""}>${esc(t("panel.recipes.add"))}</button>`
+                ? `<button class="plain small" data-unpick="${esc(hit.uid)}">✕</button>`
+                : `<button class="plain small" data-pick="${esc(hit.uid)}" ${full ? "disabled" : ""}>${esc(t("panel.recipes.add"))}</button>`
             }
           </td>
         </tr>`;
