@@ -174,13 +174,21 @@
         color: #dc1e1e;
       }
       /* A day without appointments is a dash [P45] — quieter and 28 px
-         shorter than the "keine Termine" it replaces. */
+         shorter than the "keine Termine" it replaces.
+
+         **Black, not the grey the words had.** P28 lets secondary *text* stay
+         grey and keeps thin *lines* black, and a dash is a line whatever the
+         font calls it: measured on the first real image, the grey dash came out
+         61–80 % covered with a colour fringe — the same dotted trail the grey
+         hairline left in 0.3.3 (67 % / 33 %). Grey has no place in a six-colour
+         palette; it is built out of the primaries, and over 3 px of stroke
+         there are not enough pixels to build it from. */
       .empty {
         height: 32px;
         padding-left: 24px;
         font-size: 24px;
         line-height: 32px;
-        color: #666666;
+        color: #000000;
         box-sizing: border-box;
       }
       .entry {

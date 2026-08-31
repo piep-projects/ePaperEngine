@@ -877,6 +877,18 @@ class TestTemplateAgreesWithTheModel(unittest.TestCase):
         self.assertLessEqual(self._px(".empty", "line-height"), cl.EMPTY_DAY_H)
         self.assertEqual(self._px(".empty", "font-size"), cl.EMPTY_DAY_PX)
 
+    def test_the_empty_day_dash_is_black(self) -> None:
+        """A dash is a thin line, whatever the font calls it [P28/P45].
+
+        Grey *text* survives the panel; a grey *line* does not — it is built
+        out of primaries, and over 3 px of stroke there are not enough pixels
+        to build it from. Measured on the first real image of P45: the grey
+        dash came out 61–80 % covered with a colour fringe.
+        """
+        rule = re.search(r"\.empty \{([^}]*)\}", self.CSS)
+        assert rule is not None
+        self.assertIn("color: #000000", rule.group(1))
+
     def test_sunday_is_painted_in_the_colour_the_model_names(self) -> None:
         """The model decides which day it is; the stylesheet only paints it.
 
