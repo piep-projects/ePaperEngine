@@ -4,7 +4,7 @@
   "format.day_title": "{weekday}, {month} {day}",
   "calendar.all_day": "all day",
   "calendar.cut": "{count} more — did not fit",
-  "calendar.empty": "no appointments",
+  "calendar.empty": "–",
   "calendar.no_events": "Nothing on the calendar in this window.",
   "calendar.no_sources": "No calendar configured yet — the ePaperEngine panel is where it goes.",
   "calendar.source_failed": "{person}: no data",

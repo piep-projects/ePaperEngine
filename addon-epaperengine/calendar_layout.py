@@ -121,8 +121,20 @@ LEGEND_GAP = 44      # between two legend entries
 DAY_TITLE_PX = 36
 DAY_HEAD_H = 50 + 14   # 64 — title line plus the air under it, no rule
 DAY_GAP = 24           # air below a finished block
-EMPTY_DAY_H = 60       # "no appointments" in one 28 px line
-EMPTY_DAY_PX = 28
+# **A day without appointments is a dash** [Festlegung P45, 2026-08-31,
+# Wolfgang: „bei keinem termin nicht 'no appointments' sondern ein kleiner '-',
+# kann auch etwas dicht dran sein"]. It used to read "keine Termine" in a 28 px
+# line 60 px tall. The words say nothing the empty space does not already say,
+# and they said it on **every** empty day — six of them in one column on the
+# 31.8. image. The run of days stays gapless [Festlegung 2026-08-20]; only its
+# filler gets quieter and smaller.
+#
+# 32 px of body instead of 60, and the dash sits closer under the title
+# (24 px line in a 32 px box). A whole empty block is **120 px instead of
+# 148** — 28 px each, and the dash still has a line of its own so the day is
+# visibly there.
+EMPTY_DAY_H = 32       # the dash, in one 24 px line
+EMPTY_DAY_PX = 24
 
 ENTRY_H = 84           # one appointment with a one-line title
 ENTRY_LINE_H = 38      # every further title line
@@ -137,6 +149,15 @@ LOCATION_PX = 24
 # It costs no line height and no text width: the bar is absolutely positioned
 # and the time still starts at 20 px.
 BAR_W = 12
+
+# **Sundays are red, the whole line** [Festlegung P45, 2026-08-31, Wolfgang:
+# „bei Sonntagen die ganzen Linie in rot"]. Red off the palette, so it carries
+# no dither raster of its own — the same reason the recipe title is green [P16]
+# and the greeting colour is picked from these six [P23].
+#
+# It is the **day title** that turns, not the appointments under it: a column is
+# read by its dates, and a red date is found at a glance from across the room.
+SUNDAY_COLOR = "red"
 
 CUT_H = 46             # the "cut" marker under a block that did not fit
 
@@ -246,12 +267,22 @@ class Day:
         body = sum(entry.height for entry in self.entries) or EMPTY_DAY_H
         return DAY_HEAD_H + body + DAY_GAP + (CUT_H if self.cut else 0)
 
+    @property
+    def sunday(self) -> bool:
+        """Read off the date, never carried in the constructor.
+
+        A flag that can be set is a flag that can disagree with ``day``; this
+        one cannot [P45].
+        """
+        return self.day.weekday() == 6
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "title": self.title,
             "entries": [entry.as_dict() for entry in self.entries],
             "empty": not self.entries,
             "today": self.today,
+            "sunday": self.sunday,
             "cut": self.cut,
             "height": self.height,
         }

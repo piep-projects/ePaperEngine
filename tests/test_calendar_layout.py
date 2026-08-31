@@ -26,6 +26,7 @@ is one appointment quietly falling off the bottom of the third column.
 from __future__ import annotations
 
 import ast
+import dataclasses
 import json
 import pathlib
 import re
@@ -523,6 +524,41 @@ class TestTodayFilter(unittest.TestCase):
         self.assertEqual(len(days[-1].entries), 1)
 
 
+class TestSundayAndEmptyDays(unittest.TestCase):
+    """The two things a column is read by [Festlegung P45, 2026-08-31]."""
+
+    def test_sunday_is_read_off_the_date(self) -> None:
+        # 2026-08-23 is a Sunday, the 24th is not.
+        self.assertTrue(cl.Day(day=date(2026, 8, 23), title="x").sunday)
+        self.assertFalse(cl.Day(day=date(2026, 8, 24), title="x").sunday)
+
+    def test_the_flag_reaches_the_template(self) -> None:
+        days = cl.build_days([_source()], {"calendar.a": []},
+                             today=date(2026, 8, 23), text=TEXT)
+        self.assertIs(days[0].as_dict()["sunday"], True)
+
+    def test_it_cannot_disagree_with_the_day(self) -> None:
+        """There is no setter — a stale flag is not reachable."""
+        self.assertNotIn("sunday", {f.name for f in dataclasses.fields(cl.Day)})
+
+    def test_the_sunday_colour_is_a_panel_primary(self) -> None:
+        """Off the palette, so it carries no dither raster [P22/P23]."""
+        self.assertIn(cl.SUNDAY_COLOR, cl.COLORS)
+        self.assertIn(cl.COLORS[cl.SUNDAY_COLOR],
+                      {"#%02x%02x%02x" % rgb for rgb in imaging.SPECTRA})
+
+    def test_an_empty_day_is_a_dash_in_both_languages(self) -> None:
+        for language in ("en", "de"):
+            self.assertEqual(wall_text.WallText(language)("calendar.empty"), "–")
+
+    def test_an_empty_day_is_cheaper_than_the_words_it_replaces(self) -> None:
+        """148 px of "keine Termine" → 120 px of dash, gaplessness intact."""
+        days = cl.build_days([_source()], {"calendar.a": []},
+                             today=TODAY, text=TEXT)
+        self.assertEqual(days[0].height, cl.DAY_HEAD_H + cl.EMPTY_DAY_H + cl.DAY_GAP)
+        self.assertEqual(days[0].height, 120)
+
+
 class TestColumns(unittest.TestCase):
     def _day(self, entries: int, day: date | None = None) -> cl.Day:
         return cl.Day(
@@ -835,6 +871,23 @@ class TestTemplateAgreesWithTheModel(unittest.TestCase):
 
     def test_the_empty_day_costs_what_the_model_charges(self) -> None:
         self.assertEqual(self._px(".empty", "height"), cl.EMPTY_DAY_H)
+
+    def test_the_empty_day_line_sits_inside_its_box(self) -> None:
+        """"Etwas dicht dran" is a line-height, and it must not overflow."""
+        self.assertLessEqual(self._px(".empty", "line-height"), cl.EMPTY_DAY_H)
+        self.assertEqual(self._px(".empty", "font-size"), cl.EMPTY_DAY_PX)
+
+    def test_sunday_is_painted_in_the_colour_the_model_names(self) -> None:
+        """The model decides which day it is; the stylesheet only paints it.
+
+        Two strings in two files [P45] — the class name and the hex. Either
+        drifting is silent: a renamed class simply paints nothing.
+        """
+        self.assertIn("h2.sunday", self.CSS)
+        rule = re.search(r"\.day h2\.sunday\s*\{([^}]*)\}", self.CSS)
+        assert rule is not None
+        self.assertIn(cl.COLORS[cl.SUNDAY_COLOR], rule.group(1))
+        self.assertIn('{% if day.sunday %} class="sunday"{% endif %}', self.CSS)
 
     def test_the_cut_marker_costs_what_the_model_charges(self) -> None:
         self.assertEqual(self._px(".cut", "height"), cl.CUT_H)

@@ -167,11 +167,19 @@
         white-space: nowrap;
         overflow: hidden;
       }
+      /* Sunday, the whole line [P45]. Red off the palette, so it carries no
+         dither raster of its own. The model decides which day it is; this
+         only paints it. */
+      .day h2.sunday {
+        color: #dc1e1e;
+      }
+      /* A day without appointments is a dash [P45] — quieter and 28 px
+         shorter than the "keine Termine" it replaces. */
       .empty {
-        height: 60px;
+        height: 32px;
         padding-left: 24px;
-        font-size: 28px;
-        line-height: 44px;
+        font-size: 24px;
+        line-height: 32px;
         color: #666666;
         box-sizing: border-box;
       }
@@ -236,7 +244,7 @@
           <div class="inner" style="height: {{ page.column_h - (page.foot_h if loop.last else 0) }}px">
             {%- for day in column %}
             <div class="day">
-              <h2>{{ day.title }}</h2>
+              <h2{% if day.sunday %} class="sunday"{% endif %}>{{ day.title }}</h2>
               {%- if day.empty %}
               <div class="empty">{{ t("calendar.empty") }}</div>
               {%- else %}
