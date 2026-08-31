@@ -33,9 +33,24 @@ an add-on, updated separately — and **HACS only reports the integration**. The
 image, though, is drawn by the **add-on**: layout, type, colours and page
 structure live there, not in the integration.
 
-**Add-on store → ⋮ → Check for updates**, then **Update** on ePaperEngine.
-Afterwards both show the same version number — the panel's *Settings* page shows
-the add-on's, HACS shows the integration's.
+**Two steps, and the second is the one that gets forgotten.**
+
+**1 · Update the add-on.** The Supervisor only learns about the new version once
+it re-reads the repository — until then the add-on page offers **no update at
+all**, only the "auto update" switch. From a terminal:
+
+```bash
+ha store reload
+ha apps info efa2b8da_epaperengine | grep version
+```
+
+If `ha store reload` aborts with `context deadline exceeded`, that is **not a
+failure** — half a minute later the new version is there.
+
+**2 · Have a new image drawn.** An add-on update draws nothing by itself; the
+wall keeps the picture from before. **Panel → Overview → "Send image again".**
+Without this step a correctly installed update looks as if it had not taken
+effect — and you go looking for the fault in the wrong place.
 
 **Rule of thumb: if the wall looks different, it was the add-on.** If something
 about the controls changed, it was the integration. Full description under

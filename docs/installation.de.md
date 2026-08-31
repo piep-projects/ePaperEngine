@@ -71,16 +71,37 @@ unter Umständen **gar nichts** — gezeichnet wird das Bild vom Add-on.
 | Teil | Weg | Was er ändert |
 |---|---|---|
 | **Integration** | HACS meldet eine neue Version, danach **Home Assistant neu starten** | Panel, Karte, Einstellungen, Zeitsteuerung, Kalenderabfrage |
-| **Add-on** | **Add-on-Store → ⋮ → Nach Updates suchen**, dann bei ePaperEngine **Aktualisieren** | **das Bild selbst** — Layout, Schrift, Farben, Seitenaufbau |
+| **Add-on** | siehe unten — der Supervisor muss das Repository erst neu einlesen | **das Bild selbst** — Layout, Schrift, Farben, Seitenaufbau |
 
 Faustregel: **sieht die Wand anders aus, war es das Add-on.** Ändert sich etwas
 an der Bedienung, war es die Integration. Nach einem Release am besten beide
 nachsehen — sie tragen dieselbe Versionsnummer.
 
-!!! note "Wenn der Store die neue Version nicht anbietet"
-    „Nach Updates suchen" läuft manchmal in eine Zeitüberschreitung und
-    **arbeitet im Hintergrund weiter**. Eine halbe Minute warten und die Seite
-    neu laden, dann steht sie da.
+### Das Add-on: erst einlesen, dann aktualisieren
+
+Der Supervisor kennt eine neue Add-on-Version erst, wenn er das Repository neu
+einliest — bis dahin bietet die Add-on-Seite **gar kein Update an**, sie zeigt
+nur den Schalter „automatische Updates". Im Terminal (Add-on *Terminal & SSH*
+oder *Advanced SSH & Web Terminal*):
+
+```bash
+ha store reload
+ha apps info efa2b8da_epaperengine | grep version
+```
+
+`ha store reload` bricht dabei oft mit `context deadline exceeded` ab. **Das ist
+kein Fehlschlag** — der Supervisor liest weiter ein; eine halbe Minute später
+steht die neue Version unter `version_latest`. Ist „automatische Updates"
+eingeschaltet, aktualisiert er danach von selbst, sonst hilft
+`ha apps update efa2b8da_epaperengine` oder der Knopf auf der Add-on-Seite.
+
+### Und dann ein Bild neu zeichnen lassen
+
+**Ein Add-on-Update zeichnet von sich aus nichts neu.** An der Wand hängt
+weiter das Bild von vorher, und es bleibt dort, bis der nächste Lauf kommt.
+Wer nicht warten will: **Panel → Übersicht → „Bild erneut senden".** Ohne
+diesen Schritt sieht ein korrekt eingespieltes Update aus, als hätte es nicht
+gewirkt.
 
 ## Wo die Bilder liegen
 

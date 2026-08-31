@@ -70,15 +70,36 @@ drawn by the add-on.
 | Part | How | What it changes |
 |---|---|---|
 | **Integration** | HACS reports a new version, then **restart Home Assistant** | panel, card, settings, scheduling, calendar queries |
-| **Add-on** | **Add-on store → ⋮ → Check for updates**, then **Update** on ePaperEngine | **the image itself** — layout, type, colours, page structure |
+| **Add-on** | see below — the Supervisor has to re-read the repository first | **the image itself** — layout, type, colours, page structure |
 
 Rule of thumb: **if the wall looks different, it was the add-on.** If something
 about the controls changed, it was the integration. After a release, check both
 — they carry the same version number.
 
-!!! note "If the store does not offer the new version"
-    "Check for updates" sometimes runs into a timeout and **keeps working in the
-    background**. Wait half a minute and reload the page; it will be there.
+### The add-on: re-read first, then update
+
+The Supervisor only learns about a new add-on version once it re-reads the
+repository — until then the add-on page offers **no update at all**, only the
+"auto update" switch. From a terminal (the *Terminal & SSH* or *Advanced SSH &
+Web Terminal* add-on):
+
+```bash
+ha store reload
+ha apps info efa2b8da_epaperengine | grep version
+```
+
+`ha store reload` often aborts with `context deadline exceeded`. **That is not a
+failure** — the Supervisor keeps reading; half a minute later the new version
+shows up under `version_latest`. With "auto update" on it then updates by
+itself; otherwise use `ha apps update efa2b8da_epaperengine` or the button on
+the add-on page.
+
+### Then have a new image drawn
+
+**An add-on update draws nothing by itself.** The wall keeps the picture from
+before and holds it until the next run comes round. If you would rather not
+wait: **panel → Overview → "Send image again".** Without that step a correctly
+installed update looks as if it had not taken effect.
 
 ## Where the images live
 

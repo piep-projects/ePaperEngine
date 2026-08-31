@@ -32,9 +32,25 @@ Add-on, sie werden getrennt aktualisiert — und **HACS meldet nur die
 Integration**. Das Bild zeichnet aber das **Add-on**: Layout, Schrift, Farben und
 Seitenaufbau stecken dort, nicht in der Integration.
 
-**Add-on-Store → ⋮ → Nach Updates suchen**, dann bei ePaperEngine
-**Aktualisieren**. Danach zeigen beide dieselbe Versionsnummer — im Panel unter
-*Einstellungen* steht die des Add-ons, in HACS die der Integration.
+**Zwei Schritte, und der zweite wird gern vergessen.**
+
+**1 · Das Add-on aktualisieren.** Der Supervisor kennt die neue Version erst,
+wenn er das Repository neu einliest — bis dahin bietet die Add-on-Seite **gar
+kein Update an**, sondern nur den Schalter „automatische Updates". Im Terminal:
+
+```bash
+ha store reload
+ha apps info efa2b8da_epaperengine | grep version
+```
+
+Bricht `ha store reload` mit `context deadline exceeded` ab, ist das **kein
+Fehlschlag** — eine halbe Minute später steht die neue Version da.
+
+**2 · Ein Bild neu zeichnen lassen.** Ein Add-on-Update zeichnet von sich aus
+nichts neu; an der Wand hängt weiter das Bild von vorher. **Panel → Übersicht →
+„Bild erneut senden".** Ohne diesen Schritt sieht ein korrekt eingespieltes
+Update aus, als hätte es nicht gewirkt — und man sucht den Fehler an der
+falschen Stelle.
 
 **Faustregel: sieht die Wand anders aus, war es das Add-on.** Ändert sich etwas
 an der Bedienung, war es die Integration. Ganze Beschreibung unter
