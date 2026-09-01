@@ -239,6 +239,35 @@ HOLIDAY_PX = 32
 HOLIDAY_H = 46         # one line plus the air under it
 HOLIDAY_LINE_H = 38    # every further line of a name that wraps
 
+# **The holiday line is measured against the font file, not estimated** — and
+# that is a correction, not a preference [2026-09-01, am ersten Wandbild
+# gefunden]. The first build wrapped it with the page's ``CHAR_RATIO = 0.531``
+# and produced a **collision**: "Schulung Datenschutz mit sehr langem Titel"
+# was budgeted at two lines, Chromium set three, and the third ran into the
+# appointment below it. Two reasons stack up:
+#
+#   * the line is **bold**, and ``CHAR_RATIO`` was measured on DejaVu Sans
+#     *Book*. ``fc-match "DejaVu Sans:bold"`` resolves to a different file with
+#     wider metrics — measured in the add-on container over 29 real holiday
+#     names at 32 px: **Book 0.544 average / 0.602 worst, Bold 0.615 / 0.676**;
+#   * a holiday name is title case and full of capitals, where ``CHAR_RATIO``
+#     was measured on running German recipe prose [Phase 5].
+#
+# So the wrap asks the file Chromium will draw, exactly as the guest greeting
+# has since P21. The character model stays as the **fallback** for a machine
+# without the font — the tests run there — and carries the measured *worst*
+# ratio rather than the average: there is no ``SAFETY_LINES`` on this page, and
+# the way this fails is a day block growing into the next one.
+HOLIDAY_CHAR_RATIO = 0.676
+
+# What ``fc-match "DejaVu Sans:bold"`` answers inside the add-on image
+# [gemessen 2026-09-01]. A list rather than one path so a base-image move
+# degrades to the ratio model instead of throwing.
+DEJAVU_BOLD_CANDIDATES = (
+    "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+)
+
 CUT_H = 46             # the "cut" marker under a block that did not fit
 
 # **Where an evening stops being a second day** [Festlegung 2026-08-31,
@@ -514,7 +543,35 @@ TITLE_CHARS = chars_per_line(TITLE_PX, TITLE_W)
 # measured rather than assumed, because the list is whatever calendar the
 # household subscribes to, and a name that wraps has to raise the badge with it.
 HOLIDAY_W = COLUMN_W - RAIL_W  # 673
-HOLIDAY_CHARS = chars_per_line(HOLIDAY_PX, HOLIDAY_W)
+# Only reached when the font is missing; see ``HOLIDAY_CHAR_RATIO``.
+HOLIDAY_CHARS = max(round(HOLIDAY_W / (HOLIDAY_CHAR_RATIO * HOLIDAY_PX)), 1)
+
+_holiday_face: Any = False   # False = not looked for yet, None = not there
+
+
+def _face() -> Any:
+    """The bold DejaVu face at :data:`HOLIDAY_PX`, or ``None`` where it is not.
+
+    Looked up once. Pillow is already in this image (``imaging``,
+    ``guest_layout``), but this module is also imported by the test suite on a
+    machine that has neither the font nor a reason to grow a dependency on it,
+    so every failure here is answered with ``None`` and the ratio model.
+    """
+    global _holiday_face
+    if _holiday_face is not False:
+        return _holiday_face
+    _holiday_face = None
+    try:
+        from PIL import ImageFont
+    except Exception:  # noqa: BLE001 - no Pillow, no measurement
+        return None
+    for path in DEJAVU_BOLD_CANDIDATES:
+        try:
+            _holiday_face = ImageFont.truetype(path, HOLIDAY_PX)
+            break
+        except Exception:  # noqa: BLE001 - try the next path
+            continue
+    return _holiday_face
 
 
 def title_lines(text: str) -> list[str]:
@@ -522,9 +579,30 @@ def title_lines(text: str) -> list[str]:
     return wrap(text, TITLE_CHARS) or [""]
 
 
-def holiday_lines(text: str) -> list[str]:
-    """Wrap a holiday name the way its full-width line will break it."""
-    return wrap(text, HOLIDAY_CHARS) or [""]
+def holiday_lines(text: str, width: int = HOLIDAY_W) -> list[str]:
+    """Wrap a holiday name the way Chromium will break it.
+
+    Greedy, on measured advance widths where the font is there. A single word
+    wider than the line is left whole: breaking a name mid-word would be worse
+    than a line that runs long, and the badge grows to whatever comes out.
+    """
+    face = _face()
+    if face is None:
+        return wrap(text, HOLIDAY_CHARS) or [""]
+    words = str(text or "").split()
+    if not words:
+        return [""]
+    lines: list[str] = []
+    current = words[0]
+    for word in words[1:]:
+        candidate = f"{current} {word}"
+        if face.getlength(candidate) <= width:
+            current = candidate
+        else:
+            lines.append(current)
+            current = word
+    lines.append(current)
+    return lines
 
 
 # --- reading what Home Assistant handed over ----------------------------------

@@ -215,21 +215,87 @@ class TestHolidays(unittest.TestCase):
         self.assertEqual(day.height, cl.BADGE_MIN_H + cl.DAY_GAP)
         self.assertEqual(day.body_height, cl.HOLIDAY_H)
 
-    def test_the_name_is_wrapped_at_the_full_body_width(self) -> None:
-        """40 characters, not the title's 27 [P48].
+    # Names long enough to wrap, including the two that broke the first build.
+    LONG = (
+        "Fest der Verkündigung des Herrn und aller Heiligen",
+        "Schulung Datenschutz mit sehr langem Titel",
+        "Tag der Deutschen Einheit und aller Heiligen im Bistum Fulda",
+        "MARIÄ HIMMELFAHRT UND ALLERHEILIGEN IM ERZBISTUM",
+    )
 
-        The line gives up the time column, so it has 673 px where an entry has
-        458. Wrapping it at the title width would be silent — the name would
-        simply break a line early and the badge would grow with it — so the two
-        widths are held apart here by a name that fits one and not the other.
+    def test_every_wrapped_line_actually_fits_the_column(self) -> None:
+        """The invariant, and the one the first build got wrong.
+
+        A line the model calls one line and Chromium sets as two does not just
+        look different — the badge is sized from the model and the entries below
+        are stacked from it, so the extra line **runs into the appointment
+        underneath**. That is what the first wall image showed: "Schulung
+        Datenschutz mit sehr langem Titel" was budgeted at two lines, drawn as
+        three, and the third collided with the entry below.
+
+        So the wrap is measured against the file Chromium renders, exactly as
+        the guest greeting has been since P21. Where that file is missing this
+        test says so rather than passing quietly.
         """
+        face = cl._face()
+        if face is None:
+            self.skipTest("DejaVu Sans Bold not installed — the ratio model runs")
+        for name in self.LONG + ("Tag der Deutschen Einheit", "1. Weihnachtsfeiertag"):
+            for line in cl.holiday_lines(name):
+                if " " not in line:
+                    continue  # a single word is never broken, by design
+                self.assertLessEqual(
+                    face.getlength(line), cl.HOLIDAY_W,
+                    f"{line!r} is wider than the column it was wrapped for",
+                )
+
+    def test_the_measured_wrap_is_not_the_character_model(self) -> None:
+        """Held apart on purpose [2026-09-01].
+
+        ``CHAR_RATIO`` was measured on running German recipe prose in DejaVu
+        Sans *Book*; this line is title case in *Bold*. Measured in the add-on
+        container over 29 real holiday names at 32 px: Book 0.544 average /
+        0.602 worst, **Bold 0.615 / 0.676**. Borrowing the page's ratio is what
+        produced the collision, so a test holds the two apart.
+        """
+        self.assertGreater(cl.HOLIDAY_CHAR_RATIO, cl.CHAR_RATIO)
+        self.assertLessEqual(cl.HOLIDAY_CHARS, 34)
         self.assertGreater(cl.HOLIDAY_CHARS, cl.TITLE_CHARS)
-        name = "Tag der Deutschen Einheit und mehr"  # 34 characters
-        self.assertGreater(len(name), cl.TITLE_CHARS)
-        self.assertLessEqual(len(name), cl.HOLIDAY_CHARS)
-        day = self._days([self._all_day(TODAY, name)])[0]
-        self.assertEqual(day.holidays[0].lines, [name])
-        self.assertEqual(day.holidays[0].height, cl.HOLIDAY_H)
+
+    def test_the_measurement_is_actually_used_where_it_exists(self) -> None:
+        """Losing it would be silent, and it would cost space rather than break.
+
+        The fallback ratio is the measured **worst case**, so a page that
+        quietly stopped measuring would still be correct — just 38 px poorer per
+        name that wrapped one word early. That is exactly the kind of loss
+        nothing else on this page would report, so it is pinned here.
+        """
+        if cl._face() is None:
+            self.skipTest("DejaVu Sans Bold not installed")
+        name = "Tag der Deutschen Einheit und aller Heiligen"
+        measured = cl.holiday_lines(name)
+        saved = cl._holiday_face
+        cl._holiday_face = None
+        try:
+            estimated = cl.holiday_lines(name)
+        finally:
+            cl._holiday_face = saved
+        self.assertNotEqual(measured, estimated)
+        self.assertGreater(len(measured[0]), len(estimated[0]))
+
+    def test_the_fallback_wraps_conservatively(self) -> None:
+        """A machine without the font still has to budget honestly."""
+        saved = cl._holiday_face
+        cl._holiday_face = None
+        try:
+            for name in self.LONG:
+                for line in cl.holiday_lines(name):
+                    if " " in line:
+                        self.assertLessEqual(len(line), cl.HOLIDAY_CHARS)
+            self.assertEqual(cl.holiday_lines("Tag der Deutschen Einheit"),
+                             ["Tag der Deutschen Einheit"])
+        finally:
+            cl._holiday_face = saved
 
     def test_a_wrapped_name_costs_a_line_and_raises_the_badge_with_it(self) -> None:
         """Two lines still hide under the 98 px badge floor; three do not.
@@ -239,16 +305,18 @@ class TestHolidays(unittest.TestCase):
         rather than clipping the name — which is how it would fail, silently,
         because the badge has ``overflow: hidden``.
         """
-        two = "Fest der Verkündigung des Herrn und aller Heiligen im Bistum"
+        two = "Fest der Verkündigung des Herrn und aller Heiligen"
         day = self._days([self._all_day(TODAY, two)])[0]
         self.assertEqual(len(day.holidays[0].lines), 2)
         self.assertEqual(day.body_height, cl.HOLIDAY_H + cl.HOLIDAY_LINE_H)
         self.assertEqual(day.badge_height, cl.BADGE_MIN_H)   # 84 < 98, still free
 
-        three = two + " Fulda und im Erzbistum Paderborn zu Ehren aller"
+        three = two + " im Erzbistum Paderborn und zu Ehren aller Verstorbenen"
         day = self._days([self._all_day(TODAY, three)])[0]
-        self.assertEqual(len(day.holidays[0].lines), 3)
-        self.assertEqual(day.body_height, cl.HOLIDAY_H + 2 * cl.HOLIDAY_LINE_H)
+        lines = len(day.holidays[0].lines)
+        self.assertGreaterEqual(lines, 3)
+        self.assertEqual(day.body_height,
+                         cl.HOLIDAY_H + (lines - 1) * cl.HOLIDAY_LINE_H)
         self.assertEqual(day.badge_height, day.body_height)
         self.assertGreater(day.badge_height, cl.BADGE_MIN_H)
 
