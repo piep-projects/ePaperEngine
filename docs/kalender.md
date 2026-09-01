@@ -14,13 +14,58 @@ Panel → **Calendar**. Each source is four things:
 | **Entity** | any `calendar.*` entity |
 | **Person** | the name in the legend |
 | **Colour** | one of the panel's six primaries |
-| **Kind** | *appointments* or *birthdays* |
+| **Kind** | *appointments*, *birthdays* or *public holidays* |
 
 **The kind matters.** A birthday source shows the year count worked out from
 the year in the entry, shows only a start time, and — this is the point — is
 **exempt from the "hide today's past appointments" filter**. Without that
 exemption the same switch would throw a birthday off the wall at 09:16 on the
 very morning it is meant to be read.
+
+A **holiday source** has no colour: the cell stays empty and says "none". Why is
+below.
+
+### Public holidays
+
+The third kind is the only one whose entries are not *of* the day but *about*
+it. A holiday does two things:
+
+- **the day turns red** — the same filled box a Sunday wears;
+- **the name stands in a red line of its own** above that day's appointments,
+  with no time and no colour bar.
+
+```
+┌────────┐
+│   03   │  German Unity Day
+│   Thu  │  ▌ 10:00   Breakfast at Gran's
+└────────┘  ▌ 14:00   Walk
+  (red)
+```
+
+No "all day" beside it: a holiday has no hour anybody can be late for. And no
+colour bar, because a bar carries the colour of a *source* — a holiday belongs
+to nobody. For the same reason a holiday source is **not in the legend**.
+
+**Home Assistant's built-in "Holiday" integration is the obvious source**
+(*Settings → Devices & Services → Add → Holiday*); it creates a `calendar.*`
+entity for a country and region. Any other calendar works just as well.
+
+!!! note "Not a school-holiday calendar"
+    A multi-day entry is drawn **on its first day only**. Every public holiday
+    is one day long; school holidays or a works shutdown would otherwise turn
+    a fortnight of days red, and red would stop meaning anything in particular.
+    Put such periods in an ordinary appointment source — there the wall draws
+    them as a running stripe.
+
+**A holiday costs almost nothing.** The line is barely half the height of an
+appointment, and on a day that holds nothing else it is free: the date box is
+taller anyway. Measured against a calendar with four holidays in the Christmas
+window: with one appointment a day it costs **no** days of lookahead, with two
+it costs one.
+
+**Red now says three things:** Sunday, public holiday — and, if you set it that
+way, the colour of a source. To keep them apart, give your appointment sources
+blue, green or black.
 
 ### Not only birthdays
 

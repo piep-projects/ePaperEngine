@@ -15,13 +15,60 @@ Panel → **Kalender**. Jede Quelle ist vier Dinge:
 | **Entity** | eine beliebige `calendar.*`-Entity |
 | **Person** | der Name in der Legende |
 | **Farbe** | eine der sechs Primärfarben des Panels |
-| **Art** | *Termine* oder *Geburtstage* |
+| **Art** | *Termine*, *Geburtstage* oder *Feiertage* |
 
 **Die Art trägt Gewicht.** Eine Geburtstagsquelle zeigt die gerechnete
 Jahreszahl, zeigt nur die Anfangszeit — und ist, darauf kommt es an, vom Filter
 „vergangene Termine des heutigen Tages ausblenden" **ausgenommen**. Ohne diese
 Ausnahme würfe derselbe Schalter den Geburtstag um 09:16 an genau dem Morgen von
 der Wand, an dem er gelesen werden soll.
+
+Eine **Feiertagsquelle** hat keine Farbe: das Feld bleibt leer und sagt „keine".
+Warum, steht weiter unten.
+
+### Feiertage
+
+Die dritte Art ist die einzige, deren Einträge nicht *zum* Tag gehören, sondern
+*über* ihn etwas sagen. Ein Feiertag macht zweierlei:
+
+- **der Tag wird rot** — dasselbe gefüllte Feld, das ein Sonntag trägt;
+- **der Name steht in einer eigenen roten Zeile** über den Terminen des Tages,
+  ohne Uhrzeit und ohne Farbbalken.
+
+```
+┌────────┐
+│   03   │  Tag der Deutschen Einheit
+│   Do   │  ▌ 10:00   Frühstück bei Oma
+└────────┘  ▌ 14:00   Spaziergang
+  (rot)
+```
+
+Kein „ganztägig" daneben: ein Feiertag hat keine Stunde, die jemand verpassen
+kann. Und kein Farbbalken, weil der die Farbe einer *Quelle* trägt — ein
+Feiertag gehört niemandem. Aus demselben Grund steht eine Feiertagsquelle
+**nicht in der Legende**.
+
+**Als Quelle eignet sich die eingebaute Integration „Feiertage"** von Home
+Assistant (*Einstellungen → Geräte & Dienste → Hinzufügen → Feiertage*); sie
+legt eine `calendar.*`-Entity für Land und Bundesland an. Jede andere
+Kalenderquelle geht genauso.
+
+!!! note "Kein Ferienkalender"
+    Ein mehrtägiger Eintrag wird **nur auf seinem Anfangstag** gezeichnet. Jeder
+    gesetzliche Feiertag ist eintägig; Schulferien oder Betriebsruhe färbten
+    sonst vierzehn Tage rot, und Rot sagte danach nichts Besonderes mehr. Solche
+    Zeiträume gehören in eine gewöhnliche Terminquelle — dort zeichnet die Wand
+    sie als durchlaufenden Streifen.
+
+**Ein Feiertag kostet fast nichts.** Die Zeile ist knapp halb so hoch wie ein
+Termin, und an einem Tag, an dem sonst nichts steht, ist sie ganz umsonst: das
+Datumsfeld ist ohnehin höher. Gemessen an einem Kalender mit vier Feiertagen im
+Weihnachtsfenster: bei einem Termin je Tag **kein** Tag Vorausschau weniger, bei
+zweien einer.
+
+**Rot sagt jetzt drei Dinge:** Sonntag, Feiertag — und, falls Sie sie so
+eingestellt haben, die Farbe einer Quelle. Wer das trennen will, gibt seinen
+Terminquellen Blau, Grün oder Schwarz.
 
 ### Nicht nur Geburtstage
 
