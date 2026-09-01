@@ -49,30 +49,45 @@ hat keine, und das ist kein Fehler.
 
 ## Wie die Seite aussieht
 
-- **Keine Kopfzeile.** Das Datum steht einmal da, im ersten Tagestitel. Eine
-  Kopfzeile, die es ein zweites Mal sagt, kostete 140 px von allen drei Spalten
-  — 14 % der Termine, die die Seite fasst.
+- **Der Tag steht in einer Schiene links**, nicht in einer Zeile darüber: ein
+  gefülltes Feld mit der Tageszahl groß und dem Wochentag klein darunter. Es ist
+  so hoch wie der Tag und wächst mit, wenn ein Titel zwei Zeilen braucht — die
+  Schrift wird nie kleiner. Das spart die Kopfzeile, die jeder Tag vorher hatte,
+  und bringt rund ein Drittel mehr Tage auf die Seite.
+- **Sonntage tragen ein rotes Feld** statt eines schwarzen. Eine Spalte wird über
+  ihre Daten gelesen, und ein roter Block findet sich aus Entfernung.
+- **Der Monat steht einmal oben**, über der ersten Spalte. Wechselt der Monat
+  mitten im Zeitraum, trägt der Erste ihn in seinem Feld — die Angabe stimmt
+  also auch über die Monatsgrenze hinweg.
+- **Vor jedem Montag liegt ein gelbes Band** mit der Kalenderwoche und ihrem
+  Zeitraum, über die volle Spaltenbreite. Gelb, weil ein Grau auf diesem Display
+  überwiegend Weiß ist und deshalb blass wirkt; Gelb ist außerdem die einzige
+  Farbe, die keine Kalenderquelle tragen kann.
 - **Legende, Fehlerhinweise und sonst nichts** stehen am Fuß der dritten Spalte,
   rechtsbündig. Spalte eins und zwei laufen über die volle Höhe.
 - **Ein Farbbalken** in der Farbe der Quelle läuft an jedem Eintrag entlang — ab
   Werk 12 px, einstellbar. Auf einen Meter ist ein 6-px-Balken eine Marke
   *neben* der Zeile; 12 px sind die Farbe *der* Zeile.
 - **Leere Tage werden gezeigt**, damit das Auge Tage zählen kann statt sie zu
-  lesen — sie tragen einen kleinen Strich statt der Worte „keine Termine". Die
-  Worte sagten nichts, was der leere Platz nicht schon sagt, und der Strich
-  spart 28 px je Tag. Abschaltbar.
-- **Sonntage stehen in Rot**, die ganze Datumszeile. Eine Spalte wird über ihre
-  Daten gelesen, und ein rotes Datum findet man aus Entfernung.
-- **Ein mehrtägiger Termin steht auf jedem seiner Tage** — auch wenn er nicht
-  als ganztägig eingetragen ist. Der erste Tag sagt „ab 10:00", die Tage
-  dazwischen „durchgehend", der letzte „bis 15:00". Ein Termin, der am nächsten
-  Morgen vor 6 Uhr endet, bleibt dagegen **ein** Eintrag an seinem Abend: ein
-  Konzert von 23:00 bis 01:00 ist kein Termin am nächsten Tag. Achtung: ein
-  vierzehntägiger Urlaub füllt vierzehn Tagesblöcke und kostet dadurch etwa
-  vier Tage Vorausschau.
+  lesen — sie tragen nur ihr Datumsfeld, der Platz daneben bleibt weiß.
+  Abschaltbar.
+- **Ein mehrtägiger Termin wird an beiden Enden benannt und dazwischen als
+  durchgehender Farbstreifen gezeichnet** — auch wenn er nicht als ganztägig
+  eingetragen ist. Der erste Tag sagt „ab 10:00", der letzte „bis 15:00", und
+  zwischen beiden läuft am äußeren Rand eine ununterbrochene Linie in der Farbe
+  der Quelle, durch die Tageslücken und über jedes Wochenband hinweg. Ein
+  Termin, der am nächsten Morgen vor 6 Uhr endet, bleibt dagegen **ein** Eintrag
+  an seinem Abend: ein Konzert von 23:00 bis 01:00 ist kein Termin am nächsten
+  Tag.
 - **Ein Tag, der höher ist als eine ganze Spalte,** wird gekürzt und sagt das —
   statt übersprungen zu werden. Überspringen hieße, von diesem Tag *und allem
   danach* nichts zu zeigen.
+
+!!! note "Was der Durchlaufstreifen kostet"
+    Die Tage zwischen Anfang und Ende **nennen den Termin nicht mehr**. Wer auf
+    einen von ihnen sieht, sieht den Streifen und muss ihm nach oben folgen.
+    Dafür füllt ein vierzehntägiger Urlaub nicht mehr vierzehn Tagesblöcke,
+    sondern zwei — er kostet die Vorausschau also fast nichts mehr.
 
 ## Was sie nicht tut
 

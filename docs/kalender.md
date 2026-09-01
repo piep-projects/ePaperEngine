@@ -48,28 +48,43 @@ is not an error.
 
 ## What the page looks like
 
-- **No header.** The date is said once, by the first day title. A header saying
-  it a second time cost 140 px off all three columns, which is 14 % of the
-  appointments the page can hold.
+- **The day sits in a rail on the left**, not in a line above: a filled badge
+  with the day number large and the weekday small under it. It is as tall as the
+  day and grows with it when a title needs two lines — the type never shrinks.
+  That saves the header line every day used to carry, and puts about a third
+  more days on the page.
+- **Sundays wear a red badge** instead of a black one. A column is read by its
+  dates, and a red block is found from across the room.
+- **The month is said once at the top**, over the first column. When the month
+  turns mid-window, the 1st carries it in its badge — so the date stays right
+  across the boundary.
+- **A yellow band opens every week**, before each Monday, carrying the week
+  number and its date range across the full column width. Yellow because a grey
+  on this display is mostly white and therefore looks pale, and because yellow
+  is the one colour no calendar source can wear.
 - **Legend, error notes and nothing else** sit at the foot of the third column,
   right-aligned. Columns one and two run the full height.
 - **A colour bar** in the source's colour runs down each entry — 12 px by
   default, adjustable. At a metre's distance a 6 px bar reads as a mark *beside*
   the line; 12 px reads as the colour *of* the line.
 - **Empty days are shown** by default, so the eye can count days rather than
-  read them — they carry a small dash instead of the words "no appointments".
-  The words said nothing the empty space does not already say, and the dash
-  saves 28 px a day. Switchable.
-- **Sundays are red**, the whole date line. A column is read by its dates, and a
-  red date is found from across the room.
-- **A multi-day appointment stands on every day it covers** — even when it is
-  not entered as all-day. The first day says "from 10:00", the days in between
-  "continues", the last "until 15:00". An appointment that ends before 6 in the
+  read them — they carry only their date badge, and the space beside it stays
+  white. Switchable.
+- **A multi-day appointment is named at both ends and drawn as an unbroken
+  colour stripe in between** — even when it is not entered as all-day. The first
+  day says "from 10:00", the last "until 15:00", and between them a continuous
+  line in the source's colour runs down the outer edge, through the gaps between
+  days and across any week band. An appointment that ends before 6 in the
   morning stays **one** entry on its own evening instead: a concert from 23:00
-  to 01:00 is not an appointment on the next day. Note that a fortnight's
-  holiday fills fourteen day blocks and so costs about four days of look-ahead.
+  to 01:00 is not an appointment on the next day.
 - **A day taller than a whole column** is cut and says so, rather than being
   skipped — skipping it would silently drop that day *and everything after it*.
+
+!!! note "What the running stripe costs"
+    The days between start and end **no longer name the appointment**. Looking
+    at one of them shows the stripe, and you have to follow it upwards. In
+    exchange a fortnight's holiday no longer fills fourteen day blocks but two —
+    so it costs the look-ahead almost nothing.
 
 ## What it does not do
 
