@@ -46,6 +46,23 @@ ha apps info efa2b8da_epaperengine | grep version
 Bricht `ha store reload` mit `context deadline exceeded` ab, ist das **kein
 Fehlschlag** — eine halbe Minute später steht die neue Version da.
 
+`ha apps info` gibt **zwei** Zeilen aus, und der Unterschied ist der Punkt:
+
+```
+version: 0.20.1          ← was läuft
+version_latest: 0.21.1   ← was bereitliegt
+```
+
+Stehen sie auseinander, ist das Repository eingelesen und das Update
+**bereit, aber nicht installiert**. Der Befehl, der es einspielt:
+
+```bash
+ha apps update efa2b8da_epaperengine
+```
+
+Er baut den Container neu und braucht ein bis zwei Minuten; danach zeigen beide
+Zeilen dieselbe Version. (Auf der Add-on-Seite tut derselbe Knopf es auch.)
+
 **2 · Ein Bild neu zeichnen lassen.** Ein Add-on-Update zeichnet von sich aus
 nichts neu; an der Wand hängt weiter das Bild von vorher. **Panel → Übersicht →
 „Bild erneut senden".** Ohne diesen Schritt sieht ein korrekt eingespieltes
