@@ -164,19 +164,29 @@ HEAD_PX = 56
 # horizontal die volle breite ausnutzen"]. Full column width, week number on
 # the left, the week's date range right-aligned so the width carries something.
 #
-# **Grey 200, not the badge's 232** [Wolfgang: „mach das band dunkler wie
-# vorgeschlagen"]. Two levels that must not read as one. The price is measured
-# and it is real: on six primaries a 200 grey dithers to 62 % white, 18 % blue,
-# 12 % yellow — a blue-yellow raster rather than a grey, the same mechanic P22
-# found under the guest greeting. It is a **surface**, which is where FSD §7
-# allows grey at all, and the black text on it keeps every bit of its ink
-# (17.9 % black, against 17.7 % on plain white — measured 2026-09-01).
+# **Yellow, not grey** [Festlegung P47, 2026-09-01, Wolfgang: „ich denke wir
+# sollten das mit blau-gelb als start versuchen — grau wirkt doch gerne sehr
+# langweilig auf e-paper"]. The instinct was right, and it is measurable rather
+# than a matter of taste: **on six primaries a grey is mostly white**. The band
+# shipped once at grey 200 and measured, on the real wall image, 63 % white /
+# 18 % blue / 12 % yellow — a raster, not a surface, and the same mechanic P22
+# found under the guest greeting. A palette colour lands at **93 % pure**.
+#
+# **Which colour is not a matter of taste either.** Blue, green and red are
+# spoken for as source colours, red doubly so since P46 made it the Sunday
+# badge, and black is the badge itself. **Yellow is the only primary nobody
+# has** — precisely because FSD §7 rules it out for text and thin marks, which
+# is what leaves it free as a surface. A blue band would wear the same colour as
+# the household's own appointments.
+#
+# The text on it stays **black**. Yellow *text* at 28 px is the case §7 excludes,
+# and it was visibly the weakest of the five variants that were rendered.
 #
 # Costs 2 days of horizon over three columns.
 WEEK_BAND_H = 44
 WEEK_BAND_GAP = 12
 WEEK_BAND_PX = 28
-WEEK_BAND_BG = "#c8c8c8"
+WEEK_BAND_COLOR = "yellow"
 
 ENTRY_H = 84           # one appointment with a one-line title
 ENTRY_LINE_H = 38      # every further title line
@@ -239,6 +249,7 @@ DEFAULT_COLOR = "blue"
 # The badge is filled, so its two colours are palette colours too — a badge in
 # any other tone would be a dithered raster with white letters knocked out of
 # it, which is the one thing 52 px of type cannot survive.
+WEEK_BAND_BG = COLORS[WEEK_BAND_COLOR]
 BADGE_BG = COLORS["black"]
 BADGE_BG_SUNDAY = COLORS[SUNDAY_COLOR]
 BADGE_FG = "#ffffff"

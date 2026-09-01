@@ -17,7 +17,7 @@
     rail      132 px: 12 px stripe lane, 4 px, 100 px badge, 16 px [P46]
     badge     black (red on Sundays), number 52 px, weekday 30 px, month 26 px
               on the 1st; as tall as the day, at least 98 px
-    band      the week, 44 px on grey 200 with 12 px of air, full column width
+    band      the week, 44 px on palette yellow with 12 px of air, full width
     entry     84 px, plus 38 px for every further title line
     bar       6 px [Festlegung C8] — 2 px is the proven floor, 6 px reads as a
               bar rather than a hairline; the width is configurable
@@ -217,17 +217,17 @@
         right: 0;
         top: 0;
       }
-      /* The week band [P46]. Grey 200, darker than the badge's ground would be
-         — two levels that must not read as one. It is a *surface*, which is
-         where FSD §7 allows grey at all; measured on this panel it comes out
-         62 % white / 18 % blue / 12 % yellow, and the black text on it keeps
-         all of its ink. */
+      /* The week band [P46], in palette yellow [P47]. It shipped once at grey
+         200 and measured 63 % white on the real image — on six primaries a grey
+         is mostly white, which is why it looked pale. Yellow lands at 93 %
+         pure, and it is the only primary no source colour has taken. Black
+         text: yellow *text* at 28 px is what FSD §7 excludes. */
       .band {
         position: absolute;
         left: 0;
         right: 0;
         height: 44px;
-        background: #c8c8c8;
+        background: #f0c81e;
       }
       .band .kw {
         position: absolute;

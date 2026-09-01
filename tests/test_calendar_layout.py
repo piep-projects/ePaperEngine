@@ -993,6 +993,39 @@ class TestWeekBands(unittest.TestCase):
         self.assertEqual(cl.week_band(date(2026, 8, 24), TEXT).height,
                          cl.WEEK_BAND_H + cl.WEEK_BAND_GAP)
 
+    def test_the_band_is_a_palette_colour_and_not_a_grey(self) -> None:
+        """[P47] It shipped once at grey 200 and measured 63 % white on the real
+        image: on six primaries a grey is mostly white, which is why it looked
+        pale. A primary lands as itself — 93 % on the same measurement.
+
+        This is the same rule the Sunday badge, the recipe title and the guest
+        greeting follow; the test that keeps them honest is the same one.
+        """
+        self.assertIn(cl.WEEK_BAND_COLOR, cl.COLORS)
+        self.assertEqual(cl.WEEK_BAND_BG, cl.COLORS[cl.WEEK_BAND_COLOR])
+        self.assertIn(cl.WEEK_BAND_BG,
+                      {"#%02x%02x%02x" % rgb for rgb in imaging.SPECTRA})
+
+    def test_the_band_does_not_wear_a_colour_the_badges_wear(self) -> None:
+        """Black is the badge and red is the Sunday badge [P46]. A band in
+        either would put the same colour on two different things, and the wall
+        is read from a metre away where only the colour arrives."""
+        self.assertNotIn(cl.WEEK_BAND_BG, {cl.BADGE_BG, cl.BADGE_BG_SUNDAY})
+
+    def test_the_band_text_is_not_yellow(self) -> None:
+        """The one place §7 is strict: yellow as a *surface* is fine, yellow as
+        28 px of text is not. So the band is yellow and its text is black —
+        the reverse of that pairing was rendered and was visibly the weakest."""
+        rule = re.search(r"      \.band \{([^}]*)\}",
+                         TEMPLATE.read_text("utf-8"))
+        assert rule is not None
+        self.assertIn(cl.COLORS["yellow"], rule.group(1))
+        for part in (".band .kw", ".band .span"):
+            block = re.search(re.escape(part) + r" \{([^}]*)\}",
+                              TEMPLATE.read_text("utf-8"))
+            assert block is not None, part
+            self.assertNotIn("color:", block.group(1))
+
 
 class TestStripes(unittest.TestCase):
     """The colour of a multi-day appointment, running through [P46]."""
