@@ -193,15 +193,24 @@ RECIPE_SYNC_MIN_GAP_S: Final = 60
 DEFAULT_RECIPE_SYNC_INTERVAL_H: Final = 24
 
 # --- Calendar (FSD §8.1, kalenderkonzept.md Teil A) ---------------------------
-# A source is either a diary or a birthday list, and the difference is not
-# cosmetic: a birthday carries an age computed from its description, shows only
-# its start time, and stays on the wall all day even when today's past entries
-# are hidden — it is not an appointment anybody can be late for.
+# A source is a diary, a list of anniversaries or a list of public holidays,
+# and the differences are not cosmetic: an anniversary carries a year count
+# computed from its title, shows only its start time, and stays on the wall all
+# day even when today's past entries are hidden — it is not an appointment
+# anybody can be late for.
+#
+# A **holiday** [Festlegung P48, 2026-09-01] is the odd one out: its entries are
+# not *of* the day but *about* it. They turn the day's badge red — the ground a
+# Sunday wears — and stand in a line of their own above the appointments,
+# without a time and without a colour bar. Which is why a holiday source carries
+# no colour and is not in the legend: it belongs to nobody.
 CALENDAR_KIND_EVENTS: Final = "events"
 CALENDAR_KIND_BIRTHDAYS: Final = "birthdays"
+CALENDAR_KIND_HOLIDAYS: Final = "holidays"
 CALENDAR_KINDS: Final[tuple[str, ...]] = (
     CALENDAR_KIND_EVENTS,
     CALENDAR_KIND_BIRTHDAYS,
+    CALENDAR_KIND_HOLIDAYS,
 )
 
 # The colour of the bar beside a line [Festlegung C8]. **Spectra primaries

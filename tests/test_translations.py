@@ -192,6 +192,19 @@ class TestFrontendCatalogs(unittest.TestCase):
         for view in _const_tuple("VIEWS"):
             self.assertIn(f"view.{view}", self.base, f"no label for view {view!r}")
 
+    def test_calendar_kinds_have_labels(self) -> None:
+        """Every source kind is a line in a dropdown the household reads [P48].
+
+        The panel builds the options as ``t("panel.calendar.kind." + kind)``, so
+        a kind added to ``const.py`` without a label shows the raw token —
+        "holidays" in a German menu, and only in German first, because English
+        is where a missing key falls back to.
+        """
+        for kind in _const_tuple("CALENDAR_KINDS"):
+            self.assertIn(
+                f"panel.calendar.kind.{kind}", self.base, f"no label for kind {kind!r}"
+            )
+
     def test_priority_candidates_have_labels(self) -> None:
         views = set(_const_tuple("VIEWS"))
         for candidate in _const_tuple("DEFAULT_PRIORITY"):

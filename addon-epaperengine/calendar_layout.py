@@ -215,6 +215,30 @@ BAR_W = 12
 # anniversary calendar. The legend distinguishes them; a glance does not.
 SUNDAY_COLOR = "red"
 
+# --- the holiday line (P48) ---------------------------------------------------
+# **The name stands in a line of its own, without a time and without a bar**
+# [Festlegung P48, 2026-09-01, Wolfgang]. Three things were weighed against
+# drawing it as an ordinary all-day entry:
+#
+#   * "ganztägig" beside "1. Weihnachtsfeiertag" says nothing. A holiday has no
+#     hour anybody can be late for — the same reason an anniversary shows only
+#     its start (kalenderkonzept §6.1);
+#   * the bar carries the colour of a *source*, and a holiday belongs to nobody.
+#     Its badge is already red; a second colour mark on the same day would ask
+#     the reader which of the two is the holiday;
+#   * it is 46 px against 84. **On a day that carries nothing else that is free
+#     either way** — the badge floor is 98 px and swallows both — so the saving
+#     falls exactly where the column is tight: on days that already have
+#     appointments.
+#
+# Red, off the palette, and the same red as the badge: the line and the ground
+# say one thing together. ⚠ That makes red the third thing on this page — a
+# Sunday, an anniversary source, and now a holiday. The legend separates two of
+# them; a glance separates none.
+HOLIDAY_PX = 32
+HOLIDAY_H = 46         # one line plus the air under it
+HOLIDAY_LINE_H = 38    # every further line of a name that wraps
+
 CUT_H = 46             # the "cut" marker under a block that did not fit
 
 # **Where an evening stops being a second day** [Festlegung 2026-08-31,
@@ -262,7 +286,14 @@ BADGE_FG = "#ffffff"
 # not an appointment somebody can be late for.
 KIND_EVENTS = "events"
 KIND_BIRTHDAYS = "birthdays"
-KINDS = (KIND_EVENTS, KIND_BIRTHDAYS)
+# **A third kind: public holidays** [Festlegung P48, 2026-09-01, Wolfgang:
+# „eine weitere Kalenderkategorie ‚Feiertage‘ … die Einträge dort sollen den Tag
+# dann in rot wie einen Sonntag darstellen und den Feiertagstext einblenden"].
+# It is the one kind whose entries are not *of* the day but *about* it: they say
+# what the day is, the way the weekday abbreviation does, and that is why they
+# stand in a line of their own rather than among the appointments.
+KIND_HOLIDAYS = "holidays"
+KINDS = (KIND_EVENTS, KIND_BIRTHDAYS, KIND_HOLIDAYS)
 
 # What counts as a birth year in a description. Narrow on purpose: anything else
 # in that field is a note, and "turns 2019" under a name would be worse than no
@@ -321,11 +352,35 @@ class Entry:
 
 
 @dataclass
+class Holiday:
+    """What the day *is*, drawn above what happens on it [P48].
+
+    Not an :class:`Entry`: it has no time column and no colour bar, and it is
+    never spanned across days. A holiday calendar hands out one all-day event
+    per holiday, and the two German cases that look multi-day — school holidays,
+    a bridging day — are a different list that belongs in an ordinary source.
+    """
+
+    lines: list[str]
+
+    @property
+    def height(self) -> int:
+        return HOLIDAY_H + HOLIDAY_LINE_H * (max(len(self.lines), 1) - 1)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"lines": self.lines, "height": self.height}
+
+
+@dataclass
 class Day:
     """One day block: the badge and everything beside it."""
 
     day: date
     entries: list[Entry] = field(default_factory=list)
+    # The names of the public holidays falling on this day [P48]. They stand
+    # above the appointments and turn the badge red; a day that holds nothing
+    # but one of these is still not an empty day.
+    holidays: list[Holiday] = field(default_factory=list)
     today: bool = False
     cut: int = 0  # appointments that had to be dropped to make it fit
     # Both out of the catalogue, never sliced off the long form in code: "Mo"
@@ -346,7 +401,11 @@ class Day:
     @property
     def body_height(self) -> int:
         """What stands beside the badge. Zero on an empty day."""
-        return sum(entry.height for entry in self.entries) + (CUT_H if self.cut else 0)
+        return (
+            sum(holiday.height for holiday in self.holidays)
+            + sum(entry.height for entry in self.entries)
+            + (CUT_H if self.cut else 0)
+        )
 
     @property
     def badge_floor(self) -> int:
@@ -382,16 +441,29 @@ class Day:
         """
         return self.day.weekday() == 6
 
+    @property
+    def red(self) -> bool:
+        """Whether the badge is red: a Sunday, or a public holiday [P48].
+
+        Two facts, one ground. The template asks this rather than ``sunday``,
+        so that a holiday falling on a Sunday changes nothing and a holiday on a
+        Tuesday reads exactly like one — which is what the household asked for
+        („den Tag dann in rot wie einen Sonntag darstellen").
+        """
+        return self.sunday or bool(self.holidays)
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "kind": "day",
             "number": f"{self.day.day:02d}",
             "weekday": self.weekday_text,
             "month": self.month_text,
+            "holidays": [holiday.as_dict() for holiday in self.holidays],
             "entries": [entry.as_dict() for entry in self.entries],
-            "empty": not self.entries,
+            "empty": not self.entries and not self.holidays,
             "today": self.today,
             "sunday": self.sunday,
+            "red": self.red,
             "cut": self.cut,
             "badge_h": self.badge_height,
             "top": self.top,
@@ -435,10 +507,24 @@ def chars_per_line(font_px: int, width: int) -> int:
 TITLE_W = COLUMN_W - RAIL_W - TITLE_DX  # 458
 TITLE_CHARS = chars_per_line(TITLE_PX, TITLE_W)
 
+# A holiday name gets the **whole** body, because it gives up the time column
+# it would otherwise stand beside [P48]: 673 px against the title's 458, which
+# is 40 characters against 27. "1. Weihnachtsfeiertag" is 21 and the longest
+# German public holiday, "Tag der Deutschen Einheit", is 25 — but the wrap is
+# measured rather than assumed, because the list is whatever calendar the
+# household subscribes to, and a name that wraps has to raise the badge with it.
+HOLIDAY_W = COLUMN_W - RAIL_W  # 673
+HOLIDAY_CHARS = chars_per_line(HOLIDAY_PX, HOLIDAY_W)
+
 
 def title_lines(text: str) -> list[str]:
     """Wrap an appointment title the way the column will break it."""
     return wrap(text, TITLE_CHARS) or [""]
+
+
+def holiday_lines(text: str) -> list[str]:
+    """Wrap a holiday name the way its full-width line will break it."""
+    return wrap(text, HOLIDAY_CHARS) or [""]
 
 
 # --- reading what Home Assistant handed over ----------------------------------
@@ -571,13 +657,21 @@ def build_days(
     """
     say = text or (lambda key, **fields: key)
     by_day: dict[date, list[Entry]] = {}
+    names: dict[date, list[Holiday]] = {}
+
+    def in_window(day: date) -> bool:
+        return day >= today and (horizon is None or day <= horizon)
 
     for source in sources:
         for raw in events.get(source.entity_id) or []:
+            if source.kind == KIND_HOLIDAYS:
+                for day, holiday in _holidays_for(raw, say):
+                    if in_window(day):
+                        names.setdefault(day, []).append(holiday)
+                continue
             for day, entry in _entries_for(raw, source, today, now, show_past_today, say):
-                if day < today or (horizon is not None and day > horizon):
-                    continue
-                by_day.setdefault(day, []).append(entry)
+                if in_window(day):
+                    by_day.setdefault(day, []).append(entry)
 
     spans = _collapse_spans(by_day)
 
@@ -585,19 +679,22 @@ def build_days(
     # trailing empty days are filler, and filler is measured in appointments
     # that did not fit.
     covered = [day for covered_days, _ in spans.values() for day in covered_days]
-    last = max([*by_day, *covered] or [today])
+    last = max([*by_day, *covered, *names] or [today])
     days: list[Day] = []
     cursor = today
     while cursor <= last:
         entries = sorted(by_day.get(cursor, []), key=lambda item: item.sort_key)
+        holidays = names.get(cursor, [])
         touching = {key: hex_ for key, (_, hex_) in _touching(spans, cursor).items()}
         # A day a span merely runs through carries no entry any more, but the
-        # stripe has to cross it — so it is never dropped as "empty".
-        if entries or touching or show_empty_days or cursor == today:
+        # stripe has to cross it — so it is never dropped as "empty". Neither is
+        # a day that only a holiday name stands on [P48].
+        if entries or holidays or touching or show_empty_days or cursor == today:
             days.append(
                 Day(
                     day=cursor,
                     entries=entries,
+                    holidays=holidays,
                     today=cursor == today,
                     weekday_text=say(f"weekday_short.{cursor.weekday()}"),
                     month_text=(
@@ -783,6 +880,28 @@ def _entries_for(
             )
         )
     return out
+
+
+def _holidays_for(raw: dict[str, Any], say: Any) -> list[tuple[date, Holiday]]:
+    """One raw event from a holiday calendar → the day it names [P48].
+
+    **Only its first day** [Festlegung P48, Wolfgang: „vorerst gar nicht
+    spannen"]. Every German public holiday is one day long, and a list that is
+    not — school holidays, a works shutdown — would turn a fortnight of badges
+    red and leave red saying nothing in particular. Such a list belongs in an
+    ordinary source, where the stripe of P46 already draws it properly.
+
+    **No visibility filter either.** A holiday is exempt from "hide today's past
+    appointments" for the same reason an anniversary is: it is not something
+    anybody can be late for. That it is normally an all-day entry — which is
+    exempt anyway — is a property of the calendar, not a guarantee, and the wall
+    must not lose Christmas Day at 00:01 because a feed wrote it as 00:00–00:00.
+    """
+    start = _parse(raw.get("start"))
+    if start is None:
+        return []
+    summary = str(raw.get("summary") or "").strip() or say("calendar.untitled")
+    return [(_local_date(start[0]), Holiday(lines=holiday_lines(summary)))]
 
 
 def _timed_days(start: datetime | date, end: datetime | date | None) -> list[date]:
@@ -1059,7 +1178,11 @@ def _fit(day: Day, column_h: int) -> Day | None:
     while kept and replace(day, entries=kept, cut=dropped + 1).height > column_h:
         kept.pop()
         dropped += 1
-    if not kept:
+    # A day whose every appointment had to go is still a day when it carries a
+    # holiday name: dropping the block would take the red badge and the name
+    # with it, and the run of days would lose Christmas because too much was
+    # happening on it [P48].
+    if not kept and not day.holidays:
         return None
     return replace(day, entries=kept, cut=dropped)
 
@@ -1118,6 +1241,7 @@ class Page:
     column_h: int
     shown_days: int
     shown_entries: int
+    shown_holidays: int
     dropped_days: int
     cut_entries: int
 
@@ -1185,7 +1309,17 @@ def build_page(
     # visible refresh. The page still says how fresh it is, just by its content:
     # past appointments drop out as the day goes on. Callers may still pass a
     # foot line of their own; nothing in the product does.
-    rows = legend_lines([{"label": source.label, "hex": source.hex} for source in sources])
+    # **A holiday source is not in the legend** [Festlegung P48]: the legend says
+    # whose appointment wears which colour, and a holiday is nobody's. It has no
+    # bar to explain, so a chip beside its name would point at nothing on the
+    # page — and it would cost the third column a 36 px line of foot.
+    rows = legend_lines(
+        [
+            {"label": source.label, "hex": source.hex}
+            for source in sources
+            if source.kind != KIND_HOLIDAYS
+        ]
+    )
     foot_h = foot_height(len(rows), len(notes), stamp=bool(stamp))
     # **Only the first column pays for the header, only the third for the foot**
     # [P46 and P29]. A band across the whole page would take its height off all
@@ -1210,6 +1344,11 @@ def build_page(
         column_h=COLUMN_H,
         shown_days=len(shown),
         shown_entries=sum(len(day.entries) for day in shown),
+        # Counted separately from the entries, because it is not one [P48]: it
+        # is also the only way to tell from a run's log whether a holiday
+        # calendar reached the page at all — it is in no legend, so the source
+        # count says nothing about it.
+        shown_holidays=sum(len(day.holidays) for day in shown),
         dropped_days=len(days) - len(shown),
         cut_entries=sum(day.cut for day in shown),
     )

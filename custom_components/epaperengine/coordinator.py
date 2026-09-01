@@ -762,6 +762,12 @@ class EPaperEngineCoordinator:
         failed: dict[str, str] = {}
         for source in sources:
             entity_id = str(source["entity_id"])
+            # Holidays use the appointment window rather than one of their own
+            # [P48]: the page's horizon is ``query_days_events`` whatever the
+            # source, so a separate setting for them would be a field that
+            # changes nothing — the anniversary window is the exception because
+            # one wants notice enough to buy a present, and it is already capped
+            # by the same horizon.
             days = (
                 section.get("query_days_birthdays") or DEFAULT_CALENDAR_DAYS_BIRTHDAYS
                 if source.get("kind") == CALENDAR_KIND_BIRTHDAYS

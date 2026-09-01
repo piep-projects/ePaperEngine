@@ -188,8 +188,12 @@
       }
       /* Sunday is the badge's ground, not a line's colour [P45 → P46]: a whole
          red block is found from across the room. Red off the palette, so it
-         carries no dither raster of its own. */
-      .badge.sunday {
+         carries no dither raster of its own.
+
+         The class says `red` rather than `sunday` since P48: a public holiday
+         paints the same ground, and a class named after only one of the two
+         reasons would read as a bug the first time a Tuesday wore it. */
+      .badge.red {
         background: #dc1e1e;
       }
       .badge .num {
@@ -251,6 +255,19 @@
          the appointment did not stop at the week boundary either. */
       .stripe {
         position: absolute;
+      }
+      /* The holiday name [P48]. It stands above the appointments and takes the
+         whole body width, because it gives up the time column an entry stands
+         beside — "ganztägig" next to "1. Weihnachtsfeiertag" says nothing, and
+         a colour bar would claim the day for a source that owns nothing.
+         Red off the palette, the same red as the badge below it, so the two
+         say one thing together. The height comes from the model: 38 px of line
+         plus 8 px of air, one further line per 38. */
+      .holiday {
+        font-size: 32px;
+        line-height: 38px;
+        font-weight: bold;
+        color: #dc1e1e;
       }
       .entry {
         position: relative;
@@ -327,7 +344,7 @@
             {%- else %}
             <div class="day" style="top: {{ item.top }}px; height: {{ item.badge_h }}px">
               <div
-                class="badge{% if item.sunday %} sunday{% endif %}"
+                class="badge{% if item.red %} red{% endif %}"
                 style="height: {{ item.badge_h }}px"
               >
                 <div class="num">{{ item.number }}</div>
@@ -335,6 +352,13 @@
                 {%- if item.month %}<div class="mon">{{ item.month }}</div>{% endif %}
               </div>
               <div class="body">
+                {%- for holiday in item.holidays %}
+                <div class="holiday" style="height: {{ holiday.height }}px">
+                  {%- for line in holiday.lines %}
+                  <div>{{ line }}</div>
+                  {%- endfor %}
+                </div>
+                {%- endfor %}
                 {%- for entry in item.entries %}
                 <div class="entry" style="height: {{ entry.height }}px">
                   <span

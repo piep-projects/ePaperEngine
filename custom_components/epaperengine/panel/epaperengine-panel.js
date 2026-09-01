@@ -97,10 +97,13 @@ const CALENDAR_COLORS = {
   black: "#000000",
 };
 
-// A source is either a diary or a birthday list (const.py CALENDAR_KINDS). The
-// difference is the age line, the single start time and the exemption from the
-// "hide today's past entries" filter.
-const CALENDAR_KINDS = ["events", "birthdays"];
+// A source is a diary, a list of anniversaries or a list of public holidays
+// (const.py CALENDAR_KINDS). "birthdays" adds the year count, the single start
+// time and the exemption from the "hide today's past entries" filter;
+// "holidays" turns the day's badge red and puts the name in a line of its own
+// [P48] — which is why a holiday source has no colour to pick.
+const CALENDAR_KINDS = ["events", "birthdays", "holidays"];
+const CALENDAR_KIND_HOLIDAYS = "holidays";
 
 // ---------------------------------------------------------------------------
 // i18n — same mechanism and the same catalogs as the card (i18n concept §4/§7).
@@ -1313,15 +1316,21 @@ class EPaperEnginePanel extends HTMLElement {
             '<option value="' + esc(kind) + '"' + (source.kind === kind ? " selected" : "") + ">" +
             esc(t("panel.calendar.kind." + kind)) + "</option>",
         ).join("");
-        const swatches = Object.entries(CALENDAR_COLORS)
-          .map(
-            ([token, hex]) =>
-              '<button class="swatch ' + (source.color === token ? "on" : "") +
-              '" data-src-color="' + index + ":" + esc(token) + '" title="' +
-              esc(t("guests.color." + token)) + '" ' + lock + '><span style="background:' +
-              esc(hex) + '"></span></button>',
-          )
-          .join("");
+        // A holiday belongs to nobody, so it wears no colour and stands in no
+        // legend [P48]. The cell says so rather than going blank — an empty
+        // box beside four filled ones reads as something that failed to load.
+        const swatches =
+          source.kind === CALENDAR_KIND_HOLIDAYS
+            ? '<span class="muted">' + esc(t("panel.calendar.color.none")) + "</span>"
+            : Object.entries(CALENDAR_COLORS)
+                .map(
+                  ([token, hex]) =>
+                    '<button class="swatch ' + (source.color === token ? "on" : "") +
+                    '" data-src-color="' + index + ":" + esc(token) + '" title="' +
+                    esc(t("guests.color." + token)) + '" ' + lock + '><span style="background:' +
+                    esc(hex) + '"></span></button>',
+                )
+                .join("");
         const answer = failed[id]
           ? '<span class="bad" title="' + esc(failed[id]) + '">' + esc(t("panel.calendar.failed")) + "</span>"
           : id in counts
@@ -2053,6 +2062,16 @@ class EPaperEnginePanel extends HTMLElement {
         this._draft.calendar.sources = (this._draft.calendar.sources || []).filter(
           (_, position) => position !== index,
         );
+        this._render();
+      };
+    });
+    root.querySelectorAll("[data-src-kind]").forEach((select) => {
+      // The kind decides whether the row has a colour cell at all, so the card
+      // has to be repainted when it changes. Collect first, exactly as the
+      // swatch and the remove button do: the repaint rebuilds every field from
+      // the draft, and a half-typed name would be gone.
+      select.onchange = () => {
+        this._collect();
         this._render();
       };
     });

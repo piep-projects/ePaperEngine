@@ -92,6 +92,258 @@ class TestPalette(unittest.TestCase):
         self.assertEqual(pairs, cl.COLORS)
 
 
+class TestKinds(unittest.TestCase):
+    """The three lists of source kinds, held together [P48].
+
+    The kind is a bare string in three files: the add-on decides what to *draw*
+    from it, ``const.py`` decides what the store accepts, and the panel builds
+    the dropdown out of its own copy. A kind missing from one of them fails in
+    a different way each time and none of them is loud: the panel would offer a
+    kind the store rejects, or the store would hold one the panel cannot show —
+    and ``read_source`` quietly turns anything it does not know into
+    ``events``, which is a calendar that simply stops being a holiday list.
+    """
+
+    def _panel(self) -> list[str]:
+        block = re.search(r"const CALENDAR_KINDS = \[(.*?)\];", PANEL.read_text("utf-8"))
+        assert block is not None, "the panel no longer declares CALENDAR_KINDS"
+        return re.findall(r'"(\w+)"', block.group(1))
+
+    def test_the_integration_offers_the_same_kinds(self) -> None:
+        tree = ast.parse((COMPONENT / "const.py").read_text(encoding="utf-8"))
+        literals = {
+            node.target.id: node.value
+            for node in tree.body
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+        }
+        names = [
+            str(literals[element.id].value)  # type: ignore[attr-defined,union-attr]
+            for element in literals["CALENDAR_KINDS"].elts  # type: ignore[attr-defined]
+        ]
+        self.assertEqual(names, list(cl.KINDS))
+
+    def test_the_panel_offers_the_same_kinds(self) -> None:
+        self.assertEqual(self._panel(), list(cl.KINDS))
+
+    def test_an_unknown_kind_falls_back_to_appointments(self) -> None:
+        """An old store, or a kind removed from a later build."""
+        self.assertEqual(cl.read_source({"entity_id": "calendar.a"}).kind, cl.KIND_EVENTS)
+        self.assertEqual(
+            cl.read_source({"entity_id": "calendar.a", "kind": "bank_holidays"}).kind,
+            cl.KIND_EVENTS,
+        )
+        self.assertEqual(
+            cl.read_source({"entity_id": "calendar.a", "kind": "holidays"}).kind,
+            cl.KIND_HOLIDAYS,
+        )
+
+
+class TestHolidays(unittest.TestCase):
+    """A holiday says what the day *is* [Festlegung P48, 2026-09-01].
+
+    Three things were decided and each of them fails silently: the badge turns
+    red like a Sunday, the name stands in a line of its own without a time and
+    without a bar, and the source is in no legend because it belongs to nobody.
+    """
+
+    def _days(self, events, **kwargs):
+        return cl.build_days(
+            [_source(kind=cl.KIND_HOLIDAYS, person="Feiertage")],
+            {"calendar.a": events},
+            today=TODAY,
+            text=TEXT,
+            **kwargs,
+        )
+
+    def _all_day(self, day, summary):
+        return {"start": day.isoformat(), "end": (day + timedelta(days=1)).isoformat(),
+                "summary": summary}
+
+    def test_the_badge_turns_red_on_a_weekday(self) -> None:
+        """The whole request: „den Tag dann in rot wie einen Sonntag"."""
+        day = self._days([self._all_day(TODAY + timedelta(days=2), "Tag der Arbeit")])[2]
+        self.assertFalse(day.sunday)          # 2026-08-25 is a Tuesday
+        self.assertTrue(day.red)
+        self.assertIs(day.as_dict()["red"], True)
+        self.assertIs(day.as_dict()["sunday"], False)
+
+    def test_a_sunday_stays_red_and_a_plain_weekday_does_not(self) -> None:
+        days = self._days([self._all_day(TODAY + timedelta(days=2), "Feiertag")])
+        self.assertTrue(days[0].red)          # TODAY is a Sunday
+        self.assertFalse(days[1].red)
+        self.assertTrue(days[2].red)
+
+    def test_the_name_is_shown(self) -> None:
+        day = self._days([self._all_day(TODAY, "1. Weihnachtsfeiertag")])[0]
+        self.assertEqual([h.lines for h in day.holidays], [["1. Weihnachtsfeiertag"]])
+        self.assertEqual(day.as_dict()["holidays"][0]["lines"], ["1. Weihnachtsfeiertag"])
+
+    def test_it_is_not_an_entry(self) -> None:
+        """No time column, no colour bar, no legend — the entry list stays empty
+        so nothing downstream can draw it as an appointment."""
+        day = self._days([self._all_day(TODAY, "Tag der Deutschen Einheit")])[0]
+        self.assertEqual(day.entries, [])
+        self.assertEqual(day.as_dict()["entries"], [])
+        self.assertNotIn("time", day.as_dict()["holidays"][0])
+        self.assertNotIn("color", day.as_dict()["holidays"][0])
+
+    def test_a_day_with_only_a_holiday_is_not_empty(self) -> None:
+        """It carries a name and a red badge; "empty" drives nothing but a
+        class, and calling this day empty would be a lie in the document."""
+        # Two days out, not today: today is kept whatever it holds, so a holiday
+        # standing on it would prove nothing about the rule.
+        days = self._days(
+            [self._all_day(TODAY + timedelta(days=2), "Feiertag")], show_empty_days=False
+        )
+        self.assertEqual([day.day for day in days],
+                         [TODAY, TODAY + timedelta(days=2)])
+        self.assertIs(days[-1].as_dict()["empty"], False)
+        self.assertTrue(days[-1].red)
+
+    def test_the_run_of_days_reaches_a_holiday_beyond_the_last_appointment(self) -> None:
+        """``last`` is the end of the run. A holiday four days out with nothing
+        after it would otherwise be cut off with the filler."""
+        far = TODAY + timedelta(days=4)
+        days = self._days([self._all_day(far, "Feiertag")], show_empty_days=True)
+        self.assertEqual(days[-1].day, far)
+        self.assertTrue(days[-1].red)
+
+    def test_it_costs_nothing_on_a_day_that_holds_nothing_else(self) -> None:
+        """46 px against a badge floor of 98 — the saving falls on busy days,
+        which is where the column is tight."""
+        day = self._days([self._all_day(TODAY, "Feiertag")])[0]
+        self.assertEqual(day.height, cl.BADGE_MIN_H + cl.DAY_GAP)
+        self.assertEqual(day.body_height, cl.HOLIDAY_H)
+
+    def test_the_name_is_wrapped_at_the_full_body_width(self) -> None:
+        """40 characters, not the title's 27 [P48].
+
+        The line gives up the time column, so it has 673 px where an entry has
+        458. Wrapping it at the title width would be silent — the name would
+        simply break a line early and the badge would grow with it — so the two
+        widths are held apart here by a name that fits one and not the other.
+        """
+        self.assertGreater(cl.HOLIDAY_CHARS, cl.TITLE_CHARS)
+        name = "Tag der Deutschen Einheit und mehr"  # 34 characters
+        self.assertGreater(len(name), cl.TITLE_CHARS)
+        self.assertLessEqual(len(name), cl.HOLIDAY_CHARS)
+        day = self._days([self._all_day(TODAY, name)])[0]
+        self.assertEqual(day.holidays[0].lines, [name])
+        self.assertEqual(day.holidays[0].height, cl.HOLIDAY_H)
+
+    def test_a_wrapped_name_costs_a_line_and_raises_the_badge_with_it(self) -> None:
+        """Two lines still hide under the 98 px badge floor; three do not.
+
+        Both halves are worth pinning: the first says a wrapped name is free
+        where the floor covers it, the second that the badge really does grow
+        rather than clipping the name — which is how it would fail, silently,
+        because the badge has ``overflow: hidden``.
+        """
+        two = "Fest der Verkündigung des Herrn und aller Heiligen im Bistum"
+        day = self._days([self._all_day(TODAY, two)])[0]
+        self.assertEqual(len(day.holidays[0].lines), 2)
+        self.assertEqual(day.body_height, cl.HOLIDAY_H + cl.HOLIDAY_LINE_H)
+        self.assertEqual(day.badge_height, cl.BADGE_MIN_H)   # 84 < 98, still free
+
+        three = two + " Fulda und im Erzbistum Paderborn zu Ehren aller"
+        day = self._days([self._all_day(TODAY, three)])[0]
+        self.assertEqual(len(day.holidays[0].lines), 3)
+        self.assertEqual(day.body_height, cl.HOLIDAY_H + 2 * cl.HOLIDAY_LINE_H)
+        self.assertEqual(day.badge_height, day.body_height)
+        self.assertGreater(day.badge_height, cl.BADGE_MIN_H)
+
+    def test_it_is_never_spanned(self) -> None:
+        """[Wolfgang: „vorerst gar nicht spannen"] — a multi-day entry in a
+        holiday list stands on its first day and nowhere else, and draws no
+        stripe: a fortnight of red badges would leave red saying nothing."""
+        days = self._days(
+            [{"start": TODAY.isoformat(),
+              "end": (TODAY + timedelta(days=5)).isoformat(),
+              "summary": "Weihnachtsferien"}]
+        )
+        self.assertEqual([len(day.holidays) for day in days], [1])
+        self.assertEqual(days[0].spans, {})
+
+    def test_it_survives_the_past_appointment_filter(self) -> None:
+        """Like an anniversary: it is not something anybody can be late for, and
+        a wall that dropped Christmas Day at 00:01 because the feed wrote it as
+        a timed 00:00–00:00 entry would be a trap, not a setting."""
+        days = cl.build_days(
+            [_source(kind=cl.KIND_HOLIDAYS)],
+            {"calendar.a": [_event(TODAY, "00:00", "00:00", summary="Feiertag")]},
+            today=TODAY,
+            now=datetime(TODAY.year, TODAY.month, TODAY.day, 18, 0),
+            show_past_today=False,
+            text=TEXT,
+        )
+        self.assertEqual([h.lines for h in days[0].holidays], [["Feiertag"]])
+
+    def test_a_nameless_entry_says_so_rather_than_going_blank(self) -> None:
+        day = self._days([self._all_day(TODAY, "")])[0]
+        self.assertEqual(day.holidays[0].lines, [TEXT("calendar.untitled")])
+
+    def test_the_source_is_in_no_legend(self) -> None:
+        """A legend says whose appointment wears which colour; a holiday is
+        nobody's, and a chip beside its name would point at nothing on the
+        page. It also buys the third column a 36 px line of foot."""
+        page = cl.build_page(
+            {
+                "calendar": {
+                    "sources": [
+                        {"entity_id": "calendar.a", "person": "Wolfgang", "color": "blue"},
+                        {"entity_id": "calendar.f", "person": "Feiertage",
+                         "color": "red", "kind": "holidays"},
+                    ],
+                    "events": {"calendar.a": [], "calendar.f": []},
+                }
+            },
+            now=datetime(TODAY.year, TODAY.month, TODAY.day, 9, 0),
+            text=TEXT,
+        )
+        labels = [who["label"] for row in page.legend for who in row]
+        self.assertEqual(labels, ["Wolfgang"])
+
+    def test_a_cut_day_keeps_its_holiday(self) -> None:
+        """A day too tall for a column loses appointments from the tail."""
+        entry = cl.Entry(time_text="09:00", title_lines=["x"], location="", color="#000")
+        day = cl.Day(day=TODAY, entries=[entry] * 40,
+                     holidays=[cl.Holiday(lines=["1. Weihnachtsfeiertag"])])
+        kept = cl._fit(day, cl.COLUMN_H)
+        assert kept is not None
+        self.assertGreater(kept.cut, 0)
+        self.assertEqual(kept.holidays, day.holidays)
+        self.assertLessEqual(kept.height, cl.COLUMN_H)
+
+    def test_a_day_whose_every_appointment_is_cut_keeps_its_holiday(self) -> None:
+        """The case the guard in ``_fit`` is actually for [P48].
+
+        One appointment whose title is long enough that it does not fit a column
+        even alone: the tail-dropping loop empties the list, and without the
+        guard the whole block is returned as ``None`` — the red badge and the
+        name go with it, and the run of days loses Christmas Day because too
+        much was happening on it. Reachable with a single entry, which is why
+        the forty-appointment case above does not prove it: there the loop
+        always stops with something left.
+        """
+        lines = (cl.COLUMN_H // cl.ENTRY_LINE_H) + 2
+        entry = cl.Entry(time_text="", title_lines=["x"] * lines, location="", color="#000")
+        holiday = cl.Holiday(lines=["1. Weihnachtsfeiertag"])
+        self.assertGreater(entry.height + holiday.height, cl.COLUMN_H)
+
+        day = cl.Day(day=TODAY, entries=[entry], holidays=[holiday])
+        kept = cl._fit(day, cl.COLUMN_H)
+        assert kept is not None, "the day was dropped and took its holiday with it"
+        self.assertEqual(kept.entries, [])
+        self.assertEqual(kept.cut, 1)
+        self.assertEqual(kept.holidays, [holiday])
+        self.assertTrue(kept.red)
+        self.assertLessEqual(kept.height, cl.COLUMN_H)
+
+        # Without a holiday the same day is still dropped: there is nothing left
+        # to draw, and an empty badge with a cut marker says nothing.
+        self.assertIsNone(cl._fit(cl.Day(day=TODAY, entries=[entry]), cl.COLUMN_H))
+
+
 class TestBirthYear(unittest.TestCase):
     def test_the_description_carries_the_year(self) -> None:
         self.assertEqual(cl.anniversary_year("Erika Müller", "1946"), ("Erika Müller", 1946))
@@ -1264,18 +1516,50 @@ class TestTemplateAgreesWithTheModel(unittest.TestCase):
         self.assertNotIn(".empty", self.CSS)
         self.assertNotIn("calendar.empty", self.CSS)
 
-    def test_sunday_is_painted_in_the_colour_the_model_names(self) -> None:
+    def test_the_red_badge_is_painted_in_the_colour_the_model_names(self) -> None:
         """The model decides which day it is; the stylesheet only paints it.
 
         Two strings in two files [P45] — the class name and the hex. Either
         drifting is silent: a renamed class simply paints nothing.
+
+        The class is ``red``, not ``sunday``, since P48: a public holiday wears
+        the same ground, and the template asks ``item.red`` rather than
+        ``item.sunday`` so that both reasons reach it.
         """
-        self.assertIn(".badge.sunday", self.CSS)
-        rule = re.search(r"\.badge\.sunday\s*\{([^}]*)\}", self.CSS)
+        self.assertIn(".badge.red", self.CSS)
+        rule = re.search(r"\.badge\.red\s*\{([^}]*)\}", self.CSS)
         assert rule is not None
         self.assertIn(cl.BADGE_BG_SUNDAY, rule.group(1))
         self.assertEqual(cl.BADGE_BG_SUNDAY, cl.COLORS[cl.SUNDAY_COLOR])
-        self.assertIn('{% if item.sunday %} sunday{% endif %}', self.CSS)
+        self.assertIn('{% if item.red %} red{% endif %}', self.CSS)
+        # The old name must not survive anywhere: a leftover `.badge.sunday`
+        # rule would paint Sundays through a class nothing sets any more.
+        self.assertNotIn(".badge.sunday", self.CSS)
+
+    def test_the_holiday_line_costs_what_the_model_charges(self) -> None:
+        """[P48] 46 px of box against 38 px of line, and 38 px per further one.
+
+        The badge grows to the body, so a stylesheet that set a taller line than
+        the model budgeted would push the last appointment of the day past the
+        badge it stands beside — and the badge clips.
+        """
+        self.assertEqual(self._px(".holiday", "font-size"), cl.HOLIDAY_PX)
+        self.assertEqual(self._px(".holiday", "line-height"), cl.HOLIDAY_LINE_H)
+        self.assertLessEqual(self._px(".holiday", "line-height"), cl.HOLIDAY_H)
+        rule = re.search(r"      \.holiday \{([^}]*)\}", self.CSS)
+        assert rule is not None
+        self.assertIn(f"color: {cl.BADGE_BG_SUNDAY}", rule.group(1))
+        self.assertIn('style="height: {{ holiday.height }}px"', self.CSS)
+
+    def test_the_holiday_line_carries_no_time_and_no_bar(self) -> None:
+        """[Festlegung P48] The whole point of the separate line: a holiday has
+        no hour anybody can be late for, and belongs to no source."""
+        block = re.search(
+            r'<div class="holiday".*?</div>\s*\{%- endfor %\}', self.CSS, re.S
+        )
+        assert block is not None, "the holiday block is gone from the template"
+        self.assertNotIn('class="bar"', block.group(0))
+        self.assertNotIn('class="time"', block.group(0))
 
     def test_the_cut_marker_costs_what_the_model_charges(self) -> None:
         self.assertEqual(self._px(".cut", "height"), cl.CUT_H)

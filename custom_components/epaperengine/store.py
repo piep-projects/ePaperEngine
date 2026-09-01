@@ -82,8 +82,12 @@ def default_config() -> dict[str, Any]:
         "schedule": {},
         # Quellenagnostisch (FSD §8.1): what is behind an entity — M365 publish
         # ICS, Google, CalDAV, Local Calendar — never reaches this document.
-        # ``kind`` is the one distinction that does: ``birthdays`` turns the
-        # description into an age and keeps the entry up all day.
+        # ``kind`` is the one distinction that does: ``birthdays`` turns a year
+        # into a count and keeps the entry up all day, ``holidays`` turns the
+        # day's badge red and puts the name in a line of its own [P48]. There is
+        # no validation here — the renderer's ``read_source`` turns anything it
+        # does not know into ``events``, which is the only safe fallback for a
+        # store written by an older or newer build.
         "calendar": {
             "sources": [],  # [{entity_id, person, color, kind}]
             "query_days_events": DEFAULT_CALENDAR_DAYS_EVENTS,
