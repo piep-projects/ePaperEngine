@@ -92,7 +92,11 @@ einer Ansicht von einem System, das an allem scheitert.
 - **Läuft das Add-on?** Einstellungen → Add-ons → ePaperEngine. Sein Protokoll
   ist das, was zu lesen ist.
 - **Stimmt die Renderer-Adresse?** Einstellungen → Renderer (Add-on) → Adresse.
-  `http://homeassistant.local:8099`, oder die IP, wenn der Name nicht auflöst.
+  Dort gehört die **IP deiner Home-Assistant-Instanz** hin, `http://…:8099`.
+  Steht das Feld leer, versucht die Integration es mit
+  `http://homeassistant.local:8099` — und meldet dann meist
+  `Cannot connect to host homeassistant.local:8099 [Network unreachable]`,
+  weil mDNS aus dem Container heraus nicht auflöst.
 - **Ist das Medienverzeichnis erreichbar?** Ein abwesendes NAS nimmt Fotos und
   Gästehintergründe mit. Kalender und Rezepte brauchen es nicht.
 

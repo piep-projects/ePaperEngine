@@ -93,7 +93,10 @@ failing at everything.
 - **Is the add-on running?** Settings → Add-ons → ePaperEngine. Its log is the
   one to read.
 - **Is the renderer address right?** Settings → Renderer (add-on) → Address.
-  `http://homeassistant.local:8099`, or the IP if the name does not resolve.
+  It wants the **IP of your Home Assistant instance**, `http://…:8099`. Left
+  empty, the integration tries `http://homeassistant.local:8099` and usually
+  reports `Cannot connect to host homeassistant.local:8099 [Network
+  unreachable]`, because mDNS does not resolve from inside the container.
 - **Is the media directory reachable?** A NAS that is away takes photos and
   guest backgrounds with it. The calendar and recipes do not need it.
 

@@ -49,15 +49,29 @@ Die Integration reicht sie stattdessen auf Anfrage weiter.
 ## 3 · Die beiden voneinander wissen lassen
 
 Das Panel in der Seitenleiste öffnen, auf **Einstellungen**, und unter
-**Renderer (Add-on) · Adresse** eintragen:
+**Renderer (Add-on) · Adresse** die **IP-Adresse deiner Home-Assistant-Instanz**
+eintragen, mit Port 8099:
 
 ```
-http://homeassistant.local:8099
+http://192.168.1.42:8099
 ```
 
-Wenn der Name nicht auflöst, die IP nehmen. Das ist die Adresse, unter der *Home
-Assistant* das Add-on erreicht; die Adresse, von der das **Display** holt,
-ermittelt das Add-on selbst aus der Route zum Panel.
+**Das Feld ist bei einer frischen Installation leer**, und solange es leer
+bleibt, versucht die Integration es mit `http://homeassistant.local:8099`. Das
+funktioniert nur, wenn mDNS aus dem Home-Assistant-Container heraus auflöst —
+oft tut es das nicht, und dann steht im Protokoll:
+
+```
+Cannot connect to host homeassistant.local:8099 [Network unreachable]
+```
+
+Der Name ist also die Bequemlichkeit für den, bei dem er auflöst; die IP ist der
+Weg, der immer trägt. (Eine DHCP-Reservierung für die HA-Instanz erspart, dass
+sich der Eintrag später ändert.)
+
+Das ist die Adresse, unter der *Home Assistant* das Add-on erreicht; die
+Adresse, von der das **Display** holt, ermittelt das Add-on selbst aus der Route
+zum Panel.
 
 Weiter mit [dem Display](display.md).
 

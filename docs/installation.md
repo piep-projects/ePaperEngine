@@ -48,15 +48,28 @@ request instead.
 ## 3 · Tell the two about each other
 
 Open the sidebar panel, go to **Settings**, and fill in **Renderer (add-on) ·
-Address**:
+Address** with the **IP address of your Home Assistant instance** and port 8099:
 
 ```
-http://homeassistant.local:8099
+http://192.168.1.42:8099
 ```
 
-Use the IP if the name does not resolve. That is the address *Home Assistant*
-uses to reach the add-on; the address the **display** fetches from is worked out
-by the add-on itself, from the route towards the panel.
+**The field is empty on a fresh installation**, and while it stays empty the
+integration tries `http://homeassistant.local:8099`. That only works when mDNS
+resolves from inside the Home Assistant container — often it does not, and the
+log then reads:
+
+```
+Cannot connect to host homeassistant.local:8099 [Network unreachable]
+```
+
+So the name is a convenience for those it resolves for; the IP is the route that
+always carries. (A DHCP reservation for the HA instance keeps the entry from
+going stale.)
+
+That is the address *Home Assistant* uses to reach the add-on; the address the
+**display** fetches from is worked out by the add-on itself, from the route
+towards the panel.
 
 Then continue with [the display](display.md).
 
