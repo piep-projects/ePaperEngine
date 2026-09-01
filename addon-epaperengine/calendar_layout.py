@@ -35,7 +35,7 @@ make [P13/P14]: cutting is bad, cutting silently is the bug.
 from __future__ import annotations
 
 import unicodedata
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
@@ -110,31 +110,73 @@ LEGEND_CHIP_W = 34   # the mockup's swatch
 LEGEND_CHIP_GAP = 12
 LEGEND_GAP = 44      # between two legend entries
 
-# --- the day block ------------------------------------------------------------
-# From ``kal_spalte`` in the mockup generator: title, 52 px advance, then air;
-# every appointment 84 px plus 38 px per extra title line; 24 px under the block.
+# --- the day badge and the week band (P46) ------------------------------------
+# **The day no longer has a title line; it has a badge in a rail** [Festlegung
+# P46, 2026-09-01, Wolfgang, nach dem Mockup]. Until here every day opened with
+# a full-width 36 px line — "Heute · Mittwoch, 20. August" — 64 px tall on
+# *every* day, empty ones included, and typically half of it white: the longest
+# German form measures 615 px of an 805 px column, the ordinary one 454.
 #
-# **The rule under the day title is gone** [Festlegung P31, 2026-08-23,
-# Wolfgang]. The mockup drew a 2 px line under every date. With three columns of
-# day blocks that is one horizontal rule every few centimetres, and the bold
-# 36 px date plus the air under it separates the days perfectly well on its own.
-DAY_TITLE_PX = 36
-DAY_HEAD_H = 50 + 14   # 64 — title line plus the air under it, no rule
+# Now the date stands to the left of its appointments instead of above them:
+# day number over weekday abbreviation, white on a filled box. What that trades
+# is measured, over the mockup's own load:
+#
+#   senkrecht   the 64 px head is gone on every day that has appointments; an
+#               empty day costs BADGE_MIN_H + DAY_GAP = 122 px against the old
+#               64 + 32 + 24 = 120, so the filler is a wash and the gain is
+#               entirely on days that carry something
+#   waagerecht  the rail takes 132 px off the column, so a title line wraps at
+#               27 characters instead of 34. Over 23 mockup titles that turned
+#               1 wrapped title into 6, +190 px
+#
+#   zusammen    21 days on the wall → 30, and 28 with the week bands below
+#
+# The number is 52 px because the badge is what the column is read by; the
+# weekday stays small because "Mo" is confirmation, not information — the
+# number already says which day it is.
+STRIPE_W = 12          # the lane the multi-day stripe runs in, outermost
+STRIPE_GAP = 4
+BADGE_W = 100          # "30" at 52 px bold is 72 px, "Wed" at 30 px is 66
+BADGE_GAP = 16
+RAIL_W = STRIPE_W + STRIPE_GAP + BADGE_W + BADGE_GAP   # 132
+BADGE_MIN_H = 98       # number line plus weekday line plus air
+BADGE_NUM_PX = 52
+BADGE_WD_PX = 30
+BADGE_MONTH_PX = 26    # only on the 1st, see ``Day.month_text``
+BADGE_MONTH_H = 32     # the line it needs, on top of the two that are always there
 DAY_GAP = 24           # air below a finished block
-# **A day without appointments is a dash** [Festlegung P45, 2026-08-31,
-# Wolfgang: „bei keinem termin nicht 'no appointments' sondern ein kleiner '-',
-# kann auch etwas dicht dran sein"]. It used to read "keine Termine" in a 28 px
-# line 60 px tall. The words say nothing the empty space does not already say,
-# and they said it on **every** empty day — six of them in one column on the
-# 31.8. image. The run of days stays gapless [Festlegung 2026-08-20]; only its
-# filler gets quieter and smaller.
+
+# **The month is said once, at the start** [P46]. P29 threw the mockup's header
+# out because it repeated the date that the day title said again three lines
+# lower. This one repeats nothing: the header carries the *month*, the badges
+# carry only number and weekday, and neither says what the other says. It sits
+# over the **first column only** — a full-width header would cost all three of
+# them, which is exactly what P29 measured and rejected.
 #
-# 32 px of body instead of 60, and the dash sits closer under the title
-# (24 px line in a 32 px box). A whole empty block is **120 px instead of
-# 148** — 28 px each, and the dash still has a line of its own so the day is
-# visibly there.
-EMPTY_DAY_H = 32       # the dash, in one 24 px line
-EMPTY_DAY_PX = 24
+# A run of 30 days regularly crosses a month, and the header cannot follow it.
+# So the badge of the 1st carries the new month as a third line; it costs
+# nothing, because the badge is at least BADGE_MIN_H tall anyway.
+HEAD_H = 80
+HEAD_PX = 56
+
+# **A week band before every Monday** [Festlegung P46, Wolfgang: „können wir
+# horizontal noch die Kalenderwoche grau hinterlegt vor jedem montag einfügen?
+# horizontal die volle breite ausnutzen"]. Full column width, week number on
+# the left, the week's date range right-aligned so the width carries something.
+#
+# **Grey 200, not the badge's 232** [Wolfgang: „mach das band dunkler wie
+# vorgeschlagen"]. Two levels that must not read as one. The price is measured
+# and it is real: on six primaries a 200 grey dithers to 62 % white, 18 % blue,
+# 12 % yellow — a blue-yellow raster rather than a grey, the same mechanic P22
+# found under the guest greeting. It is a **surface**, which is where FSD §7
+# allows grey at all, and the black text on it keeps every bit of its ink
+# (17.9 % black, against 17.7 % on plain white — measured 2026-09-01).
+#
+# Costs 2 days of horizon over three columns.
+WEEK_BAND_H = 44
+WEEK_BAND_GAP = 12
+WEEK_BAND_PX = 28
+WEEK_BAND_BG = "#c8c8c8"
 
 ENTRY_H = 84           # one appointment with a one-line title
 ENTRY_LINE_H = 38      # every further title line
@@ -150,13 +192,17 @@ LOCATION_PX = 24
 # and the time still starts at 20 px.
 BAR_W = 12
 
-# **Sundays are red, the whole line** [Festlegung P45, 2026-08-31, Wolfgang:
-# „bei Sonntagen die ganzen Linie in rot"]. Red off the palette, so it carries
-# no dither raster of its own — the same reason the recipe title is green [P16]
-# and the greeting colour is picked from these six [P23].
+# **Sundays are red** [Festlegung P45, 2026-08-31, Wolfgang: „bei Sonntagen die
+# ganzen Linie in rot"]. Red off the palette, so it carries no dither raster of
+# its own — the same reason the recipe title is green [P16] and the greeting
+# colour is picked from these six [P23].
 #
-# It is the **day title** that turns, not the appointments under it: a column is
-# read by its dates, and a red date is found at a glance from across the room.
+# It is the **date** that turns, not the appointments under it: a column is read
+# by its dates, and a red date is found at a glance from across the room. Since
+# P46 the date is a filled badge rather than a line, so red is the badge's
+# *ground* — a whole red block, which is more findable still. ⚠ It also means
+# red now says two things on one page: this is a Sunday, and this source is the
+# anniversary calendar. The legend distinguishes them; a glance does not.
 SUNDAY_COLOR = "red"
 
 CUT_H = 46             # the "cut" marker under a block that did not fit
@@ -189,6 +235,13 @@ COLORS: dict[str, str] = {
     "green": "#1e8c46",
 }
 DEFAULT_COLOR = "blue"
+
+# The badge is filled, so its two colours are palette colours too — a badge in
+# any other tone would be a dithered raster with white letters knocked out of
+# it, which is the one thing 52 px of type cannot survive.
+BADGE_BG = COLORS["black"]
+BADGE_BG_SUNDAY = COLORS[SUNDAY_COLOR]
+BADGE_FG = "#ffffff"
 
 # A source is either a diary or a list of **anniversaries** — birthdays, wedding
 # days, name days, a jubilee [P41, 2026-08-31; the store value stays
@@ -236,6 +289,10 @@ class Entry:
     color: str          # hex, resolved
     all_day: bool = False
     sort_key: tuple[int, str, str] = (0, "", "")
+    # Which multi-day appointment this entry belongs to, empty for an ordinary
+    # one. It is what lets ``build_days`` recognise the two ends of the same
+    # span after the day-by-day filtering has run [P46].
+    span_key: str = ""
 
     @property
     def height(self) -> int:
@@ -254,18 +311,56 @@ class Entry:
 
 @dataclass
 class Day:
-    """One day block: a title and everything under it."""
+    """One day block: the badge and everything beside it."""
 
     day: date
-    title: str
     entries: list[Entry] = field(default_factory=list)
     today: bool = False
     cut: int = 0  # appointments that had to be dropped to make it fit
+    # Both out of the catalogue, never sliced off the long form in code: "Mo"
+    # happens to be "Montag"[:2] in German and is Mon/Tue/Wed in English, and a
+    # third language would break the trick silently [P9].
+    weekday_text: str = ""
+    # Set on the 1st of a month the header does not name — the badge then
+    # carries the month as a third line [P46]. Empty otherwise.
+    month_text: str = ""
+    # ``{span key: colour}`` for every multi-day appointment that touches this
+    # day, the days it merely runs through included. The stripe is drawn from
+    # these, not from the entries: a day in the middle of a span has no entry.
+    spans: dict[str, str] = field(default_factory=dict)
+    # Filled in by ``fill_columns``; the template needs absolute positions to
+    # draw a stripe that crosses day blocks.
+    top: int = 0
+
+    @property
+    def body_height(self) -> int:
+        """What stands beside the badge. Zero on an empty day."""
+        return sum(entry.height for entry in self.entries) + (CUT_H if self.cut else 0)
+
+    @property
+    def badge_floor(self) -> int:
+        """The badge's own minimum — three lines on the 1st, two otherwise.
+
+        Found by arithmetic rather than at the wall, and it would not have shown
+        up there either: the badge clips, so the month of an **empty** 1st would
+        simply have been missing, on the one day of the month that needs it.
+        """
+        return BADGE_MIN_H + (BADGE_MONTH_H if self.month_text else 0)
+
+    @property
+    def badge_height(self) -> int:
+        """The badge is as tall as the day [P46, Wolfgang: „sollten mehr Zeilen
+        gebraucht werden ist auch das Feld vom Badge zu erweitern"].
+
+        Which is also what makes an empty day cost nothing extra: there is no
+        dash any more, the bare badge with white beside it says the day is empty
+        as plainly as the word did [P45, taken one step further].
+        """
+        return max(self.badge_floor, self.body_height)
 
     @property
     def height(self) -> int:
-        body = sum(entry.height for entry in self.entries) or EMPTY_DAY_H
-        return DAY_HEAD_H + body + DAY_GAP + (CUT_H if self.cut else 0)
+        return self.badge_height + DAY_GAP
 
     @property
     def sunday(self) -> bool:
@@ -278,12 +373,40 @@ class Day:
 
     def as_dict(self) -> dict[str, Any]:
         return {
-            "title": self.title,
+            "kind": "day",
+            "number": f"{self.day.day:02d}",
+            "weekday": self.weekday_text,
+            "month": self.month_text,
             "entries": [entry.as_dict() for entry in self.entries],
             "empty": not self.entries,
             "today": self.today,
             "sunday": self.sunday,
             "cut": self.cut,
+            "badge_h": self.badge_height,
+            "top": self.top,
+            "height": self.height,
+        }
+
+
+@dataclass
+class WeekBand:
+    """The grey band that opens a week, before every Monday [P46]."""
+
+    monday: date
+    label: str   # "KW 39"
+    span: str    # "21. – 27. September"
+    top: int = 0
+
+    @property
+    def height(self) -> int:
+        return WEEK_BAND_H + WEEK_BAND_GAP
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "kind": "band",
+            "label": self.label,
+            "span": self.span,
+            "top": self.top,
             "height": self.height,
         }
 
@@ -294,7 +417,12 @@ def chars_per_line(font_px: int, width: int) -> int:
     return max(round(width / (CHAR_RATIO * font_px)), 1)
 
 
-TITLE_CHARS = chars_per_line(TITLE_PX, COLUMN_W - TITLE_DX)  # ~32, FSD §8.1 says ~31
+# 27 characters since P46, against 34 before: the badge rail takes 132 px off
+# the column before the time column has even started. **The font never gets
+# smaller** [Wolfgang: „immer gleiche Schrift"] — a title that does not fit
+# wraps, and the badge grows with it.
+TITLE_W = COLUMN_W - RAIL_W - TITLE_DX  # 458
+TITLE_CHARS = chars_per_line(TITLE_PX, TITLE_W)
 
 
 def title_lines(text: str) -> list[str]:
@@ -440,25 +568,89 @@ def build_days(
                     continue
                 by_day.setdefault(day, []).append(entry)
 
+    spans = _collapse_spans(by_day)
+
     # The run of days is gapless *between* appointments, not after the last one:
     # trailing empty days are filler, and filler is measured in appointments
     # that did not fit.
-    last = max(by_day) if by_day else today
+    covered = [day for covered_days, _ in spans.values() for day in covered_days]
+    last = max([*by_day, *covered] or [today])
     days: list[Day] = []
     cursor = today
     while cursor <= last:
         entries = sorted(by_day.get(cursor, []), key=lambda item: item.sort_key)
-        if entries or show_empty_days or cursor == today:
+        touching = {key: hex_ for key, (_, hex_) in _touching(spans, cursor).items()}
+        # A day a span merely runs through carries no entry any more, but the
+        # stripe has to cross it — so it is never dropped as "empty".
+        if entries or touching or show_empty_days or cursor == today:
             days.append(
                 Day(
                     day=cursor,
-                    title=day_title(cursor, today, say),
                     entries=entries,
                     today=cursor == today,
+                    weekday_text=say(f"weekday_short.{cursor.weekday()}"),
+                    month_text=(
+                        say(f"month_short.{cursor.month}")
+                        if cursor.day == 1 and cursor != today
+                        else ""
+                    ),
+                    spans=touching,
                 )
             )
         cursor += timedelta(days=1)
     return days
+
+
+def _touching(
+    spans: dict[str, tuple[list[date], str]], day: date
+) -> dict[str, tuple[list[date], str]]:
+    return {key: value for key, value in spans.items() if day in value[0]}
+
+
+def _collapse_spans(by_day: dict[date, list[Entry]]) -> dict[str, tuple[list[date], str]]:
+    """Reduce every multi-day appointment to its two ends and one stripe.
+
+    **The colour runs through instead of the word** [Festlegung P46,
+    2026-09-01, Wolfgang: „bevor man durchgehend schreibt sollte man überlegen
+    ob die farbmarkierung durchgehen kann"]. Until here a spanned appointment
+    stood on every day it touched, the middle ones reading "durchgehend" — one
+    entry of 84 px per day for a fortnight's holiday. Now it is named at both
+    ends and drawn as an unbroken stripe in between.
+
+    **What that costs is real and it is a change to P44**: the middle days no
+    longer name the appointment. Somebody looking at the 24th sees a blue stripe
+    and has to follow it up to the 23rd to learn it is the holiday. The stripe
+    was measured against the alternative — keeping every day's entry — and buys
+    two days of horizon over three columns; the readability is a judgement, not
+    a measurement.
+
+    The two ends keep the label ``_entries_for`` gave them, so an appointment
+    that had already started before today opens with "durchgehend" rather than
+    "ab 10:00": the first day *shown* is not always the first day it has.
+
+    Trimming happens **after** the day filtering, which is the whole reason it
+    lives here rather than in ``_entries_for`` — which days survive depends on
+    today, the horizon and the past-appointment filter.
+    """
+    seen: dict[str, list[date]] = {}
+    colour: dict[str, str] = {}
+    for day, entries in by_day.items():
+        for entry in entries:
+            if entry.span_key:
+                seen.setdefault(entry.span_key, []).append(day)
+                colour[entry.span_key] = entry.color
+
+    spans: dict[str, tuple[list[date], str]] = {}
+    for key, days in seen.items():
+        first, last = min(days), max(days)
+        if first == last:
+            continue  # one surviving day is an ordinary entry, not a span
+        for day in days:
+            if day not in (first, last):
+                by_day[day] = [e for e in by_day[day] if e.span_key != key]
+        covered = [first + timedelta(n) for n in range((last - first).days + 1)]
+        spans[key] = (covered, colour[key])
+    return spans
 
 
 def _entries_for(
@@ -513,11 +705,24 @@ def _entries_for(
         days = _timed_days(start_value, end_value)
 
     spanned = len(days) > 1
+    # Identity across days, for the stripe. ``uid`` when the source hands one
+    # out, otherwise what a calendar entry is made of — a recurrence gives every
+    # occurrence the same uid, so the start has to be in the key either way.
+    span_key = (
+        f"{source.entity_id}|{raw.get('uid') or summary}|{days[0].isoformat()}"
+        if spanned
+        else ""
+    )
     out: list[tuple[date, Entry]] = []
     for day in days:
         if not _visible(day, today, now, all_day, source, end_value, show_past_today):
             continue
         if all_day:
+            # **An all-day span is a span too** [P46]. It used to say "ganztägig"
+            # on each of its days, which is not misleading the way the repeated
+            # "10:00–15:00" was — but a three-day trip drawn one way and a
+            # three-day holiday drawn another would be the arbitrary half of a
+            # rule. Both get the stripe; both are named at their two ends.
             when = say("calendar.all_day")
             order = (0, "", _fold(summary))
         elif spanned:
@@ -562,6 +767,7 @@ def _entries_for(
                     color=source.hex,
                     all_day=all_day,
                     sort_key=order,
+                    span_key=span_key,
                 ),
             )
         )
@@ -635,58 +841,182 @@ def _clock(value: datetime | date, say: Any) -> str:
     return ""
 
 
-def written_date(day: date, say: Any) -> str:
-    """``Mittwoch, 20. August`` — every part of it out of the catalog.
+def month_header(day: date, say: Any) -> str:
+    """``September 2026`` — the one line above the first column [P46].
 
-    The date format is a catalog key, not code [Festlegung P9]: month and
-    weekday names are language, and ``strftime`` would take them from a C locale
-    the add-on image does not install.
+    Every part of it out of the catalog [Festlegung P9]: month names are
+    language, and ``strftime`` would take them from a C locale the add-on image
+    does not install.
     """
-    return say(
-        "format.day_title",
-        weekday=say(f"weekday.{day.weekday()}"),
-        day=day.day,
-        month=say(f"month.{day.month}"),
-        year=day.year,
+    return say("format.month_year", month=say(f"month.{day.month}"), year=day.year)
+
+
+def week_band(monday: date, say: Any) -> WeekBand:
+    """The band that opens a week: ``KW 39`` and ``21. – 27. September``.
+
+    The range is derived from the **Monday of the week**, not from the day the
+    band happens to stand before. They are the same thing here, and were not in
+    the first draft: a band at the head of a column that continues a week read
+    "8. – 14. Oktober" beside the same week's "5. – 11. Oktober" one column to
+    the left. The bug was invisible until two bands for one week stood side by
+    side.
+
+    Two catalog forms rather than one, because a week that crosses a month has
+    to name both of them and one that does not must not repeat itself.
+    """
+    sunday = monday + timedelta(days=6)
+    if monday.month == sunday.month:
+        span = say(
+            "format.week_span",
+            from_day=monday.day,
+            to_day=sunday.day,
+            month=say(f"month.{monday.month}"),
+        )
+    else:
+        span = say(
+            "format.week_span_months",
+            from_day=monday.day,
+            from_month=say(f"month_short.{monday.month}"),
+            to_day=sunday.day,
+            to_month=say(f"month_short.{sunday.month}"),
+        )
+    return WeekBand(
+        monday=monday,
+        label=say("calendar.week", week=monday.isocalendar()[1]),
+        span=span,
     )
 
 
-def day_title(day: date, today: date, say: Any) -> str:
-    """``Heute · Mittwoch, 20. August`` for today, the plain date otherwise."""
-    written = written_date(day, say)
-    return say("calendar.today", date=written) if day == today else written
+def with_week_bands(days: list[Day], say: Any) -> list[Day | WeekBand]:
+    """Put a band before every Monday [P46, Wolfgang: „vor jedem montag"].
+
+    Before *every* Monday, the first day of the run included: a rule with an
+    exception for the first item would leave a run that happens to start on a
+    Monday without the label a run starting on a Tuesday gets one line later.
+    A run starting mid-week has no band until its first Monday — that is what
+    the rule says, and the header above the first column carries the month
+    meanwhile.
+    """
+    out: list[Day | WeekBand] = []
+    for day in days:
+        if day.day.weekday() == 0:
+            out.append(week_band(day.day, say))
+        out.append(day)
+    return out
 
 
 # --- filling the columns ------------------------------------------------------
-def fill_columns(days: list[Day], heights: list[int] | int | None = None) -> list[list[Day]]:
-    """Day block after day block, as long as the next one fits **completely**.
+Item = "Day | WeekBand"
+
+
+def fill_columns(
+    items: list[Any], heights: list[int] | int | None = None
+) -> list[list[Any]]:
+    """Block after block, as long as the next one fits **completely**.
 
     [Festlegung 2026-08-20, FSD §8.1.] What is left over when the third column
     is full is simply not shown — the query window is the ceiling of the
     *query*, not of the display.
 
     ``heights`` is **per column** since P29: the third one is shorter by its
-    foot. A single number still works, for the tests that only care about the
-    packing rule.
+    foot, the first by its month header. A single number still works, for the
+    tests that only care about the packing rule.
+
+    Two things the day blocks alone did not need [P46]:
+
+    * **a week band is never the last thing in a column.** It is a heading, and
+      a heading whose week starts in the next column is a heading over nothing.
+      So a band is placed only if the day behind it fits with it;
+    * **every block is told where it sits.** The multi-day stripe crosses day
+      blocks and the gaps between them, so it cannot be drawn by any one of
+      them — it is placed absolutely, out of these tops.
     """
     if heights is None:
         heights = COLUMN_H
     if isinstance(heights, int):
         heights = [heights] * COLUMNS
-    columns: list[list[Day]] = [[] for _ in heights]
+    columns: list[list[Any]] = [[] for _ in heights]
     index, used = 0, 0
-    for day in days:
-        while index < len(heights) and used + _floor(day, heights[index]) > heights[index]:
+    position = 0
+    while position < len(items):
+        item = items[position]
+        band = item if isinstance(item, WeekBand) else None
+        day = items[position + 1] if band is not None else item
+        if band is not None and not isinstance(day, Day):
+            position += 1  # a band with nothing behind it never reaches a column
+            continue
+
+        while index < len(heights):
+            need = (band.height if band else 0) + _floor(day, heights[index])
+            if used + need <= heights[index]:
+                break
             index += 1
             used = 0
         if index >= len(heights):
             break
-        block = _fit(day, heights[index])
+
+        block = _fit(day, heights[index] - (band.height if band else 0))
         if block is None:
+            position += 2 if band else 1
             continue
+        if band is not None:
+            band.top = used
+            columns[index].append(band)
+            used += band.height
+        block.top = used
         columns[index].append(block)
         used += block.height
+        position += 2 if band else 1
     return columns
+
+
+def column_stripes(column: list[Any]) -> list[dict[str, Any]]:
+    """The multi-day stripes of one column, as rectangles [P46].
+
+    From the first badge of a span to the last, **through** the gaps and through
+    any week band in between: the stripe says the appointment did not stop, and
+    a stripe that stopped at every day boundary would say the opposite. The
+    band is drawn first and the stripe over it for the same reason.
+
+    Two spans that overlap in one column share the 12 px lane rather than
+    covering one another — half each, a third each, and never below 4 px, which
+    is where a stripe stops reading as a stripe (FSD §7 puts the floor at 2 px).
+    """
+    days = [item for item in column if isinstance(item, Day)]
+    order: list[str] = []
+    extent: dict[str, tuple[int, int, str]] = {}
+    for day in days:
+        for key, hex_ in day.spans.items():
+            top, bottom = day.top, day.top + day.badge_height
+            if key in extent:
+                first, last, _ = extent[key]
+                extent[key] = (min(first, top), max(last, bottom), hex_)
+            else:
+                order.append(key)
+                extent[key] = (top, bottom, hex_)
+
+    lanes: list[int] = []          # the bottom each lane is occupied to
+    placed: list[tuple[int, int, int, str]] = []
+    for key in order:
+        top, bottom, hex_ = extent[key]
+        lane = next((n for n, end in enumerate(lanes) if end <= top), len(lanes))
+        if lane == len(lanes):
+            lanes.append(bottom)
+        else:
+            lanes[lane] = bottom
+        placed.append((lane, top, bottom, hex_))
+
+    width = max(STRIPE_W // max(len(lanes), 1), 4)
+    return [
+        {
+            "left": lane * width,
+            "width": width,
+            "top": top,
+            "height": bottom - top,
+            "color": hex_,
+        }
+        for lane, top, bottom, hex_ in placed
+    ]
 
 
 def _floor(day: Day, column_h: int) -> int:
@@ -706,17 +1036,21 @@ def _fit(day: Day, column_h: int) -> Day | None:
     The only case FSD §8.1 leaves open. Dropping the block would take every
     later day with it and leave no trace on the wall; dropping the tail leaves
     the day readable and the cut counted.
+
+    An **empty** day is never cut away: at BADGE_MIN_H it is the smallest thing
+    a column can hold, and a span running through it needs its badge to hang the
+    stripe on.
     """
     if day.height <= column_h:
         return day
     kept = list(day.entries)
     dropped = 0
-    while kept and Day(day.day, day.title, kept, day.today, dropped + 1).height > column_h:
+    while kept and replace(day, entries=kept, cut=dropped + 1).height > column_h:
         kept.pop()
         dropped += 1
     if not kept:
         return None
-    return Day(day.day, day.title, kept, day.today, dropped)
+    return replace(day, entries=kept, cut=dropped)
 
 
 # --- the foot of the third column ---------------------------------------------
@@ -763,10 +1097,13 @@ class Page:
 
     legend: list[list[dict[str, str]]]
     columns: list[list[dict[str, Any]]]
+    stripes: list[list[dict[str, Any]]]
+    header: str
     notes: list[str]
     stamp: str
     bar_px: int
     foot_h: int
+    head_h: int
     column_h: int
     shown_days: int
     shown_entries: int
@@ -777,11 +1114,17 @@ class Page:
         return {
             "legend": self.legend,
             "columns": self.columns,
+            "stripes": self.stripes,
+            "header": self.header,
             "notes": self.notes,
             "stamp": self.stamp,
             "bar_px": self.bar_px,
             "foot_h": self.foot_h,
+            "head_h": self.head_h,
             "column_h": self.column_h,
+            "rail_w": RAIL_W,
+            "badge_w": BADGE_W,
+            "badge_x": STRIPE_W + STRIPE_GAP,
         }
 
 
@@ -833,17 +1176,26 @@ def build_page(
     # foot line of their own; nothing in the product does.
     rows = legend_lines([{"label": source.label, "hex": source.hex} for source in sources])
     foot_h = foot_height(len(rows), len(notes), stamp=bool(stamp))
-    columns = fill_columns(days, [COLUMN_H, COLUMN_H, COLUMN_H - foot_h])
-    shown = [day for column in columns for day in column]
+    # **Only the first column pays for the header, only the third for the foot**
+    # [P46 and P29]. A band across the whole page would take its height off all
+    # three, which is the measurement P29 acted on.
+    columns = fill_columns(
+        with_week_bands(days, say),
+        [COLUMN_H - HEAD_H, COLUMN_H, COLUMN_H - foot_h],
+    )
+    shown = [item for column in columns for item in column if isinstance(item, Day)]
 
     bar_px = int(section.get("color_bar_px") or BAR_W)
     return Page(
         legend=rows,
-        columns=[[day.as_dict() for day in column] for column in columns],
+        columns=[[item.as_dict() for item in column] for column in columns],
+        stripes=[column_stripes(column) for column in columns],
+        header=month_header(days[0].day if days else today, say),
         notes=notes,
         stamp=stamp,
         bar_px=max(min(bar_px, 24), 2),
         foot_h=foot_h,
+        head_h=HEAD_H,
         column_h=COLUMN_H,
         shown_days=len(shown),
         shown_entries=sum(len(day.entries) for day in shown),

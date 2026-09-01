@@ -9,26 +9,30 @@
     columns   three of 805 px with a 40 px gutter, y 32 … 1408 — the 32 px
               margin is P30, not the mockup's 80 (which left 17 % of the
               panel unused for no measurable gain sideways)
+    header    the month, 56 px, over the **first column only** [P46]
     foot      legend and any failure note at the **bottom of the third
               column**, 36 px a line with 24 px of air above. No timestamp
               [P38] — a stamp carrying the minute made every image unique and
               turned every scheduled run into a real push
-    day title 36 px bold, 50 px line, a rule, 14 px of air  (66 px of head)
+    rail      132 px: 12 px stripe lane, 4 px, 100 px badge, 16 px [P46]
+    badge     black (red on Sundays), number 52 px, weekday 30 px, month 26 px
+              on the 1st; as tall as the day, at least 98 px
+    band      the week, 44 px on grey 200 with 12 px of air, full column width
     entry     84 px, plus 38 px for every further title line
     bar       6 px [Festlegung C8] — 2 px is the proven floor, 6 px reads as a
               bar rather than a hairline; the width is configurable
     time      26 px in 185 px (28 px no longer fits beside the title), #333333
-    title     32 px starting at +215 px, wrapping at ~31 characters
+    title     32 px starting at +215 px inside the body, wrapping at ~27
+              characters — 34 before the rail took its 132 px
     location  24 px, #555555
-    empty day 28 px "no appointments", 60 px  [Festlegung 2026-08-20]
+    empty day the bare badge; no dash, no words  [P46, after P45]
 
-  **The mockup's header is gone** [Festlegung P29, 2026-08-23]. It set the date
-  at 64 px across the top with the legend beside it, and the first real image
-  showed the cost: "Sunday, August 23" in the header and "Today · Sunday,
-  August 23" as the first day title — the same date twice — for 140 px off
-  **all three** columns. Now the date is said once, by the day title that has
-  to be there anyway, and the legend sits at the foot of the third column.
-  Columns one and two run the full 1.408 px (1.280 px before P31).
+  **The header is back, and it says something else** [P46]. P29 threw the
+  mockup's header out because it set "Sunday, August 23" over a first day
+  titled "Today · Sunday, August 23" — the same date twice, for 140 px off all
+  three columns. This one carries the **month**, the badges carry number and
+  weekday, and it stands over the **first column only**, so columns two and
+  three still run the full 1.408 px.
 
   Two further deviations from the mockup, both measured rather than preferred:
   the rule under a day title and the gutter rule are **black**, not the
@@ -138,6 +142,15 @@
          foot or off the canvas. Its height is set inline — the third column is
          shorter by exactly what the foot reserves. */
       .inner {
+        position: relative;
+        overflow: hidden;
+      }
+      /* The month, over the first column only [P46]. */
+      .head {
+        font-size: 56px;
+        line-height: 62px;
+        font-weight: bold;
+        white-space: nowrap;
         overflow: hidden;
       }
       /* The gutter rule, in the middle of the 40 px gap. Black at 2 px for the
@@ -151,45 +164,93 @@
         width: 2px;
         background: #000;
       }
+      /* Every block is positioned out of the model [P46]. The stripe of a
+         multi-day appointment crosses day blocks and the gaps between them, so
+         no block can draw it and none of them may be in normal flow either —
+         a top computed here and a top computed in `calendar_layout.py` would
+         disagree the moment one of them changed. */
       .day {
-        margin: 0 0 24px 0;
+        position: absolute;
+        left: 0;
+        right: 0;
       }
-      /* No rule under the date [P31]. The mockup drew one under every day
-         title; across three columns that is a horizontal line every few
-         centimetres, and a bold 36 px date with air under it separates the
-         days by itself. */
-      .day h2 {
-        margin: 0 0 14px 0;
-        height: 50px;
-        line-height: 50px;
-        font-size: 36px;
-        font-weight: bold;
-        white-space: nowrap;
+      /* The badge. Filled, so both its colours are palette colours: white
+         letters knocked out of a dithered ground is the one thing 52 px of
+         type does not survive. */
+      .badge {
+        position: absolute;
+        left: 16px;
+        top: 0;
+        width: 100px;
+        background: #000000;
+        color: #ffffff;
         overflow: hidden;
       }
-      /* Sunday, the whole line [P45]. Red off the palette, so it carries no
-         dither raster of its own. The model decides which day it is; this
-         only paints it. */
-      .day h2.sunday {
-        color: #dc1e1e;
+      /* Sunday is the badge's ground, not a line's colour [P45 → P46]: a whole
+         red block is found from across the room. Red off the palette, so it
+         carries no dither raster of its own. */
+      .badge.sunday {
+        background: #dc1e1e;
       }
-      /* A day without appointments is a dash [P45] — quieter and 28 px
-         shorter than the "keine Termine" it replaces.
-
-         **Black, not the grey the words had.** P28 lets secondary *text* stay
-         grey and keeps thin *lines* black, and a dash is a line whatever the
-         font calls it: measured on the first real image, the grey dash came out
-         61–80 % covered with a colour fringe — the same dotted trail the grey
-         hairline left in 0.3.3 (67 % / 33 %). Grey has no place in a six-colour
-         palette; it is built out of the primaries, and over 3 px of stroke
-         there are not enough pixels to build it from. */
-      .empty {
-        height: 32px;
-        padding-left: 24px;
-        font-size: 24px;
+      .badge .num {
+        font-size: 52px;
+        line-height: 58px;
+        font-weight: bold;
+        padding: 2px 0 0 14px;
+      }
+      .badge .wd {
+        font-size: 30px;
+        line-height: 36px;
+        padding-left: 14px;
+      }
+      /* Only on the 1st, and only when the header does not already say it. It
+         costs nothing: the badge is at least 98 px tall in any case. */
+      .badge .mon {
+        font-size: 26px;
         line-height: 32px;
-        color: #000000;
-        box-sizing: border-box;
+        padding-left: 14px;
+      }
+      /* Everything that is not the badge starts behind the rail. */
+      .body {
+        position: absolute;
+        left: 132px;
+        right: 0;
+        top: 0;
+      }
+      /* The week band [P46]. Grey 200, darker than the badge's ground would be
+         — two levels that must not read as one. It is a *surface*, which is
+         where FSD §7 allows grey at all; measured on this panel it comes out
+         62 % white / 18 % blue / 12 % yellow, and the black text on it keeps
+         all of its ink. */
+      .band {
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 44px;
+        background: #c8c8c8;
+      }
+      .band .kw {
+        position: absolute;
+        left: 14px;
+        top: 0;
+        font-size: 28px;
+        line-height: 44px;
+        font-weight: bold;
+        white-space: nowrap;
+      }
+      .band .span {
+        position: absolute;
+        right: 14px;
+        top: 0;
+        font-size: 28px;
+        line-height: 44px;
+        white-space: nowrap;
+      }
+      /* The stripe of a multi-day appointment, in the lane outside the badge.
+         Drawn after the blocks, so it runs *over* any week band it crosses:
+         the appointment did not stop at the week boundary either. */
+      .stripe {
+        position: absolute;
       }
       .entry {
         position: relative;
@@ -217,7 +278,7 @@
         position: absolute;
         left: 215px;
         top: -2px;
-        width: 590px;
+        right: 0;
       }
       .what .line {
         font-size: 32px;
@@ -248,34 +309,59 @@
 
       <div class="columns" style="height: {{ page.column_h }}px">
         {%- for column in page.columns %}
+        {%- set ci = loop.index0 %}
         <section class="column">
-          <div class="inner" style="height: {{ page.column_h - (page.foot_h if loop.last else 0) }}px">
-            {%- for day in column %}
-            <div class="day">
-              <h2{% if day.sunday %} class="sunday"{% endif %}>{{ day.title }}</h2>
-              {%- if day.empty %}
-              <div class="empty">{{ t("calendar.empty") }}</div>
-              {%- else %}
-              {%- for entry in day.entries %}
-              <div class="entry" style="height: {{ entry.height }}px">
-                <span
-                  class="bar"
-                  style="width: {{ page.bar_px }}px; height: {{ entry.height - 12 }}px; background: {{ entry.color }}"
-                ></span>
-                <span class="time">{{ entry.time }}</span>
-                <div class="what">
-                  {%- for line in entry.title_lines %}
-                  <div class="line">{{ line }}</div>
-                  {%- endfor %}
-                  {%- if entry.location %}<div class="where">{{ entry.location }}</div>{% endif %}
-                </div>
-              </div>
-              {%- endfor %}
-              {%- if day.cut %}
-              <div class="cut">{{ t("calendar.cut", count=day.cut) }}</div>
-              {%- endif %}
-              {%- endif %}
+          {%- if loop.first %}
+          <div class="head" style="height: {{ page.head_h }}px">{{ page.header }}</div>
+          {%- endif %}
+          <div
+            class="inner"
+            style="height: {{ page.column_h - (page.head_h if loop.first else 0) - (page.foot_h if loop.last else 0) }}px"
+          >
+            {%- for item in column %}
+            {%- if item.kind == "band" %}
+            <div class="band" style="top: {{ item.top }}px">
+              <span class="kw">{{ item.label }}</span>
+              <span class="span">{{ item.span }}</span>
             </div>
+            {%- else %}
+            <div class="day" style="top: {{ item.top }}px; height: {{ item.badge_h }}px">
+              <div
+                class="badge{% if item.sunday %} sunday{% endif %}"
+                style="height: {{ item.badge_h }}px"
+              >
+                <div class="num">{{ item.number }}</div>
+                <div class="wd">{{ item.weekday }}</div>
+                {%- if item.month %}<div class="mon">{{ item.month }}</div>{% endif %}
+              </div>
+              <div class="body">
+                {%- for entry in item.entries %}
+                <div class="entry" style="height: {{ entry.height }}px">
+                  <span
+                    class="bar"
+                    style="width: {{ page.bar_px }}px; height: {{ entry.height - 12 }}px; background: {{ entry.color }}"
+                  ></span>
+                  <span class="time">{{ entry.time }}</span>
+                  <div class="what">
+                    {%- for line in entry.title_lines %}
+                    <div class="line">{{ line }}</div>
+                    {%- endfor %}
+                    {%- if entry.location %}<div class="where">{{ entry.location }}</div>{% endif %}
+                  </div>
+                </div>
+                {%- endfor %}
+                {%- if item.cut %}
+                <div class="cut">{{ t("calendar.cut", count=item.cut) }}</div>
+                {%- endif %}
+              </div>
+            </div>
+            {%- endif %}
+            {%- endfor %}
+            {%- for stripe in page.stripes[ci] %}
+            <span
+              class="stripe"
+              style="left: {{ stripe.left }}px; top: {{ stripe.top }}px; width: {{ stripe.width }}px; height: {{ stripe.height }}px; background: {{ stripe.color }}"
+            ></span>
             {%- endfor %}
           </div>
           {%- if loop.last and page.foot_h %}

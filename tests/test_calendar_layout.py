@@ -164,7 +164,7 @@ class TestDays(unittest.TestCase):
         self.assertEqual(first.title_lines[0], "Betriebsausflug")
         self.assertEqual(first.time_text, TEXT("calendar.all_day"))
 
-    def test_a_multi_day_entry_is_repeated_on_every_day_it_covers(self) -> None:
+    def test_a_multi_day_entry_is_named_at_both_ends_and_striped_between(self) -> None:
         days = cl.build_days(
             [_source()],
             {"calendar.a": [{
@@ -175,7 +175,11 @@ class TestDays(unittest.TestCase):
             today=TODAY,
             text=TEXT,
         )
-        self.assertEqual([len(day.entries) for day in days], [1, 1, 1])
+        # [P46] Named on the first and last day, a stripe in between — the
+        # middle day carries the span but no entry of its own.
+        self.assertEqual([len(day.entries) for day in days], [1, 0, 1])
+        self.assertTrue(all(day.spans for day in days))
+        self.assertEqual(len({key for day in days for key in day.spans}), 1)
 
     def test_a_gap_between_two_appointments_is_shown_as_an_empty_day(self) -> None:
         days = cl.build_days(
@@ -185,7 +189,7 @@ class TestDays(unittest.TestCase):
             text=TEXT,
         )
         self.assertEqual([bool(day.entries) for day in days], [True, False, True])
-        self.assertEqual(days[1].height, cl.DAY_HEAD_H + cl.EMPTY_DAY_H + cl.DAY_GAP)
+        self.assertEqual(days[1].height, cl.BADGE_MIN_H + cl.DAY_GAP)
 
     def test_empty_days_can_be_switched_off(self) -> None:
         days = cl.build_days(
@@ -214,10 +218,15 @@ class TestDays(unittest.TestCase):
         self.assertTrue(days[0].today)
         self.assertEqual(days[0].entries, [])
 
-    def test_today_is_marked_and_titled_as_today(self) -> None:
+    def test_today_is_marked_but_no_longer_says_so(self) -> None:
+        """[P46, Wolfgang: „heute braucht es nicht — heute steht immer ganz
+        oben"]. The flag survives because the model still needs to know which
+        day is today; nothing on the wall repeats it."""
         days = cl.build_days([_source()], {"calendar.a": [_event(TODAY)]}, today=TODAY, text=TEXT)
         self.assertTrue(days[0].today)
-        self.assertTrue(days[0].title.startswith("Heute"))
+        self.assertEqual(days[0].as_dict()["number"], f"{TODAY.day:02d}")
+        for language in ("en", "de"):
+            self.assertNotIn("calendar.today", wall_text.WallText(language)._strings)
 
     def test_a_long_title_wraps_and_the_entry_grows_with_it(self) -> None:
         long = "Schulung Datenschutz und Informationssicherheit für alle Bereiche"
@@ -230,10 +239,12 @@ class TestDays(unittest.TestCase):
 
     def test_the_title_wraps_where_the_column_actually_ends(self) -> None:
         """FSD §8.1 says "~31 characters", measured against the mockup's 773 px
-        column. Since P30 the column is 805 px, so the figure is 35 — the model
-        is unchanged, the column it is applied to grew."""
-        self.assertEqual(cl.TITLE_CHARS, cl.chars_per_line(cl.TITLE_PX, cl.COLUMN_W - cl.TITLE_DX))
-        self.assertIn(cl.TITLE_CHARS, range(33, 38))
+        column. P30 grew the column to 805 px and the figure to 35; P46 took
+        132 px back for the badge rail and it is 27. The model never changed —
+        only the width it is applied to."""
+        self.assertEqual(cl.TITLE_W, cl.COLUMN_W - cl.RAIL_W - cl.TITLE_DX)
+        self.assertEqual(cl.TITLE_CHARS, cl.chars_per_line(cl.TITLE_PX, cl.TITLE_W))
+        self.assertIn(cl.TITLE_CHARS, range(25, 30))
 
 
 class TestSpannedAppointments(unittest.TestCase):
@@ -251,21 +262,38 @@ class TestSpannedAppointments(unittest.TestCase):
     def _timed(self, start, end, summary="Urlaub", **extra):
         return {"start": start, "end": end, "summary": summary, **extra}
 
-    def _run(self, event, today=TODAY, now=None):
-        days = cl.build_days(
+    def _days(self, event, today=TODAY, now=None):
+        return cl.build_days(
             [_source()], {"calendar.a": [event]}, today=today, now=now, text=TEXT
         )
-        return [(day.day, entry.time_text)
-                for day in days for entry in day.entries]
 
-    def test_the_reported_case_stands_on_every_day_it_covers(self) -> None:
-        drawn = self._run(self._timed(
+    def _run(self, event, today=TODAY, now=None):
+        return [(day.day, entry.time_text)
+                for day in self._days(event, today, now) for entry in day.entries]
+
+    def _striped(self, event, today=TODAY, now=None):
+        return [day.day for day in self._days(event, today, now) if day.spans]
+
+    def test_the_reported_case_covers_every_day_it_runs_through(self) -> None:
+        """The 2026-08-31 report, re-read under P46.
+
+        It is still on the wall for all fourteen days — as an unbroken stripe
+        rather than as fourteen entries. What it costs is the middle: the 7th
+        no longer names the appointment, it only carries the colour.
+        """
+        event = self._timed(
             "2026-09-01T10:00:00+02:00", "2026-09-14T15:00:00+02:00",
-        ), today=date(2026, 8, 31))
-        self.assertEqual(len(drawn), 14)
-        self.assertEqual(drawn[0], (date(2026, 9, 1), TEXT("calendar.spans_from", time="10:00")))
-        self.assertEqual(drawn[7][1], TEXT("calendar.spans_through"))
-        self.assertEqual(drawn[-1], (date(2026, 9, 14), TEXT("calendar.spans_until", time="15:00")))
+        )
+        today = date(2026, 8, 31)
+        drawn = self._run(event, today=today)
+        self.assertEqual(drawn, [
+            (date(2026, 9, 1), TEXT("calendar.spans_from", time="10:00")),
+            (date(2026, 9, 14), TEXT("calendar.spans_until", time="15:00")),
+        ])
+        self.assertEqual(
+            self._striped(event, today=today),
+            [date(2026, 9, n) for n in range(1, 15)],
+        )
 
     def test_a_running_appointment_that_began_before_today_is_on_the_wall(self) -> None:
         """The worst of the three, because it is silent.
@@ -275,12 +303,19 @@ class TestSpannedAppointments(unittest.TestCase):
         last week and runs all next week produced **no entry at all** while it
         was running.
         """
-        drawn = self._run(self._timed(
+        event = self._timed(
             "2026-08-18T10:00:00+02:00", "2026-08-27T15:00:00+02:00",
-        ), now=datetime(2026, 8, 23, 20, 0))
-        self.assertEqual([d for d, _ in drawn],
+        )
+        now = datetime(2026, 8, 23, 20, 0)
+        # **The first day shown is not the first day it has** — so it opens with
+        # "durchgehend", not "ab 10:00". Which end of a span gets which label is
+        # decided before the day filtering, and read off again after it [P46].
+        self.assertEqual(self._run(event, now=now), [
+            (TODAY, TEXT("calendar.spans_through")),
+            (TODAY + timedelta(4), TEXT("calendar.spans_until", time="15:00")),
+        ])
+        self.assertEqual(self._striped(event, now=now),
                          [TODAY + timedelta(n) for n in range(5)])
-        self.assertEqual(drawn[0][1], TEXT("calendar.spans_through"))
 
     def test_an_evening_that_runs_past_midnight_stays_one_appointment(self) -> None:
         drawn = self._run(self._timed(
@@ -311,20 +346,30 @@ class TestSpannedAppointments(unittest.TestCase):
             (TODAY + timedelta(1), TEXT("calendar.spans_through")),
         ])
 
-    def test_a_day_that_is_only_run_through_sorts_with_the_all_day_entries(self) -> None:
-        """It has no time of its own, so it cannot sort by one."""
+    def test_the_end_of_a_span_sorts_with_the_all_day_entries(self) -> None:
+        """It has no time of its own, so it cannot sort by one.
+
+        Since P46 this is only visible at the **ends** of a span: the days in
+        between carry the stripe and no entry, so there is nothing left there
+        to sort. The last day is the one that keeps the point — it began at
+        midnight, before anything else that day, and "bis 15:00" is when it
+        stops rather than when it starts.
+        """
         days = cl.build_days(
             [_source()],
             {"calendar.a": [
-                _event(TODAY + timedelta(1), "08:00", "09:00", "früh"),
+                _event(TODAY + timedelta(3), "08:00", "09:00", "früh"),
                 self._timed("2026-08-23T10:00:00+02:00",
                             "2026-08-26T15:00:00+02:00", "Urlaub"),
             ]},
             today=TODAY,
             text=TEXT,
         )
-        second = days[1]
-        self.assertEqual([e.title_lines[0] for e in second.entries], ["Urlaub", "früh"])
+        self.assertEqual([e.title_lines[0] for e in days[3].entries], ["Urlaub", "früh"])
+        # The 24th and the 25th are run through: the stripe, and nothing else.
+        for middle in (days[1], days[2]):
+            self.assertEqual(middle.entries, [])
+            self.assertTrue(middle.spans)
 
     def test_an_anniversary_is_a_day_and_never_a_span(self) -> None:
         """A wedding day drawn across a week is one line, not seven."""
@@ -339,8 +384,16 @@ class TestSpannedAppointments(unittest.TestCase):
             today=TODAY,
             text=TEXT,
         )
-        self.assertEqual(len(drawn), 8)                      # as an ordinary event
+        # As an ordinary event: two ends and a stripe over all eight days.
+        self.assertEqual(len(drawn), 2)
+        self.assertEqual(
+            len(self._striped(self._timed("2026-08-23T09:00:00+02:00",
+                                          "2026-08-30T09:15:00+02:00", "Hochzeitstag"))),
+            8,
+        )
+        # As an anniversary: one day, one entry, no stripe at all.
         self.assertEqual(sum(len(d.entries) for d in timed), 1)
+        self.assertEqual([d.day for d in timed if d.spans], [])
 
     def test_a_single_day_appointment_is_untouched(self) -> None:
         self.assertEqual(self._run(_event(TODAY, "09:00", "10:00")),
@@ -413,7 +466,9 @@ class TestAnniversaryEntries(unittest.TestCase):
         """P41: it is written there so a phone's calendar app shows it, and the
         wall shows the title as written rather than a second version of it."""
         entry = self._days(summary="Anna Berger (1985)", description="")[0].entries[0]
-        self.assertEqual(entry.title_lines[0], "Anna Berger (1985) — 41 Jahre")
+        # Two lines since P46 — 29 characters against a 27-character column.
+        # The bracket is the measured price of the year in the title [P41].
+        self.assertEqual(" ".join(entry.title_lines), "Anna Berger (1985) — 41 Jahre")
 
     def test_the_wording_fits_an_anniversary_that_is_not_a_birthday(self) -> None:
         """The reason the sentence is neutral: "wird 20" would be wrong here,
@@ -529,8 +584,8 @@ class TestSundayAndEmptyDays(unittest.TestCase):
 
     def test_sunday_is_read_off_the_date(self) -> None:
         # 2026-08-23 is a Sunday, the 24th is not.
-        self.assertTrue(cl.Day(day=date(2026, 8, 23), title="x").sunday)
-        self.assertFalse(cl.Day(day=date(2026, 8, 24), title="x").sunday)
+        self.assertTrue(cl.Day(day=date(2026, 8, 23)).sunday)
+        self.assertFalse(cl.Day(day=date(2026, 8, 24)).sunday)
 
     def test_the_flag_reaches_the_template(self) -> None:
         days = cl.build_days([_source()], {"calendar.a": []},
@@ -547,23 +602,25 @@ class TestSundayAndEmptyDays(unittest.TestCase):
         self.assertIn(cl.COLORS[cl.SUNDAY_COLOR],
                       {"#%02x%02x%02x" % rgb for rgb in imaging.SPECTRA})
 
-    def test_an_empty_day_is_a_dash_in_both_languages(self) -> None:
-        for language in ("en", "de"):
-            self.assertEqual(wall_text.WallText(language)("calendar.empty"), "–")
+    def test_an_empty_day_is_the_bare_badge(self) -> None:
+        """P45 replaced "keine Termine" with a dash; P46 dropped the dash too.
 
-    def test_an_empty_day_is_cheaper_than_the_words_it_replaces(self) -> None:
-        """148 px of "keine Termine" → 120 px of dash, gaplessness intact."""
+        The badge is there whatever the day holds, and white beside it says
+        "nothing" as plainly as a dash did — for the same 122 px the dash cost
+        120. Gaplessness is untouched."""
         days = cl.build_days([_source()], {"calendar.a": []},
                              today=TODAY, text=TEXT)
-        self.assertEqual(days[0].height, cl.DAY_HEAD_H + cl.EMPTY_DAY_H + cl.DAY_GAP)
-        self.assertEqual(days[0].height, 120)
+        self.assertEqual(days[0].height, cl.BADGE_MIN_H + cl.DAY_GAP)
+        self.assertEqual(days[0].height, 122)
+        self.assertIs(days[0].as_dict()["empty"], True)
+        for language in ("en", "de"):
+            self.assertNotIn("calendar.empty", wall_text.WallText(language)._strings)
 
 
 class TestColumns(unittest.TestCase):
     def _day(self, entries: int, day: date | None = None) -> cl.Day:
         return cl.Day(
             day=day or TODAY,
-            title="Tag",
             entries=[
                 cl.Entry(time_text="09:00", title_lines=["x"], location="", color="#000")
                 for _ in range(entries)
@@ -652,7 +709,7 @@ class TestTheMockupLoad(unittest.TestCase):
                 )
                 for _ in range(count)
             ]
-            out.append(cl.Day(day=day, title="Tag", entries=entries))
+            out.append(cl.Day(day=day, entries=entries))
         return out
 
     def test_the_mockup_load_fits_in_three_columns(self) -> None:
@@ -752,11 +809,20 @@ class TestPage(unittest.TestCase):
 
     def test_the_date_is_said_exactly_once(self) -> None:
         """The defect that removed the header [P29]: the page carried "Sunday,
-        August 23" at 64 px *and* "Today · Sunday, August 23" right under it."""
+        August 23" at 64 px *and* "Today · Sunday, August 23" right under it.
+
+        P46 brought a header back, and this is the test that says it is not the
+        same header: it carries the **month**, the badges carry number and
+        weekday, and neither repeats the other.
+        """
         page = cl.build_page(self._document(), now=datetime(2026, 8, 23, 12, 0), text=TEXT)
-        titles = [day["title"] for column in page.columns for day in column]
-        self.assertEqual(sum(1 for t in titles if "23. August" in t), 1)
-        self.assertTrue(titles[0].startswith("Heute"))
+        self.assertEqual(page.header, "August 2026")
+        badges = [item for column in page.columns for item in column
+                  if item["kind"] == "day"]
+        self.assertEqual(badges[0]["number"], "23")
+        self.assertEqual(badges[0]["weekday"], "So")
+        for badge in badges:
+            self.assertNotIn("August", badge["number"] + badge["weekday"])
 
 
 class TestFoot(unittest.TestCase):
@@ -801,11 +867,16 @@ class TestCatalogs(unittest.TestCase):
     """Both wall catalogs carry every key the page asks for."""
 
     KEYS = (
-        "format.day_title", "format.clock", "calendar.today", "calendar.all_day",
-        "calendar.empty", "calendar.years", "calendar.untitled", "calendar.cut",
+        "format.clock", "format.month_year", "format.week_span",
+        "format.week_span_months", "calendar.all_day", "calendar.week",
+        "calendar.years", "calendar.untitled", "calendar.cut",
         "calendar.source_failed", "calendar.no_sources",
         "calendar.no_events",
+        "calendar.spans_from", "calendar.spans_through", "calendar.spans_until",
     )
+    # Retired with the day title [P46]: there is no title line to format, no
+    # "Heute ·" to prefix it with and no dash on an empty day.
+    GONE = ("format.day_title", "calendar.today", "calendar.empty")
 
     def test_every_key_exists_in_both_languages(self) -> None:
         for language in ("en", "de"):
@@ -815,10 +886,23 @@ class TestCatalogs(unittest.TestCase):
             )
             for key in self.KEYS:
                 self.assertIn(key, catalog, f"{language}: {key}")
+            for key in self.GONE:
+                self.assertNotIn(key, catalog, f"{language}: {key} is retired")
             for index in range(7):
                 self.assertIn(f"weekday.{index}", catalog)
+                self.assertIn(f"weekday_short.{index}", catalog)
             for month in range(1, 13):
                 self.assertIn(f"month.{month}", catalog)
+                self.assertIn(f"month_short.{month}", catalog)
+
+    def test_the_short_forms_are_written_out_not_sliced(self) -> None:
+        """"Mo" happens to be "Montag"[:2] and English is Mon/Tue/Wed — a
+        two-letter slice would be right in German and wrong here, silently
+        [P9]. So both forms are catalogue entries, and this is what says so."""
+        source = (REPO_ROOT / "addon-epaperengine" / "calendar_layout.py").read_text("utf-8")
+        self.assertNotIn('weekday.{', source.replace("weekday_short.{", ""))
+        for language, expected in (("en", "Wed"), ("de", "Mi")):
+            self.assertEqual(wall_text.WallText(language)("weekday_short.2"), expected)
 
     def test_the_date_format_is_a_catalog_key_not_code(self) -> None:
         """[Festlegung P9] — month and weekday names are language, and the
@@ -826,6 +910,214 @@ class TestCatalogs(unittest.TestCase):
         source = (REPO_ROOT / "addon-epaperengine" / "calendar_layout.py").read_text("utf-8")
         self.assertNotIn("%B", source)
         self.assertNotIn("%A", source)
+
+
+class TestWeekBands(unittest.TestCase):
+    """The grey band that opens a week [Festlegung P46, 2026-09-01, Wolfgang]."""
+
+    def _days(self, first: date, count: int) -> list[cl.Day]:
+        return [cl.Day(day=first + timedelta(n)) for n in range(count)]
+
+    def test_a_band_stands_before_every_monday(self) -> None:
+        # 2026-08-23 is a Sunday, so the 24th and the 31st are Mondays.
+        items = cl.with_week_bands(self._days(TODAY, 10), TEXT)
+        bands = [(n, item) for n, item in enumerate(items) if isinstance(item, cl.WeekBand)]
+        self.assertEqual([item.monday for _, item in bands],
+                         [date(2026, 8, 24), date(2026, 8, 31)])
+        for index, _ in bands:
+            self.assertEqual(items[index + 1].day.weekday(), 0)
+
+    def test_a_run_that_starts_on_a_monday_gets_its_band(self) -> None:
+        """Before *every* Monday, the first one included: an exception for the
+        first item would leave a run beginning on a Monday unlabelled while one
+        beginning on a Tuesday is labelled a day later."""
+        items = cl.with_week_bands(self._days(date(2026, 8, 24), 3), TEXT)
+        self.assertIsInstance(items[0], cl.WeekBand)
+
+    def test_the_range_is_the_weeks_monday_not_the_day_it_stands_before(self) -> None:
+        """The bug the mockup showed: the range was computed from whichever day
+        the band happened to sit above, so the same week read "5. – 11. Oktober"
+        in one column and "8. – 14. Oktober" in the next. Invisible until two
+        bands for one week stood side by side."""
+        band = cl.week_band(date(2026, 10, 5), TEXT)
+        self.assertEqual(band.label, "KW 41")
+        self.assertEqual(band.span, "5. – 11. Oktober")
+
+    def test_a_week_that_crosses_a_month_names_both(self) -> None:
+        self.assertEqual(cl.week_band(date(2026, 9, 28), TEXT).span, "28. Sep – 4. Okt")
+
+    def test_the_week_number_is_the_iso_one(self) -> None:
+        for monday, week in ((date(2026, 8, 24), 35), (date(2026, 12, 28), 53)):
+            self.assertEqual(cl.week_band(monday, TEXT).label,
+                             TEXT("calendar.week", week=week))
+
+    def test_english_writes_the_range_its_own_way(self) -> None:
+        english = wall_text.WallText("en")
+        self.assertEqual(cl.week_band(date(2026, 10, 5), english).span, "October 5 – 11")
+        self.assertEqual(cl.week_band(date(2026, 9, 28), english).span, "Sep 28 – Oct 4")
+
+    def test_a_band_is_never_the_last_thing_in_a_column(self) -> None:
+        """A heading whose week starts in the next column is a heading over
+        nothing. So the band goes only where the Monday behind it goes — and
+        it is charged for *before* the column is chosen, or the day behind it
+        runs off the bottom where ``overflow: hidden`` eats it in silence.
+
+        Swept over five loads because the case only bites when a band lands
+        near the foot of a column: at three appointments a day it never does.
+        """
+        heights = [cl.COLUMN_H - cl.HEAD_H, cl.COLUMN_H, cl.COLUMN_H - 96]
+        for count in range(5):
+            with self.subTest(appointments=count):
+                days = [
+                    cl.Day(
+                        day=TODAY + timedelta(n),
+                        entries=[
+                            cl.Entry(time_text="09:00", title_lines=["x"],
+                                     location="", color="#000")
+                            for _ in range(count)
+                        ],
+                    )
+                    for n in range(60)
+                ]
+                columns = cl.fill_columns(cl.with_week_bands(days, TEXT), heights)
+                for column, limit in zip(columns, heights):
+                    if not column:
+                        continue
+                    self.assertIsInstance(column[-1], cl.Day)
+                    self.assertLessEqual(column[-1].top + column[-1].height, limit)
+                    for index, item in enumerate(column):
+                        if isinstance(item, cl.WeekBand):
+                            self.assertIsInstance(column[index + 1], cl.Day)
+
+    def test_the_band_costs_what_the_model_reserves(self) -> None:
+        self.assertEqual(cl.week_band(date(2026, 8, 24), TEXT).height,
+                         cl.WEEK_BAND_H + cl.WEEK_BAND_GAP)
+
+
+class TestStripes(unittest.TestCase):
+    """The colour of a multi-day appointment, running through [P46]."""
+
+    def _page(self, events, now=datetime(2026, 8, 23, 12, 0)):
+        return cl.build_page(
+            {"calendar": {
+                "sources": [{"entity_id": "calendar.a", "person": "W", "color": "blue"}],
+                "events": {"calendar.a": events},
+            }},
+            now=now,
+            text=TEXT,
+        )
+
+    def _span(self, start, end, summary="Urlaub"):
+        return {"start": start, "end": end, "summary": summary}
+
+    def test_a_span_is_one_unbroken_rectangle(self) -> None:
+        page = self._page([self._span("2026-08-23T10:00:00+02:00",
+                                      "2026-08-27T15:00:00+02:00")])
+        stripes = page.stripes[0]
+        self.assertEqual(len(stripes), 1)
+        stripe = stripes[0]
+        days = [item for item in page.columns[0] if item["kind"] == "day"]
+        self.assertEqual(stripe["top"], days[0]["top"])
+        self.assertEqual(stripe["top"] + stripe["height"],
+                         days[4]["top"] + days[4]["badge_h"])
+        self.assertEqual(stripe["color"], cl.COLORS["blue"])
+
+    def test_it_runs_through_the_gaps_and_over_any_band(self) -> None:
+        """It says the appointment did not stop; a stripe interrupted at every
+        day boundary would say the opposite."""
+        page = self._page([self._span("2026-08-23T10:00:00+02:00",
+                                      "2026-08-27T15:00:00+02:00")])
+        stripe = page.stripes[0][0]
+        days = [item for item in page.columns[0] if item["kind"] == "day"]
+        gaps = sum(day["height"] - day["badge_h"] for day in days[:4])
+        band = sum(item["height"] for item in page.columns[0]
+                   if item["kind"] == "band" and stripe["top"] < item["top"] < stripe["top"] + stripe["height"])
+        self.assertGreater(gaps + band, 0)
+        self.assertEqual(
+            stripe["height"],
+            sum(day["badge_h"] for day in days[:5]) + gaps + band,
+        )
+
+    def test_a_single_surviving_day_is_no_stripe(self) -> None:
+        """An appointment whose span has been filtered down to one day is an
+        ordinary entry again — and it keeps its entry."""
+        page = self._page(
+            [self._span("2026-08-18T10:00:00+02:00", "2026-08-23T15:00:00+02:00")],
+            now=datetime(2026, 8, 23, 12, 0),
+        )
+        self.assertEqual(page.stripes[0], [])
+        first = [item for item in page.columns[0] if item["kind"] == "day"][0]
+        self.assertEqual(len(first["entries"]), 1)
+
+    def test_two_overlapping_spans_share_the_lane(self) -> None:
+        """Half each rather than one covering the other. Never below 4 px —
+        that is where a stripe stops reading as a stripe."""
+        page = self._page([
+            self._span("2026-08-23T10:00:00+02:00", "2026-08-27T15:00:00+02:00", "A"),
+            self._span("2026-08-25T10:00:00+02:00", "2026-08-29T15:00:00+02:00", "B"),
+        ])
+        stripes = page.stripes[0]
+        self.assertEqual(len(stripes), 2)
+        self.assertEqual({s["width"] for s in stripes}, {cl.STRIPE_W // 2})
+        self.assertEqual(sorted(s["left"] for s in stripes), [0, cl.STRIPE_W // 2])
+        for stripe in stripes:
+            self.assertGreaterEqual(stripe["width"], 4)
+
+    def test_two_spans_that_do_not_overlap_keep_the_whole_lane(self) -> None:
+        page = self._page([
+            self._span("2026-08-23T10:00:00+02:00", "2026-08-25T15:00:00+02:00", "A"),
+            self._span("2026-08-27T10:00:00+02:00", "2026-08-29T15:00:00+02:00", "B"),
+        ])
+        for stripe in page.stripes[0]:
+            self.assertEqual((stripe["left"], stripe["width"]), (0, cl.STRIPE_W))
+
+    def test_the_lane_is_outside_the_badge(self) -> None:
+        """It has to be: the per-entry colour bar sits inside the body, where
+        the other appointments of the same day put theirs."""
+        self.assertLessEqual(cl.STRIPE_W, cl.RAIL_W - cl.BADGE_W)
+        self.assertEqual(cl.RAIL_W,
+                         cl.STRIPE_W + cl.STRIPE_GAP + cl.BADGE_W + cl.BADGE_GAP)
+
+
+class TestHeaderAndMonths(unittest.TestCase):
+    """The month, said once at the start and again when it turns [P46]."""
+
+    def _page(self, now):
+        return cl.build_page(
+            {"calendar": {
+                "sources": [{"entity_id": "calendar.a", "person": "W", "color": "blue"}],
+                "events": {"calendar.a": [_event(now.date() + timedelta(20))]},
+            }},
+            now=now,
+            text=TEXT,
+        )
+
+    def test_the_header_names_the_month_of_the_first_day(self) -> None:
+        self.assertEqual(self._page(datetime(2026, 8, 23, 12, 0)).header, "August 2026")
+
+    def test_only_the_first_column_pays_for_it(self) -> None:
+        """A full-width header would cost all three — the measurement P29 acted
+        on. This one costs the first column and nothing else."""
+        page = self._page(datetime(2026, 8, 23, 12, 0))
+        self.assertEqual(page.head_h, cl.HEAD_H)
+        first = [item for item in page.columns[0]][0]
+        self.assertEqual(first["top"], 0)
+
+    def test_the_first_of_a_month_carries_it_in_the_badge(self) -> None:
+        """The header cannot follow a run of 30 days across a month boundary,
+        and the badge is at least 98 px tall anyway — so it costs nothing."""
+        page = self._page(datetime(2026, 8, 23, 12, 0))
+        badges = {item["number"]: item["month"] for column in page.columns
+                  for item in column if item["kind"] == "day"}
+        self.assertEqual(badges["01"], "Sep")
+        self.assertEqual(badges["31"], "")
+
+    def test_the_first_day_of_the_run_says_it_in_the_header_only(self) -> None:
+        page = self._page(datetime(2026, 9, 1, 12, 0))
+        self.assertEqual(page.header, "September 2026")
+        first = [item for column in page.columns for item in column
+                 if item["kind"] == "day"][0]
+        self.assertEqual((first["number"], first["month"]), ("01", ""))
 
 
 class TestTemplateAgreesWithTheModel(unittest.TestCase):
@@ -840,16 +1132,71 @@ class TestTemplateAgreesWithTheModel(unittest.TestCase):
         assert found is not None, f"{selector} has no {prop}"
         return int(found.group(1))
 
-    def test_the_day_head_costs_what_the_model_charges(self) -> None:
-        """Line plus air. **No rule** since P31 — see the test below."""
-        self.assertEqual(self._px(".day h2", "height") + 14, cl.DAY_HEAD_H)
+    def test_the_badge_is_the_size_the_model_reserves(self) -> None:
+        """[P46] Number, weekday and the box they sit in — three numbers in two
+        files, and a stylesheet that disagrees with the model overflows the
+        badge silently, because it clips."""
+        self.assertEqual(self._px(".badge", "width"), cl.BADGE_W)
+        self.assertEqual(self._px(".badge .num", "font-size"), cl.BADGE_NUM_PX)
+        self.assertEqual(self._px(".badge .wd", "font-size"), cl.BADGE_WD_PX)
+        self.assertEqual(self._px(".badge .mon", "font-size"), cl.BADGE_MONTH_PX)
+        rule = re.search(r"\.badge \{([^}]*)\}", self.CSS)
+        assert rule is not None
+        self.assertIn(f"background: {cl.BADGE_BG}", rule.group(1))
+        self.assertIn(f"color: {cl.BADGE_FG}", rule.group(1))
 
-    def test_the_day_title_carries_no_rule(self) -> None:
-        """[P31] The mockup drew a 2 px line under every date; across three
-        columns that is a horizontal rule every few centimetres."""
-        block = re.search(r"\.day h2 \{(.*?)\}", self.CSS, re.S)
-        assert block is not None
-        self.assertNotIn("border", block.group(1))
+    def test_the_two_badge_lines_fit_the_minimum_height(self) -> None:
+        """98 px is the floor of an empty day; it has to hold both lines."""
+        lines = self._px(".badge .num", "line-height") + self._px(".badge .wd", "line-height")
+        self.assertLessEqual(lines, cl.BADGE_MIN_H)
+
+    def test_the_month_line_fits_the_floor_it_raises(self) -> None:
+        """The badge clips, so an empty 1st would simply have lost its month —
+        on the one day of the month that has to carry it. Found by arithmetic;
+        the wall would have shown a badge that looked entirely normal."""
+        self.assertLessEqual(self._px(".badge .mon", "line-height"), cl.BADGE_MONTH_H)
+        lines = (
+            self._px(".badge .num", "line-height")
+            + self._px(".badge .wd", "line-height")
+            + self._px(".badge .mon", "line-height")
+        )
+        self.assertLessEqual(lines, cl.BADGE_MIN_H + cl.BADGE_MONTH_H)
+        self.assertEqual(cl.Day(day=date(2026, 10, 1), month_text="Okt").badge_height,
+                         cl.BADGE_MIN_H + cl.BADGE_MONTH_H)
+        self.assertEqual(cl.Day(day=date(2026, 10, 2)).badge_height, cl.BADGE_MIN_H)
+
+    def test_the_body_starts_behind_the_rail(self) -> None:
+        """The one number that decides where every title wraps [P46]."""
+        self.assertEqual(self._px(".body", "left"), cl.RAIL_W)
+        self.assertEqual(self._px(".badge", "left"), cl.STRIPE_W + cl.STRIPE_GAP)
+
+    def test_the_week_band_is_the_size_the_model_reserves(self) -> None:
+        """[P46] Height and type; the 12 px of air below it are the model's."""
+        self.assertEqual(self._px(".band", "height"), cl.WEEK_BAND_H)
+        self.assertEqual(self._px(".band .kw", "font-size"), cl.WEEK_BAND_PX)
+        self.assertEqual(self._px(".band .span", "font-size"), cl.WEEK_BAND_PX)
+        rule = re.search(r"      \.band \{([^}]*)\}", self.CSS)
+        assert rule is not None
+        self.assertIn(f"background: {cl.WEEK_BAND_BG}", rule.group(1))
+
+    def test_the_band_uses_the_full_column_width(self) -> None:
+        """[Wolfgang: „horizontal die volle breite ausnutzen"] — the week number
+        left, the date range right, and nothing between them but the band."""
+        rule = re.search(r"      \.band \{([^}]*)\}", self.CSS)
+        assert rule is not None
+        self.assertIn("left: 0", rule.group(1))
+        self.assertIn("right: 0", rule.group(1))
+        self.assertIn("left: 14px", re.search(r"\.band \.kw \{([^}]*)\}", self.CSS).group(1))
+        self.assertIn("right: 14px", re.search(r"\.band \.span \{([^}]*)\}", self.CSS).group(1))
+
+    def test_every_block_is_placed_out_of_the_model(self) -> None:
+        """A stripe crosses day blocks, so nothing may sit in normal flow: two
+        stacking orders, one in CSS and one in Python, would drift [P46]."""
+        for selector in (r"      \.day \{([^}]*)\}", r"      \.band \{([^}]*)\}"):
+            rule = re.search(selector, self.CSS)
+            assert rule is not None, selector
+            self.assertIn("position: absolute", rule.group(1))
+        self.assertIn('style="top: {{ item.top }}px"', self.CSS)
 
     def test_the_foot_is_flushed_to_the_outer_edge(self) -> None:
         """[P31] It sits in the last column, at the edge of the page."""
@@ -866,28 +1213,23 @@ class TestTemplateAgreesWithTheModel(unittest.TestCase):
         assert found is not None
         self.assertEqual(found.group(1).split()[2], "0")
 
-    def test_the_gap_under_a_block_matches(self) -> None:
-        self.assertIn(f"margin: 0 0 {cl.DAY_GAP}px 0", self.CSS)
+    def test_the_gap_under_a_block_is_the_models_alone(self) -> None:
+        """[P46] The 24 px used to be a CSS margin. Blocks are positioned out of
+        the model now, so the gap lives in ``Day.height`` and nowhere else —
+        a margin left behind here would add itself to it."""
+        self.assertNotIn("margin", re.search(r"      \.day \{([^}]*)\}", self.CSS).group(1))
+        day = cl.Day(day=TODAY)
+        self.assertEqual(day.height - day.badge_height, cl.DAY_GAP)
 
-    def test_the_empty_day_costs_what_the_model_charges(self) -> None:
-        self.assertEqual(self._px(".empty", "height"), cl.EMPTY_DAY_H)
+    def test_the_empty_day_has_nothing_beside_the_badge(self) -> None:
+        """P45 replaced "keine Termine" with a dash; P46 dropped the dash [P46].
 
-    def test_the_empty_day_line_sits_inside_its_box(self) -> None:
-        """"Etwas dicht dran" is a line-height, and it must not overflow."""
-        self.assertLessEqual(self._px(".empty", "line-height"), cl.EMPTY_DAY_H)
-        self.assertEqual(self._px(".empty", "font-size"), cl.EMPTY_DAY_PX)
-
-    def test_the_empty_day_dash_is_black(self) -> None:
-        """A dash is a thin line, whatever the font calls it [P28/P45].
-
-        Grey *text* survives the panel; a grey *line* does not — it is built
-        out of primaries, and over 3 px of stroke there are not enough pixels
-        to build it from. Measured on the first real image of P45: the grey
-        dash came out 61–80 % covered with a colour fringe.
+        The words said nothing the empty space did not already say, and the
+        dash said it in two pixels of stroke — 10 × 2 px that Floyd-Steinberg
+        scatters. The badge is there whatever the day holds.
         """
-        rule = re.search(r"\.empty \{([^}]*)\}", self.CSS)
-        assert rule is not None
-        self.assertIn("color: #000000", rule.group(1))
+        self.assertNotIn(".empty", self.CSS)
+        self.assertNotIn("calendar.empty", self.CSS)
 
     def test_sunday_is_painted_in_the_colour_the_model_names(self) -> None:
         """The model decides which day it is; the stylesheet only paints it.
@@ -895,11 +1237,12 @@ class TestTemplateAgreesWithTheModel(unittest.TestCase):
         Two strings in two files [P45] — the class name and the hex. Either
         drifting is silent: a renamed class simply paints nothing.
         """
-        self.assertIn("h2.sunday", self.CSS)
-        rule = re.search(r"\.day h2\.sunday\s*\{([^}]*)\}", self.CSS)
+        self.assertIn(".badge.sunday", self.CSS)
+        rule = re.search(r"\.badge\.sunday\s*\{([^}]*)\}", self.CSS)
         assert rule is not None
-        self.assertIn(cl.COLORS[cl.SUNDAY_COLOR], rule.group(1))
-        self.assertIn('{% if day.sunday %} class="sunday"{% endif %}', self.CSS)
+        self.assertIn(cl.BADGE_BG_SUNDAY, rule.group(1))
+        self.assertEqual(cl.BADGE_BG_SUNDAY, cl.COLORS[cl.SUNDAY_COLOR])
+        self.assertIn('{% if item.sunday %} sunday{% endif %}', self.CSS)
 
     def test_the_cut_marker_costs_what_the_model_charges(self) -> None:
         self.assertEqual(self._px(".cut", "height"), cl.CUT_H)
@@ -908,8 +1251,16 @@ class TestTemplateAgreesWithTheModel(unittest.TestCase):
         self.assertEqual(self._px(".what .line", "line-height"), cl.ENTRY_LINE_H)
 
     def test_the_title_column_is_where_the_model_wrapped_it(self) -> None:
+        """Since P46 the width is not written down anywhere: the title box runs
+        to the right edge of the body, and the body starts behind the rail. So
+        the number the model wrapped at is the one the browser will use, and
+        there is no second copy of it to drift."""
         self.assertEqual(self._px(".what", "left"), cl.TITLE_DX)
-        self.assertEqual(self._px(".what", "width"), cl.COLUMN_W - cl.TITLE_DX)
+        rule = re.search(r"\.what \{([^}]*)\}", self.CSS)
+        assert rule is not None
+        self.assertIn("right: 0", rule.group(1))
+        self.assertIn("right: 0", re.search(r"\.body \{([^}]*)\}", self.CSS).group(1))
+        self.assertEqual(cl.COLUMN_W - self._px(".body", "left") - cl.TITLE_DX, cl.TITLE_W)
 
     def test_the_time_column_is_the_measured_one(self) -> None:
         self.assertEqual(self._px(".time", "width"), cl.TIME_W)

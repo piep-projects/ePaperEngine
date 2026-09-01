@@ -285,7 +285,7 @@
   "panel.calendar.bar": "Breite des Farbbalkens",
   "panel.calendar.bar.hint": "2 px sind die gemessene Untergrenze; 6 px liest sich auf 1 m als Balken statt als Haarlinie. Die Farben sind Spectra-Primärfarben — jeder andere Wert würde zu einem Sprenkel gedithert.",
   "panel.calendar.empty_days": "Tage ohne Termine anzeigen",
-  "panel.calendar.empty_days.hint": "Hält die Tagesfolge lückenlos. Kostet rund 126 px — etwa anderthalb Termine.",
+  "panel.calendar.empty_days.hint": "Hält die Tagesfolge lückenlos. Kostet 122 px je Leertag — etwa anderthalb Termine.",
   "panel.calendar.past_today": "Vergangene Termine des Tages zeigen",
   "panel.calendar.past_today.hint": "Aus als Vorgabe: am Abend ist das Morgen-Meeting nur noch Rauschen. Geburtstage und ganztägige Einträge bleiben in jedem Fall stehen."
 }

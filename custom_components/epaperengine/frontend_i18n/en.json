@@ -285,7 +285,7 @@
   "panel.calendar.bar": "Colour bar width",
   "panel.calendar.bar.hint": "2 px is the measured floor; 6 px reads as a bar rather than a hairline at 1 m. The colours are Spectra primaries — any other value would be dithered into a speckle.",
   "panel.calendar.empty_days": "Show days without appointments",
-  "panel.calendar.empty_days.hint": "Keeps the run of days gapless. Costs about 126 px — roughly one and a half appointments.",
+  "panel.calendar.empty_days.hint": "Keeps the run of days gapless. Costs 122 px per empty day — roughly one and a half appointments.",
   "panel.calendar.past_today": "Show today's past entries",
   "panel.calendar.past_today.hint": "Off by default: in the evening the morning's stand-up is noise. Birthdays and all-day entries stay up either way."
 }
