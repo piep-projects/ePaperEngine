@@ -122,7 +122,7 @@
     },
     "sync_anniversaries": {
       "name": "Jahrestage zurückschreiben",
-      "description": "Schreibt die Jahreszahl in den Jahrestagskalender selbst, damit am Handy dasselbe steht wie an der Wand. Angefasst werden nur Quellen der Art „Jahrestage“, und beschreibbar sind nur CalDAV-Kalender. Einträge, deren Titel schon stimmt, kosten keine einzige Anfrage — ein täglicher Lauf ist deshalb harmlos.",
+      "description": "Schreibt die Jahreszahl in den Jahrestagskalender selbst, damit am Handy dasselbe steht wie an der Wand. Angefasst werden nur Quellen der Art „Jahrestage“, und beschreibbar sind nur CalDAV-Kalender. Ein Lauf liest den Kalender und schreibt nur die Einträge zurück, deren Zahl nicht mehr stimmt. Seit 0.23.0 geschieht das von selbst jede Nacht — den Dienst braucht es nur für eine andere Uhrzeit.",
       "fields": {
         "dry_run": {
           "name": "Nur ansehen",

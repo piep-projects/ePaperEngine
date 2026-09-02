@@ -122,7 +122,7 @@
     },
     "sync_anniversaries": {
       "name": "Sync anniversaries",
-      "description": "Writes the year count into the anniversary calendar itself, so a phone shows what the wall shows. Only sources marked as anniversaries are touched, and only CalDAV ones can be written to. Entries whose title is already correct cost no request at all, so a daily automation is harmless.",
+      "description": "Writes the year count into the anniversary calendar itself, so a phone shows what the wall shows. Only sources marked as anniversaries are touched, and only CalDAV ones can be written to. A run reads the calendar and writes back only the entries whose number is out of date. Since 0.23.0 this happens by itself every night, so the service is only needed for a different time of day.",
       "fields": {
         "dry_run": {
           "name": "Dry run",

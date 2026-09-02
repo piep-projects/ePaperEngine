@@ -22,7 +22,9 @@ Three rules carry the whole module:
   the failure would be silent: the sync would stop recognising its own previous
   suffix and append a second one.
 * **Nothing to change means nothing is written.** A run that finds every entry
-  current does no HTTP at all — that is what makes a daily run harmless.
+  current issues no ``PUT`` — that is what makes a nightly run harmless. Not
+  *no HTTP*: it still reads the calendar, measured 2026-09-02 at about four
+  seconds against the real server. What a quiet night costs is two searches.
 """
 
 from __future__ import annotations

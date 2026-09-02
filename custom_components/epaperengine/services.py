@@ -41,8 +41,10 @@ add-on, the rest are for automations — the front-ends use the WebSocket API in
     write the year count into the anniversary calendar itself [P42], so a phone
     shows what the wall shows. The one service here that changes data **outside
     this house**, which is why ``dry_run`` defaults to true and why the response
-    lists every entry it looked at, changed or not. Meant for a daily automation:
-    a run that finds nothing to change does no HTTP at all.
+    lists every entry it looked at, changed or not. Since 0.23.0 a nightly run
+    at ``ANNIVERSARY_SYNC_HOUR`` is built in, so the service is for a different
+    time of day or an event of one's own; a run that finds nothing to change
+    reads the calendar and writes nothing.
 """
 
 from __future__ import annotations
