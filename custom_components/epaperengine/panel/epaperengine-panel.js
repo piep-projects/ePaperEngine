@@ -1968,7 +1968,14 @@ class EPaperEnginePanel extends HTMLElement {
       <div class="card">
         <h2>${esc(t("panel.display.renderer"))}</h2>
         <label>${esc(t("panel.display.renderer.url"))}</label>
-        <input id="renderer-url" value="${esc(display.renderer_url || "")}" placeholder="http://homeassistant.local:8099" ${lock}>
+        <!-- An IP, not the mDNS name. The name is what DEFAULT_RENDERER_URL falls
+             back to when the field is empty, and it is exactly what fails on most
+             installations: mDNS rarely resolves out of the Home Assistant
+             container, and the first sign of it is a network error that reads like
+             a broken add-on. A placeholder is a recommendation; recommending the
+             value that fails is worse than recommending nothing. The documentation
+             has said "take the IP" since 2026-09-01 — this said the opposite. -->
+        <input id="renderer-url" value="${esc(display.renderer_url || "")}" placeholder="http://192.168.1.42:8099" ${lock}>
         <div class="muted">${esc(t("panel.display.renderer.hint"))}</div>
         <div class="actions"><button class="primary" data-save="display" ${lock}>${esc(t("common.save"))}</button></div>
       </div>

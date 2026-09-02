@@ -147,7 +147,7 @@
   "panel.display.test.failed": "Keine Antwort: {msg}",
   "panel.display.renderer": "Renderer (Add-on)",
   "panel.display.renderer.url": "Adresse",
-  "panel.display.renderer.hint": "Von hier holt sich das Display …/content.json und …/image selbst",
+  "panel.display.renderer.hint": "Von hier holt sich das Display …/content.json und …/image selbst. Die IP der Home-Assistant-Instanz mit Port 8099 eintragen. Bleibt das Feld leer, wird „homeassistant.local“ versucht — das löst aus dem Container heraus oft nicht auf und meldet sich als Netzwerkfehler.",
   "panel.display.device": "Am Gerät eingestellt",
   "panel.display.device.hint": "nur zur Erinnerung — hier nicht änderbar",
   "panel.display.device.name": "Modell",

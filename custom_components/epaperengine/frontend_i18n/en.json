@@ -147,7 +147,7 @@
   "panel.display.test.failed": "No answer: {msg}",
   "panel.display.renderer": "Renderer (add-on)",
   "panel.display.renderer.url": "Address",
-  "panel.display.renderer.hint": "the display fetches …/content.json and …/image from here itself",
+  "panel.display.renderer.hint": "the display fetches …/content.json and …/image from here itself. Enter the IP of the Home Assistant instance with port 8099. Left empty, “homeassistant.local” is tried — which often does not resolve from inside the container and shows up as a network error.",
   "panel.display.device": "Set on the device",
   "panel.display.device.hint": "for reference only — not editable here",
   "panel.display.device.name": "Model",

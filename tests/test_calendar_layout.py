@@ -1238,6 +1238,46 @@ class TestPage(unittest.TestCase):
         page = cl.build_page(self._document(), now=datetime(2026, 8, 23, 12, 0), text=TEXT)
         self.assertEqual(page.legend, [[{"label": "Wolfgang", "hex": cl.COLORS["blue"]}]])
 
+    def test_the_page_counts_its_sources_and_not_its_legend_rows(self) -> None:
+        """The run log says ``sources: n``, and it used to say something else.
+
+        It reported ``len(page.legend)`` — legend *rows*. Two people sharing a
+        row and, since P48, a holiday source contributing none at all mean the
+        two numbers come apart exactly where somebody is checking "did all my
+        calendars arrive". Three sources answered ``sources: 1``.
+        """
+        document = self._document()
+        document["calendar"]["sources"] = [
+            {"entity_id": "calendar.a", "person": "Wolfgang", "color": "blue"},
+            {"entity_id": "calendar.b", "person": "Ehefrau", "color": "green"},
+            {"entity_id": "calendar.c", "person": "Feiertage", "kind": "holidays"},
+        ]
+        page = cl.build_page(document, now=datetime(2026, 8, 23, 12, 0), text=TEXT)
+        self.assertEqual(page.sources, 3)
+        # The discriminating half: the holiday source is in no legend row, so a
+        # count taken off the legend cannot reach three here.
+        self.assertLess(sum(len(row) for row in page.legend), page.sources)
+
+    def test_the_run_log_reports_the_count_the_page_carries(self) -> None:
+        """Read off ``server.py``: the number has to travel, not be recomputed.
+
+        Source-level because ``server.py`` needs aiohttp and Pillow, and this
+        suite runs where neither is installed — the same reason
+        ``test_push_switch.py`` reads rather than runs.
+        """
+        server = (REPO_ROOT / "addon-epaperengine" / "server.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('"sources": page.sources', server)
+        self.assertNotIn("len(page.legend)", server)
+
+    def test_an_empty_entity_is_not_a_source(self) -> None:
+        """``build_page`` drops it before drawing; the count must agree."""
+        document = self._document()
+        document["calendar"]["sources"].append({"entity_id": "", "person": "leer"})
+        page = cl.build_page(document, now=datetime(2026, 8, 23, 12, 0), text=TEXT)
+        self.assertEqual(page.sources, 1)
+
     def test_a_source_without_a_person_still_gets_a_label(self) -> None:
         document = self._document()
         document["calendar"]["sources"][0]["person"] = ""

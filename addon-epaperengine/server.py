@@ -416,7 +416,7 @@ def _render_calendar(
         # not fit on the wall, and whether a single day had to be cut.
         "days_dropped": page.dropped_days,
         "entries_cut": page.cut_entries,
-        "sources": len(page.legend),
+        "sources": page.sources,
         "notes": page.notes,
     }
 

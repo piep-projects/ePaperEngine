@@ -1384,6 +1384,13 @@ class Page:
     shown_holidays: int
     dropped_days: int
     cut_entries: int
+    # How many usable sources the page was built from — entity_id present, kind
+    # irrelevant. **Not the number of legend rows**, which is what the run log
+    # used to report under this name: several people share one row, and since
+    # P48 a holiday source contributes none at all. Three sources answered as
+    # ``sources: 1``, and the one number a reader would use to check "did all my
+    # calendars arrive" was the one that could not say.
+    sources: int
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -1491,6 +1498,7 @@ def build_page(
         shown_holidays=sum(len(day.holidays) for day in shown),
         dropped_days=len(days) - len(shown),
         cut_entries=sum(day.cut for day in shown),
+        sources=len(sources),
     )
 
 

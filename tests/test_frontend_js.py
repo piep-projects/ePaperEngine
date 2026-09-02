@@ -234,5 +234,40 @@ def _ws_registered() -> tuple[set[str], dict[str, str]]:
     return registered, handlers
 
 
+class TestRendererPlaceholder(unittest.TestCase):
+    """A placeholder is a recommendation, and this one recommended the failure.
+
+    ``DEFAULT_RENDERER_URL`` is what an *empty* field falls back to, and it is
+    the mDNS name, which rarely resolves out of the Home Assistant container —
+    the first sign of it is ``Cannot connect to host … [Network unreachable]``,
+    a network error that reads like a broken add-on. The documentation has said
+    "take the IP" since 2026-09-01; the panel went on suggesting the name.
+
+    The two must not drift again, so the guard is on the relationship, not on a
+    literal: whatever the fallback is, the placeholder must not be it.
+    """
+
+    def setUp(self) -> None:
+        self.panel = (COMPONENT / "panel" / "epaperengine-panel.js").read_text(encoding="utf-8")
+        self.const = (COMPONENT / "const.py").read_text(encoding="utf-8")
+
+    def _placeholder(self) -> str:
+        match = re.search(r'id="renderer-url"[^>]*placeholder="([^"]+)"', self.panel)
+        self.assertIsNotNone(match, "the renderer field lost its placeholder")
+        return match.group(1)
+
+    def test_the_placeholder_is_not_the_fallback(self) -> None:
+        fallback = re.search(
+            r'^DEFAULT_RENDERER_URL:\s*Final\s*=\s*"([^"]+)"', self.const, re.M
+        )
+        self.assertIsNotNone(fallback, "DEFAULT_RENDERER_URL is gone")
+        self.assertNotEqual(self._placeholder(), fallback.group(1))
+
+    def test_the_placeholder_shows_an_address_with_the_port(self) -> None:
+        """An example, not an empty box: the port is the half people forget."""
+        placeholder = self._placeholder()
+        self.assertRegex(placeholder, r"^http://\d+\.\d+\.\d+\.\d+:8099$")
+
+
 if __name__ == "__main__":
     unittest.main()
