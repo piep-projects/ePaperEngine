@@ -26,6 +26,7 @@ is one appointment quietly falling off the bottom of the third column.
 from __future__ import annotations
 
 import ast
+import contextlib
 import dataclasses
 import json
 import pathlib
@@ -38,6 +39,43 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "addon-epaperengine"))
 
 import calendar_layout as cl  # noqa: E402
+import recipe_layout as rl  # noqa: E402
+
+
+_MISSING = object()
+
+
+def font_file(candidates):
+    """The first of ``candidates`` that exists on this machine, or ``None``.
+
+    Asked *before* ``cl._face``: a test that skips whenever the face is ``None``
+    cannot tell "no font on this runner" from "the lookup is broken", and a
+    broken lookup is exactly what the fallback hides.
+    """
+    for path in candidates:
+        if pathlib.Path(path).exists():
+            return path
+    return None
+
+
+@contextlib.contextmanager
+def without_font(candidates, size):
+    """Run the block as if the font file were not installed.
+
+    Both wraps fall back to the character model then, and both fallbacks are
+    conservative — which is precisely why the loss would be silent and has to be
+    provoked deliberately.
+    """
+    key = (candidates, size)
+    saved = cl._faces.get(key, _MISSING)
+    cl._faces[key] = None
+    try:
+        yield
+    finally:
+        if saved is _MISSING:
+            cl._faces.pop(key, None)
+        else:
+            cl._faces[key] = saved
 import imaging  # noqa: E402
 import wall_text  # noqa: E402
 
@@ -237,7 +275,7 @@ class TestHolidays(unittest.TestCase):
         the guest greeting has been since P21. Where that file is missing this
         test says so rather than passing quietly.
         """
-        face = cl._face()
+        face = cl._face(cl.DEJAVU_BOLD_CANDIDATES, cl.HOLIDAY_PX)
         if face is None:
             self.skipTest("DejaVu Sans Bold not installed — the ratio model runs")
         for name in self.LONG + ("Tag der Deutschen Einheit", "1. Weihnachtsfeiertag"):
@@ -258,7 +296,7 @@ class TestHolidays(unittest.TestCase):
         0.602 worst, **Bold 0.615 / 0.676**. Borrowing the page's ratio is what
         produced the collision, so a test holds the two apart.
         """
-        self.assertGreater(cl.HOLIDAY_CHAR_RATIO, cl.CHAR_RATIO)
+        self.assertGreater(cl.HOLIDAY_CHAR_RATIO, rl.CHAR_RATIO)
         self.assertLessEqual(cl.HOLIDAY_CHARS, 34)
         self.assertGreater(cl.HOLIDAY_CHARS, cl.TITLE_CHARS)
 
@@ -270,32 +308,24 @@ class TestHolidays(unittest.TestCase):
         name that wrapped one word early. That is exactly the kind of loss
         nothing else on this page would report, so it is pinned here.
         """
-        if cl._face() is None:
+        if cl._face(cl.DEJAVU_BOLD_CANDIDATES, cl.HOLIDAY_PX) is None:
             self.skipTest("DejaVu Sans Bold not installed")
         name = "Tag der Deutschen Einheit und aller Heiligen"
         measured = cl.holiday_lines(name)
-        saved = cl._holiday_face
-        cl._holiday_face = None
-        try:
+        with without_font(cl.DEJAVU_BOLD_CANDIDATES, cl.HOLIDAY_PX):
             estimated = cl.holiday_lines(name)
-        finally:
-            cl._holiday_face = saved
         self.assertNotEqual(measured, estimated)
         self.assertGreater(len(measured[0]), len(estimated[0]))
 
     def test_the_fallback_wraps_conservatively(self) -> None:
         """A machine without the font still has to budget honestly."""
-        saved = cl._holiday_face
-        cl._holiday_face = None
-        try:
+        with without_font(cl.DEJAVU_BOLD_CANDIDATES, cl.HOLIDAY_PX):
             for name in self.LONG:
                 for line in cl.holiday_lines(name):
                     if " " in line:
                         self.assertLessEqual(len(line), cl.HOLIDAY_CHARS)
             self.assertEqual(cl.holiday_lines("Tag der Deutschen Einheit"),
                              ["Tag der Deutschen Einheit"])
-        finally:
-            cl._holiday_face = saved
 
     def test_a_wrapped_name_costs_a_line_and_raises_the_badge_with_it(self) -> None:
         """Two lines still hide under the 98 px badge floor; three do not.
@@ -559,12 +589,169 @@ class TestDays(unittest.TestCase):
 
     def test_the_title_wraps_where_the_column_actually_ends(self) -> None:
         """FSD §8.1 says "~31 characters", measured against the mockup's 773 px
-        column. P30 grew the column to 805 px and the figure to 35; P46 took
-        132 px back for the badge rail and it is 27. The model never changed —
-        only the width it is applied to."""
+        column. P30 grew the column to 805 px, P46 took 132 px back for the
+        badge rail. The width is arithmetic and stays here; how many characters
+        cross it is measured, not derived from the prose ratio — see
+        :class:`TestTitleWrap`."""
         self.assertEqual(cl.TITLE_W, cl.COLUMN_W - cl.RAIL_W - cl.TITLE_DX)
-        self.assertEqual(cl.TITLE_CHARS, cl.chars_per_line(cl.TITLE_PX, cl.TITLE_W))
-        self.assertIn(cl.TITLE_CHARS, range(25, 30))
+
+
+class TestTitleWrap(unittest.TestCase):
+    """The appointment title is measured against the font file [2026-09-02].
+
+    It used to be wrapped with ``CHAR_RATIO = 0.531`` — the ratio P32 measured
+    on running German recipe prose. A calendar title is not prose: it is a name,
+    a bracketed year, a dash and a count, and over 165 real and mockup titles
+    the same measurement in the add-on container gives **0.576 average, 0.642
+    worst**. At 27 characters, **128 of 296 model lines came out wider than the
+    458 px they were wrapped for**.
+
+    **How that failed is the reason this class exists.** The template renders
+    every model line as its own ``<div class="line">``, so Chromium never sees
+    the title — it sees a line that is too wide and breaks it again. The block
+    height was fixed from the model, so the extra line landed on top of whatever
+    stood below. On the wall of 2026-09-02 it hit four of six entries; the one
+    in the notes is the third.
+    """
+
+    # The shapes this column really carries: the anniversary title with its
+    # written-back suffix [P41/P42], a holiday name, and plain German
+    # appointments off the mockup.
+    CORPUS = (
+        "Vorname1 Nachnam38 (1965) — 61 years",
+        "Vorname1 Nachnam38 (1965) — 61 Jahre",
+        "Geburtstag Tante Erika (1946) — 80 Jahre",
+        "Hochzeitstag Ulla & Christian (2006) — 20 Jahre",
+        "Tag der Deutschen Einheit",
+        "Schulung Datenschutz mit sehr langem Titel",
+        "Jour fixe Entwicklung",
+        "Kundentermin Meier GmbH",
+        "Werkstatttermin Auto",
+        "Brunch bei Familie Roth",
+    )
+
+    def _face(self):
+        return cl._face(cl.DEJAVU_BOOK_CANDIDATES, cl.TITLE_PX)
+
+    def test_the_font_is_found_where_the_file_is_there(self) -> None:
+        """The probe the other ones cannot be [2026-09-02].
+
+        Every test below skips when there is no face, which is right on a runner
+        without the font — and useless against a lookup that stopped working:
+        turning ``_face`` off made six tests *skip*, not fail. This one asks the
+        filesystem first, so the two cases are told apart. It covers the holiday
+        face as well, which had the same hole since P48a.
+        """
+        try:
+            import PIL  # noqa: F401
+        except ImportError:
+            self.skipTest("Pillow not installed")
+        for candidates, size in (
+            (cl.DEJAVU_BOOK_CANDIDATES, cl.TITLE_PX),
+            (cl.DEJAVU_BOLD_CANDIDATES, cl.HOLIDAY_PX),
+        ):
+            path = font_file(candidates)
+            if path is None:
+                continue
+            self.assertIsNotNone(
+                cl._face(candidates, size),
+                f"{path} is on this machine but the lookup did not find it",
+            )
+
+    def test_no_line_is_wider_than_the_column_it_was_wrapped_for(self) -> None:
+        """The invariant. A line that overflows is not clipped — it is re-broken
+        by the browser, and nothing in the model knows."""
+        face = self._face()
+        if face is None:
+            self.skipTest("DejaVu Sans not installed — the ratio model runs")
+        for title in self.CORPUS:
+            for line in cl.title_lines(title):
+                if " " not in line:
+                    continue  # a single word is never broken, by design
+                self.assertLessEqual(
+                    face.getlength(line), cl.TITLE_W,
+                    f"{line!r} is wider than the {cl.TITLE_W} px it was wrapped for",
+                )
+
+    def test_a_single_word_wider_than_the_column_is_left_whole(self) -> None:
+        """Breaking a name mid-word would be worse than a line that runs long,
+        and the entry grows to whatever comes out — same rule as the holiday
+        name. Pinned so the invariant above is not read as "never too wide"."""
+        lines = cl.title_lines("WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW kurz")
+        self.assertEqual(lines[0], "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW")
+
+    def test_the_wall_title_that_was_set_as_three_lines(self) -> None:
+        """The regression, named [2026-09-02, am Bild belegt].
+
+        Two lines is what the model said and what the page budgeted; the break
+        it chose is what made Chromium set three.
+        """
+        face = self._face()
+        if face is None:
+            self.skipTest("DejaVu Sans not installed")
+        lines = cl.title_lines("Vorname1 Nachnam38 (1965) — 61 years")
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(lines[0], "Vorname1 Nachnam38")
+        self.assertLessEqual(face.getlength(lines[0]), cl.TITLE_W)
+
+    def test_the_measurement_is_actually_used(self) -> None:
+        """Both paths are correct, so losing the measured one would be silent.
+
+        It would only cost width — a word wrapped early on every longer title —
+        and nothing else on this page reports that. Same probe as the holiday
+        line [P48a], and the same reason: *a fallback that is always right makes
+        the main thing unobservable.*
+        """
+        if self._face() is None:
+            self.skipTest("DejaVu Sans not installed")
+        title = "Kundentermin Meier GmbH"
+        measured = cl.title_lines(title)
+        with without_font(cl.DEJAVU_BOOK_CANDIDATES, cl.TITLE_PX):
+            estimated = cl.title_lines(title)
+        self.assertNotEqual(measured, estimated)
+        self.assertLess(len(measured), len(estimated))
+
+    def test_the_fallback_is_conservative_against_the_real_font(self) -> None:
+        """A machine without the font still has to budget honestly.
+
+        Not "shorter lines" but the thing that matters: what the character model
+        produces still has to fit the column when the real face measures it.
+        That is why ``TITLE_CHAR_RATIO`` carries the measured *worst* case and
+        not the average — there is no ``SAFETY_LINES`` on this page.
+        """
+        face = self._face()
+        with without_font(cl.DEJAVU_BOOK_CANDIDATES, cl.TITLE_PX):
+            for title in self.CORPUS:
+                for line in cl.title_lines(title):
+                    self.assertLessEqual(len(line.strip()), max(cl.TITLE_CHARS, len(line.split()[0])))
+                    if face is not None and " " in line:
+                        self.assertLessEqual(
+                            face.getlength(line), cl.TITLE_W,
+                            f"the fallback produced {line!r}, which does not fit",
+                        )
+
+    def test_the_ratio_is_not_the_prose_ratio(self) -> None:
+        """Held apart on purpose, exactly like ``HOLIDAY_CHAR_RATIO``."""
+        self.assertGreater(cl.TITLE_CHAR_RATIO, rl.CHAR_RATIO)
+        self.assertEqual(
+            cl.TITLE_CHARS, max(round(cl.TITLE_W / (cl.TITLE_CHAR_RATIO * cl.TITLE_PX)), 1)
+        )
+        prose = max(round(cl.TITLE_W / (rl.CHAR_RATIO * cl.TITLE_PX)), 1)
+        self.assertLess(cl.TITLE_CHARS, prose)
+        self.assertFalse(
+            hasattr(cl, "chars_per_line"),
+            "the prose model has no business on this page any more",
+        )
+
+    def test_the_ratio_holds_against_the_real_font(self) -> None:
+        """The constant against the file it was measured from."""
+        face = self._face()
+        if face is None:
+            self.skipTest("DejaVu Sans not installed")
+        worst = max(
+            face.getlength(t) / (len(t) * cl.TITLE_PX) for t in self.CORPUS if t.strip()
+        )
+        self.assertGreaterEqual(cl.TITLE_CHAR_RATIO, worst)
 
 
 class TestSpannedAppointments(unittest.TestCase):
@@ -1154,9 +1341,49 @@ class TestFoot(unittest.TestCase):
         return [{"label": label, "hex": "#000"} for label in labels]
 
     def test_three_ordinary_names_are_one_line(self) -> None:
-        """Measured: Wolfgang · Ehefrau · Geburtstage = 613 px of 773."""
+        """Measured against the real face: Wolfgang · Ehefrau · Geburtstage =
+        646 px of 805 [2026-09-02]. The 613 px this used to name came from the
+        prose ratio and from the 773 px column of before P30."""
         rows = cl.legend_lines(self._legend("Wolfgang", "Ehefrau", "Geburtstage"))
         self.assertEqual(len(rows), 1)
+
+    def test_the_width_is_measured_rather_than_estimated(self) -> None:
+        """The same fault as the title carried, in the neighbouring function.
+
+        ``_text_w`` ran on ``CHAR_RATIO`` — prose — while a legend label is a
+        name. It reads 5 % narrow that way, which is invisible until a legend
+        the model calls one row is set as two and eats an appointment. The
+        assertion is against the file, not against a second estimate: the
+        existing width test uses ``_text_w`` on both sides and cannot see this.
+        """
+        face = cl._face(cl.DEJAVU_BOOK_CANDIDATES, cl.FOOT_PX)
+        if face is None:
+            self.skipTest("DejaVu Sans not installed — the ratio model runs")
+        household = ("Wolfgang", "Ehefrau", "Geburtstage")
+        for label in household + ("Ferien der Kinder",):
+            self.assertEqual(cl._text_w(label), face.getlength(label))
+        # The direction is what matters, and it is not uniform: the prose ratio
+        # runs *narrow* on names and wide on lowercase German. Only the first
+        # kind can overflow a row, and that is the kind a legend is made of.
+        estimated = sum(len(w) * rl.CHAR_RATIO * cl.FOOT_PX for w in household)
+        self.assertGreater(sum(cl._text_w(w) for w in household), estimated)
+
+    def test_no_legend_row_is_wider_than_the_column_on_the_real_font(self) -> None:
+        """Same rule as the title wrap, checked the same way: the row that goes
+        to the template has to fit the column it is anchored in."""
+        face = cl._face(cl.DEJAVU_BOOK_CANDIDATES, cl.FOOT_PX)
+        if face is None:
+            self.skipTest("DejaVu Sans not installed")
+        labels = ["Kalender von ha-test1", "Ehefrau", "Jahrestage", "Müllabfuhr",
+                  "Ferien der Kinder", "Wolfgang"]
+        for row in cl.legend_lines(self._legend(*labels)):
+            width = sum(
+                cl.LEGEND_CHIP_W + cl.LEGEND_CHIP_GAP + face.getlength(who["label"])
+                for who in row
+            ) + cl.LEGEND_GAP * (len(row) - 1)
+            if len(row) == 1:
+                continue  # a single name too wide for the column keeps its line
+            self.assertLessEqual(width, cl.COLUMN_W)
 
     def test_names_that_do_not_fit_break_into_a_second_line(self) -> None:
         rows = cl.legend_lines(

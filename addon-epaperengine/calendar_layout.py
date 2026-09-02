@@ -40,7 +40,7 @@ from datetime import date, datetime, time, timedelta
 from typing import Any
 
 from anniversaries import strip_suffix, suffix_pattern, year_in_title
-from recipe_layout import CHAR_RATIO, wrap
+from recipe_layout import wrap
 
 # --- the canvas, 1:1 with the mockup ------------------------------------------
 CANVAS_W = 2560
@@ -260,9 +260,13 @@ HOLIDAY_LINE_H = 38    # every further line of a name that wraps
 # the way this fails is a day block growing into the next one.
 HOLIDAY_CHAR_RATIO = 0.676
 
-# What ``fc-match "DejaVu Sans:bold"`` answers inside the add-on image
-# [gemessen 2026-09-01]. A list rather than one path so a base-image move
-# degrades to the ratio model instead of throwing.
+# What ``fc-match "DejaVu Sans"`` and ``…:bold`` answer inside the add-on image
+# [gemessen 2026-09-01 und 2026-09-02]. A list rather than one path so a
+# base-image move degrades to the ratio model instead of throwing.
+DEJAVU_BOOK_CANDIDATES = (
+    "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+)
 DEJAVU_BOLD_CANDIDATES = (
     "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -524,17 +528,49 @@ class WeekBand:
 
 
 # --- measuring ----------------------------------------------------------------
-def chars_per_line(font_px: int, width: int) -> int:
-    """DejaVu Sans characters across ``width``. The recipe model, same constant."""
-    return max(round(width / (CHAR_RATIO * font_px)), 1)
+# **There is no ``chars_per_line`` here any more** [2026-09-02]. It wrapped the
+# title with the recipe page's prose ratio until that produced a collision on
+# the wall, and once the title is measured nothing on this page is left that the
+# prose model may answer for. Leaving it standing would be an invitation to wrap
+# the next text element with it and arrive at the same fault a third time — the
+# recipe page keeps its own, where the ratio was measured.
 
 
-# 27 characters since P46, against 34 before: the badge rail takes 132 px off
-# the column before the time column has even started. **The font never gets
-# smaller** [Wolfgang: „immer gleiche Schrift"] — a title that does not fit
-# wraps, and the badge grows with it.
+# The title column since P46: the badge rail takes 132 px off the column before
+# the time column has even started. **The font never gets smaller** [Wolfgang:
+# „immer gleiche Schrift"] — a title that does not fit wraps, and the badge
+# grows with it.
 TITLE_W = COLUMN_W - RAIL_W - TITLE_DX  # 458
-TITLE_CHARS = chars_per_line(TITLE_PX, TITLE_W)
+
+# **An appointment title is measured against the font file too** [2026-09-02,
+# am Wandbild belegt]. It carried ``TITLE_CHARS = chars_per_line(…)`` — the
+# page's ``CHAR_RATIO = 0.531`` — from P46 until here, and that is the second
+# half of the fault P48a found on the holiday line: the ratio was measured on
+# running German recipe prose [P32], and a calendar title is nothing of the
+# kind. It is a name, a bracketed year, a dash, a count: capitals, digits and
+# punctuation, all of them wide. Measured in the add-on container over 165 real
+# and mockup titles at 32 px: **average 0.576, worst 0.642** against the 0.531
+# the model used.
+#
+# **How it failed is the part worth keeping.** The template renders every model
+# line as its own ``<div class="line">`` — so Chromium does not re-wrap the
+# title, it re-wraps *the model line that came out too wide*. At 27 characters
+# **128 of 296 lines over that corpus were wider than 458 px**; on the wall of
+# 2026-09-02, four of six entries. "Vorname1 Nachnam38 (1965) — 61 years" was
+# budgeted at two lines and set as three, and the block height was already
+# fixed, so the third ran into what stood below it. A too-wide line does not
+# look wrong on its own — it silently becomes an extra one.
+#
+# So the wrap asks the file Chromium draws with, exactly as the holiday line
+# and the guest greeting do. The ratio stays as the fallback for a machine
+# without the font — the tests run there — and carries the measured *worst*
+# ratio rather than the average, for the same reason as ``HOLIDAY_CHAR_RATIO``:
+# there is no ``SAFETY_LINES`` on this page, and the way this fails is one day
+# block growing into the next.
+TITLE_CHAR_RATIO = 0.642
+# Only reached when the font is missing; 22 characters against the 27 the prose
+# ratio claimed.
+TITLE_CHARS = max(round(TITLE_W / (TITLE_CHAR_RATIO * TITLE_PX)), 1)
 
 # A holiday name gets the **whole** body, because it gives up the time column
 # it would otherwise stand beside [P48]: 673 px against the title's 458, which
@@ -546,49 +582,51 @@ HOLIDAY_W = COLUMN_W - RAIL_W  # 673
 # Only reached when the font is missing; see ``HOLIDAY_CHAR_RATIO``.
 HOLIDAY_CHARS = max(round(HOLIDAY_W / (HOLIDAY_CHAR_RATIO * HOLIDAY_PX)), 1)
 
-_holiday_face: Any = False   # False = not looked for yet, None = not there
+_faces: dict[tuple[tuple[str, ...], int], Any] = {}
 
 
-def _face() -> Any:
-    """The bold DejaVu face at :data:`HOLIDAY_PX`, or ``None`` where it is not.
+def _face(candidates: tuple[str, ...], size: int) -> Any:
+    """A DejaVu face at ``size``, or ``None`` where the file is not there.
 
-    Looked up once. Pillow is already in this image (``imaging``,
-    ``guest_layout``), but this module is also imported by the test suite on a
-    machine that has neither the font nor a reason to grow a dependency on it,
-    so every failure here is answered with ``None`` and the ratio model.
+    Looked up once per (family, size). Pillow is already in this image
+    (``imaging``, ``guest_layout``), but this module is also imported by the
+    test suite on a machine that has neither the font nor a reason to grow a
+    dependency on it, so every failure here is answered with ``None`` and the
+    ratio model.
     """
-    global _holiday_face
-    if _holiday_face is not False:
-        return _holiday_face
-    _holiday_face = None
+    key = (candidates, size)
+    if key in _faces:
+        return _faces[key]
+    _faces[key] = None
     try:
         from PIL import ImageFont
     except Exception:  # noqa: BLE001 - no Pillow, no measurement
         return None
-    for path in DEJAVU_BOLD_CANDIDATES:
+    for path in candidates:
         try:
-            _holiday_face = ImageFont.truetype(path, HOLIDAY_PX)
+            _faces[key] = ImageFont.truetype(path, size)
             break
         except Exception:  # noqa: BLE001 - try the next path
             continue
-    return _holiday_face
+    return _faces[key]
 
 
-def title_lines(text: str) -> list[str]:
-    """Wrap an appointment title the way the column will break it."""
-    return wrap(text, TITLE_CHARS) or [""]
+def measured_lines(text: str, width: int, face: Any, fallback_chars: int) -> list[str]:
+    """Greedy word wrap on measured advance widths, the character model where
+    the font is missing.
 
+    The one rule that matters: **no line handed to the template may be wider
+    than the column it goes into.** The template renders each line as its own
+    element, so a line that overflows is not clipped and does not look wrong —
+    Chromium breaks it again, and the block is a line taller than the model
+    said [2026-09-02, siehe ``TITLE_CHAR_RATIO``].
 
-def holiday_lines(text: str, width: int = HOLIDAY_W) -> list[str]:
-    """Wrap a holiday name the way Chromium will break it.
-
-    Greedy, on measured advance widths where the font is there. A single word
-    wider than the line is left whole: breaking a name mid-word would be worse
-    than a line that runs long, and the badge grows to whatever comes out.
+    A single word wider than the line is left whole: breaking a name mid-word
+    would be worse than a line that runs long, and the block grows to whatever
+    comes out.
     """
-    face = _face()
     if face is None:
-        return wrap(text, HOLIDAY_CHARS) or [""]
+        return wrap(text, fallback_chars) or [""]
     words = str(text or "").split()
     if not words:
         return [""]
@@ -603,6 +641,18 @@ def holiday_lines(text: str, width: int = HOLIDAY_W) -> list[str]:
             current = word
     lines.append(current)
     return lines
+
+
+def title_lines(text: str, width: int = TITLE_W) -> list[str]:
+    """Wrap an appointment title the way Chromium will break it."""
+    return measured_lines(text, width, _face(DEJAVU_BOOK_CANDIDATES, TITLE_PX), TITLE_CHARS)
+
+
+def holiday_lines(text: str, width: int = HOLIDAY_W) -> list[str]:
+    """Wrap a holiday name the way Chromium will break it — bold face [P48a]."""
+    return measured_lines(
+        text, width, _face(DEJAVU_BOLD_CANDIDATES, HOLIDAY_PX), HOLIDAY_CHARS
+    )
 
 
 # --- reading what Home Assistant handed over ----------------------------------
@@ -1267,8 +1317,20 @@ def _fit(day: Day, column_h: int) -> Day | None:
 
 # --- the foot of the third column ---------------------------------------------
 def _text_w(text: str, font_px: int = FOOT_PX) -> float:
-    """How wide a run of DejaVu Sans is, by the same model the columns use."""
-    return len(text) * CHAR_RATIO * font_px
+    """How wide a run of DejaVu Sans is — measured, with the ratio as fallback.
+
+    A legend label is a person's name, which is title case and shares nothing
+    with the running prose ``CHAR_RATIO`` was measured on [2026-09-02, the same
+    fault as ``TITLE_CHAR_RATIO``]. Measured against the real face, three
+    household labels come to 646 px of 805 where the ratio model claimed 613 —
+    and the case that matters is the one just under the line: a legend the model
+    calls one row and the browser sets as two grows the foot **upwards** into
+    the last appointment, because the foot is anchored to the bottom.
+    """
+    face = _face(DEJAVU_BOOK_CANDIDATES, font_px)
+    if face is None:
+        return len(text) * TITLE_CHAR_RATIO * font_px
+    return float(face.getlength(str(text or "")))
 
 
 def legend_lines(legend: list[dict[str, str]], width: int = COLUMN_W) -> list[list[dict[str, str]]]:
