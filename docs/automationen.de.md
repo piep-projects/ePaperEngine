@@ -86,8 +86,15 @@ trotzdem.
 würde, und ändert nichts. Zum wirklichen Schreiben ausschalten. `limit: 1`
 schreibt höchstens einen Eintrag, gut für den ersten Versuch.
 
-Ein täglicher Lauf ist harmlos: Einträge, deren Titel schon stimmt, kosten keine
-einzige Anfrage.
+Ein täglicher Lauf ist harmlos: er liest den Kalender und schreibt nur die
+Einträge zurück, deren Zahl nicht mehr stimmt — in den meisten Nächten ist das
+keiner.
+
+!!! note "Meist brauchen Sie diesen Dienst gar nicht"
+    Seit Version 0.23.0 trägt ePaperEngine **von selbst jede Nacht um 00:15**
+    nach; der Haken dafür steht auf der Kalenderseite und ist von Anfang an
+    gesetzt. Der Dienst ist für den Fall da, dass Sie eine andere Uhrzeit wollen
+    oder den Lauf an ein eigenes Ereignis hängen.
 
 ```yaml
 automation:

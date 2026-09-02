@@ -21,6 +21,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from .const import (
+    DEFAULT_ANNIVERSARY_WRITEBACK,
     DEFAULT_CALENDAR_BAR_PX,
     DEFAULT_CALENDAR_DAYS_BIRTHDAYS,
     DEFAULT_CALENDAR_DAYS_EVENTS,
@@ -95,6 +96,12 @@ def default_config() -> dict[str, Any]:
             "color_bar_px": DEFAULT_CALENDAR_BAR_PX,
             "show_empty_days": DEFAULT_CALENDAR_SHOW_EMPTY_DAYS,
             "show_past_today": DEFAULT_CALENDAR_SHOW_PAST_TODAY,
+            # The nightly write-back of the year count into the anniversary
+            # calendars themselves [P42]. Configuration rather than state:
+            # it decides whether this installation touches somebody's real
+            # calendar at all, which is an administrator's call, and the
+            # hour it runs at is fixed in ``const.py`` on purpose.
+            "anniversary_writeback": DEFAULT_ANNIVERSARY_WRITEBACK,
         },
         # The cached collection itself lives in its own store (``STORE_RECIPES``,
         # FSD §9.1); what is configuration is the account, the sync clock and

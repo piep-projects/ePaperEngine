@@ -3,7 +3,8 @@
 **The order is configuration, not code** [Festlegung B5]. This module therefore
 contains no view names in any fixed sequence: it walks the ordered list from the
 store, asks each candidate whether it is active right now, and the first one that
-says yes wins. Changing the order is a drag in the panel, not an edit here.
+says yes wins. Changing the order is the panel's up/down buttons, not an edit
+here.
 
 Pure functions on plain dictionaries, deliberately: no ``hass``, no entities, no
 clock of its own. That is what makes the rule testable without Home Assistant —

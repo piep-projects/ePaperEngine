@@ -32,6 +32,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import (
     async_track_point_in_utc_time,
     async_track_state_change_event,
+    async_track_time_change,
     async_track_time_interval,
 )
 from homeassistant.util import dt as dt_util
@@ -39,8 +40,11 @@ from homeassistant.util import dt as dt_util
 from . import caldav_writer, mediapath
 from .addon import AddonClient, AddonError
 from .const import (
+    ANNIVERSARY_SYNC_HOUR,
+    ANNIVERSARY_SYNC_MINUTE,
     CALENDAR_KIND_BIRTHDAYS,
     CALENDAR_REFRESH_MIN_GAP_S,
+    DEFAULT_ANNIVERSARY_WRITEBACK,
     DEFAULT_CALENDAR_DAYS_BIRTHDAYS,
     DEFAULT_CALENDAR_DAYS_EVENTS,
     DEFAULT_GUEST_ANGLE,
@@ -153,6 +157,7 @@ class EPaperEngineCoordinator:
         self._unsubscribe: list[CALLBACK_TYPE] = []
         self._schedule_watch: CALLBACK_TYPE | None = None
         self._recipe_timer: CALLBACK_TYPE | None = None
+        self._anniversary_timer: CALLBACK_TYPE | None = None
         self._manual_timer: CALLBACK_TYPE | None = None
         self._pending: tuple[str, bool] = ("startup", False)
         self._calendar_refreshed_at: datetime | None = None
@@ -186,6 +191,7 @@ class EPaperEngineCoordinator:
             )
         )
         self._async_arm_recipe_timer()
+        self._async_arm_anniversary_timer()
 
     async def async_shutdown(self) -> None:
         """Drop every timer and listener — a reload must not leave one behind."""
@@ -198,6 +204,9 @@ class EPaperEngineCoordinator:
         if self._manual_timer is not None:
             self._manual_timer()
             self._manual_timer = None
+        if self._anniversary_timer is not None:
+            self._anniversary_timer()
+            self._anniversary_timer = None
         if self._recipe_timer is not None:
             self._recipe_timer()
             self._recipe_timer = None
@@ -344,6 +353,53 @@ class EPaperEngineCoordinator:
             self.hass.async_create_task(self.async_set_view(None))
 
         self._manual_timer = async_track_point_in_utc_time(self.hass, _lapsed, deadline)
+
+    # --- anniversaries (P42) --------------------------------------------------
+    @callback
+    def _async_arm_anniversary_timer(self) -> None:
+        """(Re)start the nightly write-back clock.
+
+        A *time of day*, not an interval — see ``ANNIVERSARY_SYNC_HOUR``: the
+        number an entry should carry changes at a date boundary, so a clock that
+        drifts across midnight would answer differently depending on when it
+        last fired.
+
+        **No catch-up, deliberately, and that is the difference to the recipe
+        clock.** That one syncs on startup when a sync is overdue, because an
+        empty cache is a visible hole. This one would fire while Home Assistant
+        is still starting, and it needs somebody else's integration to be up:
+        ``caldav_writer`` borrows the ``DAVClient`` the CalDAV integration
+        authenticated (P42). Too early means a logged failure that is not one.
+        A missed night costs nothing — the same number is still waiting the
+        next night.
+        """
+        if self._anniversary_timer is not None:
+            self._anniversary_timer()
+            self._anniversary_timer = None
+
+        section = self.config.get("calendar") or {}
+        enabled = section.get("anniversary_writeback")
+        if enabled is None:
+            enabled = DEFAULT_ANNIVERSARY_WRITEBACK
+        if not enabled:
+            return
+
+        self._anniversary_timer = async_track_time_change(
+            self.hass,
+            self._async_anniversary_tick,
+            hour=ANNIVERSARY_SYNC_HOUR,
+            minute=ANNIVERSARY_SYNC_MINUTE,
+            second=0,
+        )
+
+    async def _async_anniversary_tick(self, _now: datetime) -> None:
+        """The nightly run. Never a dry run — a dry run at 00:15 helps nobody.
+
+        Cheap when there is nothing to do, which is 364 nights out of 365: with
+        no anniversary source configured it does not talk to any server at all,
+        and with one it reads the calendar and writes nothing back.
+        """
+        await self.async_write_back_anniversaries(dry_run=False)
 
     # --- recipes (FSD §9) -----------------------------------------------------
     @callback
@@ -608,6 +664,11 @@ class EPaperEngineCoordinator:
         self.addon.set_base((self.config.get("display") or {}).get("renderer_url"))
         self._async_watch_schedules()
         self._async_arm_manual_timer()
+        if "calendar" in patch:
+            # The switch and the source list live in the same section: a
+            # calendar that just became an anniversary source is exactly as
+            # good a reason to re-arm as the switch itself.
+            self._async_arm_anniversary_timer()
         if "recipes" in patch:
             # Covers both halves of that page: a changed interval moves the
             # clock, and a freshly typed account makes the first sync due.
@@ -915,7 +976,7 @@ class EPaperEngineCoordinator:
                 # entry" must mean one, even with two anniversary calendars.
                 budget = max(0, budget - answer["written"])
 
-        return {
+        answer = {
             "dry_run": dry_run,
             "sources": results,
             "failed": failed,
@@ -923,6 +984,25 @@ class EPaperEngineCoordinator:
             "written": sum(r["written"] for r in results),
             "at": dt_util.now().isoformat(),
         }
+
+        # Only a real run leaves a trace. A dry run changed nothing, and letting
+        # it overwrite "last written" would turn the one line the panel shows
+        # into a line that cannot be trusted: it has to answer "when did this
+        # installation last touch the calendar", not "when was the button last
+        # pressed". The entry list is deliberately left out — 64 titles do not
+        # belong in the state file, and the panel already has the answer it just
+        # received.
+        if not dry_run:
+            self.state["anniversaries"] = {
+                "at": answer["at"],
+                "total": sum(r["total"] for r in results),
+                "changed": answer["changed"],
+                "written": answer["written"],
+                "failed": failed or None,
+            }
+            await self.store.async_save_state(self.state)
+            self._async_notify()
+        return answer
 
     async def async_render_document(self) -> dict[str, Any]:
         """The render document, with the calendar filled in when it is needed.
@@ -1047,6 +1127,15 @@ class EPaperEngineCoordinator:
             # Small and fixed in size — the collection itself goes over
             # ``recipes/search``, never through here.
             "recipes": self.recipes.status(),
+            # What the nightly write-back last did — four numbers and a
+            # timestamp, so the panel can say it without asking again.
+            "anniversaries": self.state.get("anniversaries"),
+            # The hour the nightly run fires at, told rather than repeated:
+            # the panel says "every night at 00:15" and must not be the
+            # second place that number is written down.
+            "anniversary_time": (
+                f"{ANNIVERSARY_SYNC_HOUR:02d}:{ANNIVERSARY_SYNC_MINUTE:02d}"
+            ),
             "addon_error": self.addon_error,
             "addon_url": self.addon.base,
             # Unsigned on purpose — the frontend signs it through ``auth/sign_path``

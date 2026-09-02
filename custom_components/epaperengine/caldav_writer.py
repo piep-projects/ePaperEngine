@@ -238,8 +238,11 @@ async def async_write_back(
     how many are actually saved — "try it on one entry first" is a real step,
     not a wish.
 
-    **Nothing to change means no HTTP at all**, which is what makes a daily run
-    harmless.
+    **Nothing to change means no PUT**, which is what makes a daily run
+    harmless. Not *no HTTP*: the two searches happen every time — measured
+    2026-09-02 against the real server, a run with nothing to write still takes
+    about four seconds. What a quiet night costs is two REPORTs, and what it
+    cannot do is change anything.
     """
     entry, calendar_id = _caldav_entry(hass, entity_id)
     client = _client(entry)

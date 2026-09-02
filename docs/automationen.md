@@ -85,8 +85,14 @@ fails, or is never set up, the wall is still right.
 changes nothing. Switch it off to actually write. `limit: 1` writes at most one
 entry, which is a good first attempt.
 
-A daily run is harmless: entries whose title is already correct cost no request
-at all.
+A daily run is harmless: it reads the calendar and writes back only the entries
+whose number is out of date — on most nights that is none.
+
+!!! note "Most of the time you do not need this service"
+    Since version 0.23.0 ePaperEngine writes the counts back **by itself, every
+    night at 00:15**; the checkbox for it is on the calendar page and is ticked
+    from the start. The service is here for a different time of day, or for
+    hanging the run off an event of your own.
 
 ```yaml
 automation:

@@ -15,5 +15,5 @@
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/piep-projects/ePaperEngine/issues",
   "requirements": [],
-  "version": "0.22.2"
+  "version": "0.23.0"
 }

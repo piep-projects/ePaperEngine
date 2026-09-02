@@ -94,6 +94,38 @@ im Bild stehen.
 **Fehlt die Jahreszahl, kostet das die Zahl, nicht den Eintrag.** Ein Namenstag
 hat keine, und das ist kein Fehler.
 
+### Die Zahl im Kalender nachtragen
+
+An der Wand rechnet die Seite die Jahreszahl **immer selbst** — sie stimmt auch
+dann, wenn Sie hier nie etwas einstellen. Im Kalender selbst steht sie deshalb
+zunächst nicht, und am Telefon liest sich der Eintrag dann als bloßes
+`Erika Müller (1946)`.
+
+Damit dort dasselbe steht, trägt ePaperEngine den Zusatz auf Wunsch in die
+Einträge nach: auf der Kalenderseite die Karte **Jahrestage nachtragen**, dort
+der Knopf *Jetzt nachtragen*. Und ohne Zutun **jede Nacht um 00:15**, wenn der
+Haken darüber gesetzt ist — er ist es von Anfang an.
+
+Was dabei passiert, ist eng begrenzt:
+
+- **Nur Quellen der Art *Geburtstage*** und nur solche, die über **CalDAV**
+  angebunden sind. Ein Local Calendar oder ein abonniertes ICS lässt sich nicht
+  beschreiben; die Karte sagt das dann und lässt die anderen Quellen in Ruhe.
+- **Nur der Zusatz.** Titel, Datum, Uhrzeit und die jährliche Wiederholung
+  bleiben unangetastet, und der Eintrag behält seine Adresse — es entsteht weder
+  ein Duplikat noch eine Lücke.
+- **Nur, was nicht mehr stimmt.** Eine Zahl ändert sich genau einmal im Jahr, in
+  der Nacht nach dem Jahrestag. In den meisten Nächten wird nichts geschrieben.
+- **Zugangsdaten braucht es keine** — benutzt wird die Verbindung, die Ihre
+  CalDAV-Integration ohnehin schon hält.
+
+!!! note "Warum die Uhrzeit festliegt"
+    Die Wand schaut voraus: ein Jahrestag im Januar trägt schon im Dezember die
+    Zahl des kommenden Jahres. Welche Zahl richtig ist, wechselt deshalb an einer
+    **Datumsgrenze** — um Mitternacht. Ein Lauf „alle 24 Stunden" wanderte über
+    diese Grenze und träfe mal die eine, mal die andere Seite; eine feste
+    Uhrzeit kurz danach trifft immer dieselbe.
+
 ## Wie die Seite aussieht
 
 - **Der Tag steht in einer Schiene links**, nicht in einer Zeile darüber: ein

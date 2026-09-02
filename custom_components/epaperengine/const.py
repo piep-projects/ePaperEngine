@@ -173,6 +173,30 @@ DISPLAY_PROBE_INTERVAL_MIN: Final = 15
 # refresh comes from the timed net, 15 minutes apart.
 CALENDAR_REFRESH_MIN_GAP_S: Final = 30
 
+# --- Anniversary write-back (P42, Festlegung 2026-09-02) ----------------------
+# When the daily run happens, and why it is a *time of day* rather than an
+# interval. Measured at the source, not chosen by taste: ``caldav_writer``
+# reads each entry's own **next** occurrence, searching from midnight of the
+# current day. So an entry's count changes exactly once a year, at a date
+# boundary — the night after its anniversary. An interval clock would drift
+# across that boundary and answer differently at 23:50 than at 00:10; a fixed
+# time of day cannot. A quarter past keeps it clear of the midnight crowd every
+# other integration runs in, and a missed night costs nothing: the same number
+# is still waiting the following night.
+ANNIVERSARY_SYNC_HOUR: Final = 0
+ANNIVERSARY_SYNC_MINUTE: Final = 15
+
+# On by default [Festlegung 2026-09-02, Wolfgang]. The counter-argument was
+# that this is the only place in the project that changes data on somebody
+# else's server without being asked — but it only ever writes the number the
+# wall is already showing, it writes nothing when nothing changed (measured
+# 2026-09-02 at the real server: a second run is 0 changed, 0 written — it does
+# read the calendar, roughly four seconds, but it cannot alter it), and an
+# anniversary calendar with no year counts in it is exactly the state this
+# feature exists to end. A switch that has to be found first would leave it
+# there.
+DEFAULT_ANNIVERSARY_WRITEBACK: Final = True
+
 # --- Recipes (FSD §9) ---------------------------------------------------------
 # How close together two Paprika syncs may sit. This is the replacement for a
 # lock, not an addition to one: "Sync now" was administrator-only *because* the

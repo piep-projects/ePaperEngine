@@ -46,6 +46,12 @@ OPEN_TO_THE_HOUSEHOLD = {
     "WS_RECIPES_SYNC",  # [2026-08-31, Wolfgang] rate-limited instead of locked
     "WS_RECIPES_SELECT",  # [2026-08-31, Wolfgang] tonight's dinner, not config
     "WS_GUESTS_SET",
+    # [2026-09-02, Wolfgang] It writes into a calendar outside this house,
+    # which is why it was locked — but it can only write the number the wall
+    # is already showing, into calendars an administrator configured, and
+    # since the same day a nightly timer does it unattended. What was left
+    # was a button only one person could press.
+    "WS_CALENDAR_ANNIVERSARIES",
 }
 
 ADMIN_ONLY = {
@@ -54,7 +60,6 @@ ADMIN_ONLY = {
     "WS_GUESTS_BACKGROUNDS",  # rescans a folder
     "WS_CALENDAR_PROBE",
     "WS_CALENDAR_SYNC",
-    "WS_CALENDAR_ANNIVERSARIES",  # writes into a calendar outside this house
 }
 
 

@@ -91,6 +91,37 @@ count.
 **A missing year costs the count, not the entry.** A name day has none, and that
 is not an error.
 
+### Writing the count into the calendar
+
+On the wall the page always works the count out **for itself** — it is right
+even if you never touch anything here. Which means the calendar entry itself
+does not carry it, and on a phone the entry reads as a plain
+`Erika Müller (1946)`.
+
+To make a phone read what the wall reads, ePaperEngine writes the suffix into
+the entries: on the calendar page, the card **Write anniversaries back** and its
+*Write back now* button. And unattended **every night at 00:15**, as long as the
+checkbox above it is ticked — it is ticked from the start.
+
+What it does is deliberately narrow:
+
+- **Anniversary sources only**, and only those served over **CalDAV**. A Local
+  Calendar or a subscribed ICS cannot be written to; the card says so and leaves
+  the other sources alone.
+- **The suffix only.** Title, date, time and the yearly recurrence are left
+  alone, and the entry keeps its own address — neither a duplicate nor a gap.
+- **Only what is out of date.** A count changes exactly once a year, the night
+  after the anniversary. On most nights nothing is written at all.
+- **No second set of credentials** — it uses the connection your CalDAV
+  integration already holds.
+
+!!! note "Why the time of day is fixed"
+    The wall looks ahead: an anniversary in January already carries next year's
+    count in December. So which number is right changes at a **date boundary**,
+    at midnight. A run "every 24 hours" would drift across that boundary and
+    land on either side of it; a fixed time shortly after it always lands on the
+    same one.
+
 ## What the page looks like
 
 - **The day sits in a rail on the left**, not in a line above: a filled badge

@@ -451,7 +451,6 @@ async def ws_calendar_sync(hass, connection, msg) -> None:
     connection.send_result(msg["id"], await coordinator.async_calendar_sync())
 
 
-@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): WS_CALENDAR_ANNIVERSARIES,
@@ -463,14 +462,22 @@ async def ws_calendar_sync(hass, connection, msg) -> None:
 async def ws_calendar_anniversaries(hass, connection, msg) -> None:
     """Write the year count back into the anniversary calendars [P42].
 
-    Admin-only, and for a stronger reason than the rest of this page: every
-    other command here reads, this one **changes entries in somebody's real
-    calendar on somebody else's server**. It is the only write in the project
-    that leaves the house.
+    **Open to the household** [Festlegung 2026-09-02, Wolfgang], and it is the
+    one write in this project that leaves the house — so the reason matters.
+    The command has no free-text argument and no choice of target: it writes,
+    into the calendars an administrator configured, the number the wall is
+    already showing. There is nothing a household member can express through it
+    that an administrator has not already agreed to, and since 2026-09-02 the
+    nightly run does the same thing unattended anyway. Locking it would have
+    left a button that only one person could press to fix a wall everybody
+    looks at — the shape P43 already rejected twice.
 
-    ``dry_run`` defaults to ``True`` on the wire as well as in the transport, so
-    a caller that forgets the flag gets the harmless answer. ``limit`` caps how
-    many entries are saved — the first live run should be one.
+    ``dry_run`` still defaults to ``True`` on the wire as well as in the
+    transport, so a caller that forgets the flag gets the harmless answer. The
+    panel passes ``false`` on purpose: pressing "write back now" is the
+    intention, and a preview step in front of an idempotent operation that only
+    ever writes the wall's own number is a question nobody can answer better
+    afterwards. ``limit`` caps how many entries are saved.
     """
     coordinator = _coordinator(hass)
     if coordinator is None:

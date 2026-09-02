@@ -601,6 +601,38 @@ class EPaperEnginePanel extends HTMLElement {
     await this._refreshStatus();
   }
 
+  /**
+   * "Write back now" - the year count into the anniversary calendars [P42].
+   *
+   * No dry run in front of it [Festlegung 2026-09-02, Wolfgang]. The transport
+   * still defaults to one and the service still offers it, but a preview step
+   * here would ask a question nobody can answer better than the operation
+   * itself: it is idempotent, it writes only the number the wall is already
+   * showing, and it changes nothing when nothing changed. The nightly timer
+   * does the same thing at 00:15 without asking anybody.
+   *
+   * What the answer is for is the line underneath: how many entries were seen,
+   * how many were rewritten, and which source refused.
+   */
+  async _writeAnniversaries() {
+    this._annivRunning = true;
+    this._render();
+    try {
+      const answer = await this._call({
+        type: "epaperengine/calendar/anniversaries",
+        dry_run: false,
+      });
+      this._anniv = answer;
+      this._error = null;
+    } catch (err) {
+      this._anniv = null;
+      this._error = this._message(err);
+    }
+    this._annivRunning = false;
+    this._render();
+    await this._refreshStatus();
+  }
+
   /** Switch guest mode on or off. State, not configuration — no Save button. */
   async _setGuests(active) {
     try {
@@ -1280,6 +1312,40 @@ class EPaperEnginePanel extends HTMLElement {
     // What the last "Sync now" did. It stays on the card rather than fading
     // like the header notice: "the wall shows something else right now" is the
     // answer to "why did nothing change", and that question comes late.
+    // Only an anniversary source can be written back to - an appointment has
+    // no year in brackets and nothing to count [P42].
+    const hasAnniversaries = sources.some((source) => source.kind === "birthdays");
+
+    // Two different things, and the card shows both: what this installation
+    // last *wrote* (from the status document, so it survives a reload and
+    // covers the nightly run), and what the button just did.
+    const state = ((this._status || {}).anniversaries) || null;
+    const annivLast = state
+      ? t("panel.calendar.anniv.state", {
+          time: fmtDateTime(state.at) || "",
+          written: fmtNum(state.written || 0),
+          total: fmtNum(state.total || 0),
+        })
+      : t("panel.calendar.anniv.never");
+    const anniv = this._anniv;
+    const annivFailed = Object.entries((anniv || {}).failed || {});
+    const annivNote = !anniv
+      ? ""
+      : `<div class="note${annivFailed.length ? " warn" : ""}">${esc(
+          t("panel.calendar.anniv.done", {
+            written: fmtNum(anniv.written || 0),
+            total: fmtNum(anniv.sources.reduce((sum, one) => sum + (one.total || 0), 0)),
+          }),
+        )}</div>` +
+        annivFailed
+          .map(
+            ([id, message]) =>
+              `<div class="note bad">${esc(
+                t("panel.calendar.anniv.failed", { entity: id, msg: message }),
+              )}</div>`,
+          )
+          .join("");
+
     const sync = this._calendarSync;
     const syncNote = !sync
       ? ""
@@ -1386,6 +1452,38 @@ class EPaperEnginePanel extends HTMLElement {
         <div class="hint">${esc(t("panel.calendar.sync.hint"))}</div>
         ${syncNote}
         ${entities.length ? "" : `<div class="note warn">${esc(t("panel.calendar.no_entities"))}</div>`}
+      </div>
+
+      <div class="card">
+        <h2>${esc(t("panel.calendar.anniv"))}</h2>
+        <div class="hint">${esc(t("panel.calendar.anniv.hint"))}</div>
+        <div class="kv">
+          <div class="k">${esc(t("panel.calendar.anniv.last"))}</div>
+          <div>${esc(annivLast)}</div>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <input type="checkbox" id="calendar-anniv-auto" ${
+            cal.anniversary_writeback === false ? "" : "checked"
+          } ${lock}>
+          <label for="calendar-anniv-auto">${esc(t("panel.calendar.anniv.auto"))}</label>
+        </div>
+        <div class="muted">${esc(
+          t("panel.calendar.anniv.auto.hint", {
+            time: ((this._status || {}).anniversary_time) || "00:15",
+          }),
+        )}</div>
+        <div class="actions">
+          <button class="plain" id="calendar-anniv" ${
+            hasAnniversaries && !this._annivRunning ? "" : "disabled"
+          }>${esc(
+            this._annivRunning
+              ? t("panel.calendar.anniv.running")
+              : t("panel.calendar.anniv.run"),
+          )}</button>
+          <button class="primary" data-save="calendar" ${lock}>${esc(t("common.save"))}</button>
+        </div>
+        ${hasAnniversaries ? "" : `<div class="muted">${esc(t("panel.calendar.anniv.none"))}</div>`}
+        ${annivNote}
       </div>
 
       <div class="card">
@@ -2049,6 +2147,10 @@ class EPaperEnginePanel extends HTMLElement {
       this._render();
       this._probeCalendar();
     });
+    on("#calendar-anniv", () => {
+      this._collect();
+      this._writeAnniversaries();
+    });
     on("#calendar-sync", () => {
       // Collect first: the press blurs whatever field was being typed in, and
       // the repaint that follows would otherwise throw the draft away.
@@ -2186,6 +2288,8 @@ class EPaperEnginePanel extends HTMLElement {
       const past = root.querySelector("#calendar-past-today");
       if (empty) this._draft.calendar.show_empty_days = !!empty.checked;
       if (past) this._draft.calendar.show_past_today = !!past.checked;
+      const auto = root.querySelector("#calendar-anniv-auto");
+      if (auto) this._draft.calendar.anniversary_writeback = !!auto.checked;
     }
     if (this._tab === "photos") {
       this._draft.photos.rotation_interval_min = number(
