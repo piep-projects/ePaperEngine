@@ -281,11 +281,22 @@ HOLIDAY_CHAR_RATIO = 0.676
 #
 # **Every collection of one day stands in one line** [P52, Wolfgang:
 # „zusammenfassen, eine Zeile"]. The source hands out one all-day event per
-# waste type, and this household's four regularly fall together — measured over
-# the window 3.9.–15.11.2026: 19 events out of four types. "Biomüll · Grüne
-# Tonne" is one statement about the day; two lines of 46 px would cost twice
-# what it is worth. What does not fit wraps, measured against the font file
-# like every other line here.
+# waste type, so a day with two bins would open two lines of 46 px and a day
+# with four would open 184 px where 46 are budgeted — the block would grow into
+# the next day. "Biomüll · Grüne Tonne" is one statement about the day.
+#
+# ⚠ **These data never exercise it, and that is measured rather than assumed.**
+# Over the whole horizon the source publishes (3.9.–28.12.2026, measured
+# 3.9.2026 against the running entity): **30 collections on 30 distinct days**,
+# never two on one day — the closest pair is consecutive days, Thursday
+# Biomüll and Friday Grüne Tonne. An earlier note here read the 19 events of
+# the window 3.9.–15.11. as evidence that this household's four "regularly
+# fall together"; they fall on 19 distinct days. The join stays as a precaution
+# against a collection schedule that combines bins — many do — but it has
+# never yet put two names on one line of this wall.
+#
+# What does not fit wraps, measured against the font file like every other line
+# here.
 WASTE_PX = 32
 WASTE_H = 46           # one line plus the air under it
 WASTE_LINE_H = 38      # every further line of a day that wraps

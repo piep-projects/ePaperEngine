@@ -63,9 +63,15 @@ _LOGGER = logging.getLogger(__name__)
 
 # A year [Festlegung P53, Wolfgang: „ein Jahr"]. The wall looks 30 days ahead;
 # a phone wants the whole year, or in October there is still no November
-# collection to be seen. Both feeds carry that far: the waste source hands out
-# 30 dates over 365 days after the filter, and the holiday integration a full
-# calendar year.
+# collection to be seen.
+#
+# **The window is what is asked for, not what arrives** — measured 3.9.2026 in a
+# dry run against the real server. The holiday integration fills it: 12 entries
+# out to 27.5.2027, across the year boundary. The waste source does not — it
+# publishes its own calendar year and stops at **28.12.2026**, 30 dates over
+# some four months. That is the source's horizon and not a fault here: towards
+# the turn of the year the mirror simply carries fewer months, and refills once
+# the collection schedule for the new year is published.
 MIRROR_DAYS = 365
 
 # Everything this module writes is stamped with this. Deleting is restricted to
