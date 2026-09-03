@@ -133,6 +133,38 @@ Passiert es auf die Minute alle 15 Minuten, trägt etwas auf der Seite die
 aktuelle Uhrzeit. Genau das galt für den Kalender, bis der Zeitstempel in seinem
 Fuß entfernt wurde — deshalb trägt heute keine Ansicht mehr einen.
 
+## `caldav`-Warnungen im Log nach einem Kalenderabgleich
+
+Sobald der Jahrestag-Rückschreiber oder der Kalenderspiegel etwas geschrieben
+hat, trägt das Home-Assistant-Log **je geschriebenem Eintrag** eine Warnung:
+
+```
+caldav  Deviation from expectations found:
+        Unexpected content type: text/html; charset=utf-8
+```
+
+**Es ist nichts fehlgeschlagen.** Die Zeile handelt von einem Header, nicht vom
+Ergebnis. Die `caldav`-Bibliothek erwartet, dass sich eine erfolgreiche Antwort
+als XML ausgibt; manche Server — Open-Xchange und iCloud darunter — antworten
+auf ein erfolgreiches `PUT` stattdessen mit `text/html`. Dieselbe Bibliothek
+ignoriert den Content-Type beim Auswerten der Antwort dann gerade deshalb, weil
+er nicht verlässlich ist. Ein Schreibvorgang, der wirklich scheitert, wirft
+einen Fehler, und das Panel meldet ihn.
+
+Zwei Dinge lassen es schlimmer aussehen, als es ist:
+
+- Home Assistant ordnet eine Logzeile dem tiefsten Rahmen innerhalb einer
+  Custom Integration zu — sie steht deshalb unter
+  `custom_components/epaperengine/calendar_mirror.py`. Der Loggername davor ist
+  `caldav`, und von dort kommt sie.
+- Sie erscheint **einmal je geschriebenem Eintrag**. Ein erster Lauf ist damit
+  laut: ein Spiegel, der 42 Einträge anlegt, schreibt 42 Zeilen. Ein Lauf, der
+  nichts ändert, schreibt keine — es geht ja nichts hinaus.
+
+ePaperEngine unterdrückt die Zeile nicht. Sie gehört dem Logger einer fremden
+Bibliothek, und sie stumm zu stellen hieße, sie auch für die
+CalDAV-Integration stumm zu stellen.
+
 ## Die Wand spricht die falsche Sprache
 
 Sie folgt der Spracheinstellung von Home Assistant selbst

@@ -131,6 +131,36 @@ every 15 minutes on the dot, something on the page is carrying the current time.
 This was true of the calendar until the timestamp in its foot was removed —
 which is why there is no timestamp on any view now.
 
+## `caldav` warnings in the log after a calendar sync
+
+Once the anniversary write-back or the calendar mirror has written something,
+the Home Assistant log carries one warning per **written** entry:
+
+```
+caldav  Deviation from expectations found:
+        Unexpected content type: text/html; charset=utf-8
+```
+
+**Nothing failed.** The line is about a header, not about the outcome. The
+`caldav` library expects a successful answer to declare itself as XML; some
+servers — Open-Xchange and iCloud among them — answer a successful `PUT` with
+`text/html` instead. The same library then ignores the content type while
+parsing that answer, precisely because it cannot be trusted. A write that
+really fails raises an error instead, and the panel reports it.
+
+Two things make it read worse than it is:
+
+- Home Assistant attributes a log line to the deepest frame inside a custom
+  integration, so it appears under
+  `custom_components/epaperengine/calendar_mirror.py`. The logger name in front
+  of it is `caldav` — that is where the line comes from.
+- It appears **once per written entry**, so a first run is loud: a mirror that
+  creates 42 entries writes 42 lines. A run that changes nothing writes none,
+  because nothing is sent.
+
+ePaperEngine does not suppress it. The line belongs to another library's
+logger, and silencing it would silence it for the CalDAV integration too.
+
 ## The wall is in the wrong language
 
 It follows Home Assistant's own language setting
