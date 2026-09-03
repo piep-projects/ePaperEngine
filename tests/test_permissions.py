@@ -60,6 +60,17 @@ ADMIN_ONLY = {
     "WS_GUESTS_BACKGROUNDS",  # rescans a folder
     "WS_CALENDAR_PROBE",
     "WS_CALENDAR_SYNC",
+    # [P53, 2026-09-03] The mirror sits on the other side of the line from the
+    # anniversary write-back, and the difference is deletion. That one puts the
+    # wall's own number into a title an administrator configured; this one
+    # **removes** entries from a real calendar on a real server when the source
+    # stops naming them. Deciding what a household calendar holds is
+    # configuration, not "what hangs on the wall today".
+    "WS_CALENDAR_MIRROR",
+    # Enumerates another integration's entities, and only an administrator can
+    # act on the answer — the target is part of the source list, which lives
+    # behind ``config/set``.
+    "WS_CALENDAR_TARGETS",
 }
 
 

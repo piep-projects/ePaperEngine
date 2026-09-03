@@ -18,6 +18,9 @@
     badge     black (red on Sundays), number 52 px, weekday 30 px, month 26 px
               on the 1st; as tall as the day, at least 98 px
     band      the week, 44 px on palette yellow with 12 px of air, full width
+    holiday   46 px in red, above the appointments, no time and no bar [P48]
+    waste     46 px in green, below the holiday, every type of the day in one
+              line — and the badge stays black [P52]
     entry     84 px, plus 38 px for every further title line
     bar       6 px [Festlegung C8] — 2 px is the proven floor, 6 px reads as a
               bar rather than a hairline; the width is configurable
@@ -269,6 +272,19 @@
         font-weight: bold;
         color: #dc1e1e;
       }
+      /* What goes out on this day [P52]. The holiday line's geometry, and its
+         two differences are both deliberate: the badge above it stays black —
+         a collection is not what the day *is* — and the type is green off the
+         palette. Every collection of a day is folded into one line before it
+         gets here, so this never repeats.
+         ⚠ Green is also an appointment colour. The form tells them apart: no
+         time column, no bar, and it stands above the appointments. */
+      .waste {
+        font-size: 32px;
+        line-height: 38px;
+        font-weight: bold;
+        color: #1e8c46;
+      }
       .entry {
         position: relative;
       }
@@ -359,6 +375,13 @@
                   {%- endfor %}
                 </div>
                 {%- endfor %}
+                {%- if item.waste %}
+                <div class="waste" style="height: {{ item.waste.height }}px">
+                  {%- for line in item.waste.lines %}
+                  <div>{{ line }}</div>
+                  {%- endfor %}
+                </div>
+                {%- endif %}
                 {%- for entry in item.entries %}
                 <div class="entry" style="height: {{ entry.height }}px">
                   <span

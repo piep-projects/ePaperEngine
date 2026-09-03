@@ -133,6 +133,16 @@
           "description": "Wie viele Einträge dieser Lauf schreiben darf. Leer lassen für alle — auf 1 setzen, um es erst an einem einzigen zu versuchen."
         }
       }
+    },
+    "sync_calendars": {
+      "name": "Kalender spiegeln",
+      "description": "Kopiert die von Home Assistant erzeugten Kalender — Feiertage, Müllabfuhr — in die CalDAV-Kalender, die daneben eingetragen sind, damit auf dem Handy steht, was an der Wand steht. Angefasst werden nur Quellen dieser beiden Arten, die einen Sync-Kalender nennen, ein Jahr im Voraus. Das Ziel ist ein Spiegel: was die Quelle nicht mehr nennt, wird dort gelöscht — aber nur Einträge, die diese Integration selbst geschrieben hat. Seit 0.24.0 läuft das jede Nacht von selbst, der Dienst ist also nur für eine andere Uhrzeit nötig.",
+      "fields": {
+        "dry_run": {
+          "name": "Trockenlauf",
+          "description": "Standardmäßig an. Meldet, was angelegt und gelöscht würde, ohne etwas anzufassen. Zum echten Spiegeln ausschalten — bei einem neuen Zielkalender vorher den Bericht lesen."
+        }
+      }
     }
   }
 }

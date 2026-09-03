@@ -31,8 +31,10 @@ from .const import (
     DOMAIN,
     VIEWS,
     WS_CALENDAR_ANNIVERSARIES,
+    WS_CALENDAR_MIRROR,
     WS_CALENDAR_PROBE,
     WS_CALENDAR_SYNC,
+    WS_CALENDAR_TARGETS,
     WS_CONFIG_GET,
     WS_CONFIG_SET,
     WS_DISPLAY_TEST,
@@ -47,6 +49,7 @@ from .const import (
     WS_SET_VIEW,
     WS_STATUS,
 )
+from . import calendar_mirror
 from .coordinator import EPaperEngineCoordinator
 from .recipes import SEARCH_LIMIT
 
@@ -77,6 +80,8 @@ def async_register(hass: HomeAssistant) -> None:
         ws_calendar_probe,
         ws_calendar_sync,
         ws_calendar_anniversaries,
+        ws_calendar_mirror,
+        ws_calendar_targets,
     ):
         websocket_api.async_register_command(hass, handler)
 
@@ -488,4 +493,54 @@ async def ws_calendar_anniversaries(hass, connection, msg) -> None:
         await coordinator.async_write_back_anniversaries(
             dry_run=bool(msg["dry_run"]), limit=msg.get("limit")
         ),
+    )
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): WS_CALENDAR_MIRROR,
+        vol.Optional("dry_run", default=True): bool,
+    }
+)
+@websocket_api.async_response
+async def ws_calendar_mirror(hass, connection, msg) -> None:
+    """Mirror the Home Assistant-made calendars into real ones [P53].
+
+    **Administrator only**, and here the line falls on the other side of where
+    the write-back sits — for a reason that is about the operation, not about
+    trust. The write-back only ever puts the wall's own number into a title
+    somebody already configured. This one **deletes**: an entry the source no
+    longer names is removed from a real calendar on a real server. That is
+    configuration work on somebody else's data, which is the half of P43's
+    dividing line that stays shut, and it sits beside ``calendar/sync`` and
+    ``calendar/probe``, which are administrator business already.
+
+    ``dry_run`` defaults to ``True`` on the wire as well as in the transport,
+    so a caller that forgets the flag cannot delete anything. **The panel passes
+    it too**: the preview is the whole safety argument of P53 — a target picked
+    by mistake shows up as "foreign: 64" instead of as an empty calendar.
+    """
+    coordinator = _coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_loaded", "ePaperEngine is not set up")
+        return
+    connection.send_result(
+        msg["id"],
+        await coordinator.async_mirror_calendars(dry_run=bool(msg["dry_run"])),
+    )
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({vol.Required("type"): WS_CALENDAR_TARGETS})
+@callback
+def ws_calendar_targets(hass, connection, msg) -> None:
+    """The calendars a mirror may write into — CalDAV ones, and no others.
+
+    Administrator only because it enumerates another integration's entities and
+    because only an administrator can act on the answer: the target is part of
+    the source list, which lives behind ``config/set``.
+    """
+    connection.send_result(
+        msg["id"], {"targets": calendar_mirror.available_targets(hass)}
     )

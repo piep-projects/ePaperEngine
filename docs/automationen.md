@@ -106,6 +106,48 @@ automation:
           dry_run: false
 ```
 
+### `epaperengine.sync_calendars`
+
+```yaml
+action: epaperengine.sync_calendars
+data:
+  dry_run: false
+```
+
+Copies the calendars Home Assistant produces — **public holidays** and **waste
+collection** — into the CalDAV calendars entered beside them on the calendar
+page, a year ahead, so a phone shows what the wall shows.
+
+Only sources of those two kinds that name a sync calendar are touched. The wall
+is unaffected either way: it keeps reading the Home Assistant entity, so a run
+that fails costs a phone its bin day, not the household its calendar page.
+
+**`dry_run` defaults to `true`** — the run then reports what it would create and
+delete and touches nothing. Switch it off to actually sync.
+
+!!! warning "This one deletes"
+    The target is a mirror: an entry the source no longer names is **removed**
+    from it. Only entries ePaperEngine wrote itself are ever deleted, and only
+    within the 365-day window — everything else is counted as "foreign" and left
+    alone. Run it once with `dry_run: true` after changing a target and read the
+    answer.
+
+!!! note "Most of the time you do not need this service"
+    Since version 0.24.0 ePaperEngine syncs **by itself, every night at 00:30**;
+    the checkbox for it is on the calendar page and is ticked from the start.
+
+```yaml
+automation:
+  - alias: Sync the bin days after the collector changed them
+    triggers:
+      - trigger: state
+        entity_id: calendar.waste_collection
+    actions:
+      - action: epaperengine.sync_calendars
+        data:
+          dry_run: false
+```
+
 ## Examples
 
 **A greeting when the doorbell rings during a party**

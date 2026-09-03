@@ -176,6 +176,275 @@ class TestKinds(unittest.TestCase):
         )
 
 
+
+class TestWaste(unittest.TestCase):
+    """What goes out on this day [Festlegung P52, 2026-09-03].
+
+    Built from the holiday line, and every one of its differences fails
+    silently:
+
+    * **the badge stays black.** A copy of the holiday rule would turn every
+      collection day red, which reads as "no work today" from across the room —
+      and a red Tuesday looks deliberate, so nobody would report it as a fault;
+    * **one line for the whole day.** Four bins on one date is the normal case
+      in this household, and four separate lines would cost 184 px where 46
+      were budgeted — the block grows into the next day, which is exactly how
+      P48a failed;
+    * **no legend row**, so nothing on the page distinguishes its green from a
+      household member's green except the form of the line.
+    """
+
+    def _days(self, events, **kwargs):
+        return cl.build_days(
+            [_source(kind=cl.KIND_WASTE, person="Abfuhr")],
+            {"calendar.a": events},
+            today=TODAY,
+            text=TEXT,
+            **kwargs,
+        )
+
+    def _all_day(self, day, summary):
+        return {"start": day.isoformat(), "end": (day + timedelta(days=1)).isoformat(),
+                "summary": summary}
+
+    def test_the_badge_stays_black(self) -> None:
+        """The one thing that was asked for in so many words:
+        „allerdings keine Färbung für den Tag"."""
+        day = self._days([self._all_day(TODAY + timedelta(days=2), "Biomüll")])[2]
+        self.assertFalse(day.sunday)          # 2026-08-25 is a Tuesday
+        self.assertFalse(day.red)
+        self.assertIs(day.as_dict()["red"], False)
+
+    def test_a_sunday_with_a_collection_is_still_red(self) -> None:
+        """Red is read off the date. The waste line must neither add it nor
+        take it away."""
+        day = self._days([self._all_day(TODAY, "Restmüll")])[0]
+        self.assertTrue(day.red)              # TODAY is a Sunday
+
+    def test_the_types_of_one_day_stand_in_one_line(self) -> None:
+        day = self._days(
+            [
+                self._all_day(TODAY, "Biomüll"),
+                self._all_day(TODAY, "Grüne Tonne"),
+            ]
+        )[0]
+        self.assertIsNotNone(day.waste)
+        self.assertEqual(day.waste.lines, ["Biomüll · Grüne Tonne"])
+        self.assertEqual(day.waste.height, cl.WASTE_H)
+
+    def test_two_sources_still_make_one_line(self) -> None:
+        """The fold happens after every source has been read, not per source —
+        otherwise a second waste calendar would open a second line."""
+        days = cl.build_days(
+            [
+                _source(entity_id="calendar.a", kind=cl.KIND_WASTE),
+                _source(entity_id="calendar.b", kind=cl.KIND_WASTE),
+            ],
+            {
+                "calendar.a": [self._all_day(TODAY, "Restmüll")],
+                "calendar.b": [self._all_day(TODAY, "Glas")],
+            },
+            today=TODAY,
+            text=TEXT,
+        )
+        self.assertEqual(days[0].waste.lines, ["Restmüll · Glas"])
+
+    def test_the_same_type_twice_is_named_once(self) -> None:
+        day = self._days(
+            [self._all_day(TODAY, "Biomüll"), self._all_day(TODAY, "Biomüll")]
+        )[0]
+        self.assertEqual(day.waste.lines, ["Biomüll"])
+
+    def test_it_is_not_an_entry(self) -> None:
+        day = self._days([self._all_day(TODAY, "Restmüll")])[0]
+        self.assertEqual(day.entries, [])
+        self.assertNotIn("time", day.as_dict()["waste"])
+        self.assertNotIn("color", day.as_dict()["waste"])
+
+    def test_a_day_with_only_a_collection_is_not_empty(self) -> None:
+        days = self._days(
+            [self._all_day(TODAY + timedelta(days=2), "Glas")], show_empty_days=False
+        )
+        self.assertEqual([day.day for day in days],
+                         [TODAY, TODAY + timedelta(days=2)])
+        self.assertIs(days[-1].as_dict()["empty"], False)
+        self.assertFalse(days[-1].red)
+
+    def test_the_run_of_days_reaches_a_collection_beyond_the_last_appointment(self) -> None:
+        far = TODAY + timedelta(days=4)
+        days = self._days([self._all_day(far, "Restmüll")], show_empty_days=True)
+        self.assertEqual(days[-1].day, far)
+        self.assertIsNotNone(days[-1].waste)
+
+    def test_it_survives_the_past_appointment_filter(self) -> None:
+        """The bin goes out in the morning, which is precisely when "hide
+        today's past entries" would take it off the wall — and the person who
+        still has to carry it out is the one who needs it."""
+        days = cl.build_days(
+            [_source(kind=cl.KIND_WASTE)],
+            {"calendar.a": [{"start": f"{TODAY.isoformat()}T06:00:00+02:00",
+                             "end": f"{TODAY.isoformat()}T06:30:00+02:00",
+                             "summary": "Restmüll"}]},
+            today=TODAY,
+            now=datetime(2026, 8, 23, 18, 0),
+            show_past_today=False,
+            text=TEXT,
+        )
+        self.assertEqual(days[0].waste.lines, ["Restmüll"])
+
+    def test_it_costs_nothing_on_a_day_that_holds_nothing_else(self) -> None:
+        day = self._days([self._all_day(TODAY, "Biomüll")])[0]
+        self.assertEqual(day.height, cl.BADGE_MIN_H + cl.DAY_GAP)
+        self.assertEqual(day.body_height, cl.WASTE_H)
+
+    def test_it_stands_above_the_appointments_and_below_the_holiday(self) -> None:
+        """The order was decided [Wolfgang: „Feiertag oben"], and the document
+        is what the template walks: holidays, then waste, then entries."""
+        keys = list(cl.Day(day=TODAY).as_dict())
+        self.assertLess(keys.index("holidays"), keys.index("waste"))
+        self.assertLess(keys.index("waste"), keys.index("entries"))
+
+    def test_a_wrapped_line_costs_a_line_and_raises_the_badge_with_it(self) -> None:
+        """Four types is not a hypothetical — it is this household's calendar.
+        A line too wide for the column becomes a second one, and the block has
+        to grow with it or it runs into the next day."""
+        day = self._days(
+            [
+                self._all_day(TODAY, name)
+                for name in ("Restmüll", "Biomüll", "Grüne Tonne", "Altpapier und Kartonagen")
+            ]
+        )[0]
+        self.assertGreater(len(day.waste.lines), 1)
+        self.assertEqual(
+            day.waste.height,
+            cl.WASTE_H + cl.WASTE_LINE_H * (len(day.waste.lines) - 1),
+        )
+        face = cl._face(cl.DEJAVU_BOLD_CANDIDATES, cl.WASTE_PX)
+        for line in day.waste.lines:
+            if face is not None:
+                self.assertLessEqual(face.getlength(line), cl.WASTE_W, line)
+
+    def test_every_wrapped_line_actually_fits_the_column(self) -> None:
+        """The invariant of this page: the template renders each model line as
+        its own element, so a line wider than its column is not clipped — the
+        browser breaks it again and the block is a line taller than the model
+        said."""
+        face = cl._face(cl.DEJAVU_BOLD_CANDIDATES, cl.WASTE_PX)
+        if face is None:
+            self.skipTest("DejaVu Sans Bold is not installed here")
+        for names in (
+            ("Restmüll", "Biomüll", "Grüne Tonne", "Glas"),
+            ("Restmüll", "Biomüll", "Grüne Tonne", "Glas", "Sperrmüll", "Altpapier"),
+            ("Problemstoffsammlung mit sehr langer Bezeichnung",),
+        ):
+            for line in cl.waste_lines(cl.WASTE_SEPARATOR.join(names)):
+                self.assertLessEqual(face.getlength(line), cl.WASTE_W, line)
+
+    def test_the_fallback_never_wraps_later_than_the_measurement(self) -> None:
+        """The character model is only reached where the font is missing, and it
+        has to stay on the **safe** side of the real thing: never fewer lines
+        than Chromium will set, because there is no ``SAFETY_LINES`` on this
+        page and the way it fails is one day block growing into the next.
+
+        ⚠ Counting the characters against ``WASTE_CHARS`` would prove nothing —
+        that constant is computed from the very ratio under test, so the check
+        would only say the function agrees with itself. Caught by a mutation:
+        putting the prose ratio 0.531 back left every test in this file green
+        [the lesson of P49, and the fault of P48a in the first place]."""
+        if cl._face(cl.DEJAVU_BOLD_CANDIDATES, cl.WASTE_PX) is None:
+            self.skipTest("DejaVu Sans Bold is not installed here")
+        for names in (
+            ("Restmüll", "Biomüll", "Grüne Tonne", "Glas"),
+            ("Restmüll", "Biomüll", "Grüne Tonne", "Glas", "Sperrmüll", "Altpapier"),
+            ("Problemstoffsammlung mit sehr langer Bezeichnung",),
+            ("Gelber Sack", "Restmüll"),
+        ):
+            text = cl.WASTE_SEPARATOR.join(names)
+            measured = len(cl.waste_lines(text))
+            with without_font(cl.DEJAVU_BOLD_CANDIDATES, cl.WASTE_PX):
+                estimated = len(cl.waste_lines(text))
+            self.assertGreaterEqual(estimated, measured, text)
+
+    def test_it_is_never_spanned(self) -> None:
+        """A collection is a date. A source that hands out a period would
+        otherwise put the same line on a fortnight of days."""
+        days = self._days(
+            [{"start": TODAY.isoformat(),
+              "end": (TODAY + timedelta(days=3)).isoformat(),
+              "summary": "Restmüll"}]
+        )
+        self.assertEqual([day.waste is not None for day in days], [True])
+
+    def test_a_nameless_entry_says_so_rather_than_going_blank(self) -> None:
+        day = self._days([self._all_day(TODAY, "")])[0]
+        self.assertEqual(day.waste.lines, [TEXT("calendar.untitled")])
+
+    def test_the_source_is_in_no_legend(self) -> None:
+        """„keine Legende" [P52]. It has no bar to explain — and the row would
+        cost the third column 36 px of foot."""
+        page = cl.build_page(
+            {
+                "calendar": {
+                    "sources": [
+                        {"entity_id": "calendar.a", "person": "Wolfgang",
+                         "color": "blue", "kind": "events"},
+                        {"entity_id": "calendar.b", "person": "Abfuhr",
+                         "color": "green", "kind": "waste"},
+                    ],
+                    "events": {},
+                }
+            },
+            now=datetime(2026, 8, 23, 10, 0),
+            text=TEXT,
+        )
+        labels = [chip["label"] for row in page.legend for chip in row]
+        self.assertIn("Wolfgang", labels)
+        self.assertNotIn("Abfuhr", labels)
+
+    def test_a_day_whose_every_appointment_is_cut_keeps_its_collection(self) -> None:
+        """A busy day is exactly the day somebody forgets the bins. Dropping the
+        block would take the line with it and the run of days would lose the
+        date entirely."""
+        entry = cl.Entry(
+            title_lines=["x"] * 60, time_text="", location="", color="blue",
+            all_day=False, sort_key=(0, 0),
+        )
+        waste = cl.Waste(lines=["Biomüll"])
+        self.assertGreater(entry.height + waste.height, cl.COLUMN_H)
+        day = cl.Day(day=TODAY, entries=[entry], waste=waste)
+        kept = cl._fit(day, cl.COLUMN_H)
+        assert kept is not None, "the day was dropped and took its collection with it"
+        self.assertEqual(kept.entries, [])
+        self.assertEqual(kept.cut, 1)
+        self.assertEqual(kept.waste, waste)
+        # Without it the same day is dropped — there would be nothing left.
+        self.assertIsNone(cl._fit(cl.Day(day=TODAY, entries=[entry]), cl.COLUMN_H))
+
+    def test_the_page_counts_the_days_that_carry_one(self) -> None:
+        """``shown_waste`` is the only way a run's log can say whether the waste
+        calendar reached the page at all: it is in no legend, so the source
+        count says nothing about it [the lesson of P51]."""
+        page = cl.build_page(
+            {
+                "calendar": {
+                    "sources": [{"entity_id": "calendar.a", "person": "Abfuhr",
+                                 "color": "green", "kind": "waste"}],
+                    "events": {
+                        "calendar.a": [
+                            self._all_day(TODAY, "Biomüll"),
+                            self._all_day(TODAY, "Grüne Tonne"),
+                            self._all_day(TODAY + timedelta(days=3), "Restmüll"),
+                        ]
+                    },
+                }
+            },
+            now=datetime(2026, 8, 23, 10, 0),
+            text=TEXT,
+        )
+        # Two days carry a collection, not three events — they were folded.
+        self.assertEqual(page.shown_waste, 2)
+
+
 class TestHolidays(unittest.TestCase):
     """A holiday says what the day *is* [Festlegung P48, 2026-09-01].
 
@@ -1784,6 +2053,33 @@ class TestTemplateAgreesWithTheModel(unittest.TestCase):
         self.assertEqual(cl.Day(day=date(2026, 10, 1), month_text="Okt").badge_height,
                          cl.BADGE_MIN_H + cl.BADGE_MONTH_H)
         self.assertEqual(cl.Day(day=date(2026, 10, 2)).badge_height, cl.BADGE_MIN_H)
+
+    def test_the_waste_line_is_green_and_the_badge_is_not_touched(self) -> None:
+        """[P52] Two facts in one rule, and both fail silently. A colour off the
+        palette would dither into a speckled outline at 32 px — the reason every
+        colour on this page is a primary — and a ``.badge.red`` that reacted to
+        waste would turn a Tuesday red, which looks deliberate rather than
+        wrong."""
+        self.assertEqual(self._px(".waste", "font-size"), cl.WASTE_PX)
+        self.assertEqual(self._px(".waste", "line-height"), cl.WASTE_LINE_H)
+        rule = re.search(r"      \.waste \{([^}]*)\}", self.CSS)
+        assert rule is not None
+        self.assertIn(f"color: {cl.COLORS['green']}", rule.group(1))
+        self.assertIn("font-weight: bold", rule.group(1))
+        # The badge ground is asked for by ``red``, and ``red`` knows nothing
+        # about waste: a Tuesday collection leaves it black.
+        self.assertFalse(cl.Day(day=date(2026, 8, 25),
+                                waste=cl.Waste(lines=["Biomüll"])).red)
+
+    def test_the_waste_line_is_drawn_between_holiday_and_entries(self) -> None:
+        """„Feiertag oben" [P52]. The template walks the block top to bottom, so
+        the order in the markup *is* the order on the wall."""
+        body = self.CSS[self.CSS.index('<div class="body">') :]
+        holiday = body.index("item.holidays")
+        waste = body.index("item.waste")
+        entries = body.index("item.entries")
+        self.assertLess(holiday, waste)
+        self.assertLess(waste, entries)
 
     def test_the_body_starts_behind_the_rail(self) -> None:
         """The one number that decides where every title wraps [P46]."""

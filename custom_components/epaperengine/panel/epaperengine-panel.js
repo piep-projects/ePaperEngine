@@ -97,13 +97,20 @@ const CALENDAR_COLORS = {
   black: "#000000",
 };
 
-// A source is a diary, a list of anniversaries or a list of public holidays
-// (const.py CALENDAR_KINDS). "birthdays" adds the year count, the single start
-// time and the exemption from the "hide today's past entries" filter;
-// "holidays" turns the day's badge red and puts the name in a line of its own
-// [P48] — which is why a holiday source has no colour to pick.
-const CALENDAR_KINDS = ["events", "birthdays", "holidays"];
-const CALENDAR_KIND_HOLIDAYS = "holidays";
+// A source is a diary, a list of anniversaries, a list of public holidays or a
+// waste collection schedule (const.py CALENDAR_KINDS). "birthdays" adds the
+// year count, the single start time and the exemption from the "hide today's
+// past entries" filter; "holidays" turns the day's badge red and puts the name
+// in a line of its own [P48]; "waste" writes what goes out in one green line
+// and leaves the badge black [P52]. Neither of the last two has a colour to
+// pick — they belong to nobody.
+const CALENDAR_KINDS = ["events", "birthdays", "holidays", "waste"];
+// The two kinds that say something *about* the day rather than being *of* it.
+// They wear no colour and stand in no legend — and they are also exactly the
+// two a mirror can copy [P53], which is no coincidence: both are produced by a
+// Home Assistant integration, so they exist nowhere a phone could see them.
+// Mirrored from const.py CALENDAR_KINDS_ABOUT_THE_DAY.
+const CALENDAR_KINDS_ABOUT_THE_DAY = ["holidays", "waste"];
 
 // ---------------------------------------------------------------------------
 // i18n — same mechanism and the same catalogs as the card (i18n concept §4/§7).
@@ -633,6 +640,53 @@ class EPaperEnginePanel extends HTMLElement {
     await this._refreshStatus();
   }
 
+  /**
+   * The calendars a mirror may write into [P53].
+   *
+   * Asked for rather than filtered out of hass.states: which integration serves
+   * an entity is in the entity registry, and only a CalDAV one hands out the
+   * client this borrows. Administrator-only, like the source list it belongs
+   * to.
+   */
+  async _loadMirrorTargets() {
+    try {
+      const answer = await this._call({ type: "epaperengine/calendar/targets" });
+      this._mirrorTargets = answer.targets || [];
+    } catch (err) {
+      this._mirrorTargets = [];
+      this._error = this._message(err);
+    }
+    this._render();
+  }
+
+  /**
+   * Mirror the Home Assistant-made calendars into the real ones [P53].
+   *
+   * Unlike the anniversary write-back this **does** get a preview, and the
+   * difference is deletion: the write-back only ever puts the wall's own number
+   * into a title, this removes entries from somebody's real calendar. The dry
+   * run answers "would add 19, remove 0, 64 others untouched" — which is what a
+   * target picked by mistake looks like before it is emptied rather than after.
+   */
+  async _mirror(dryRun) {
+    this._mirrorRunning = true;
+    this._render();
+    try {
+      const answer = await this._call({
+        type: "epaperengine/calendar/mirror",
+        dry_run: !!dryRun,
+      });
+      this._mirrorResult = answer;
+      this._error = null;
+    } catch (err) {
+      this._mirrorResult = null;
+      this._error = this._message(err);
+    }
+    this._mirrorRunning = false;
+    this._render();
+    await this._refreshStatus();
+  }
+
   /** Switch guest mode on or off. State, not configuration — no Save button. */
   async _setGuests(active) {
     try {
@@ -811,6 +865,7 @@ class EPaperEnginePanel extends HTMLElement {
     // Admin-only command, so a household member is not sent into a guaranteed
     // "unauthorized" just by opening the page.
     if (tab === "calendar" && this.isAdmin) this._probeCalendar();
+    if (tab === "calendar" && !this._mirrorTargets && this.isAdmin) this._loadMirrorTargets();
     this._render();
   }
 
@@ -1346,6 +1401,57 @@ class EPaperEnginePanel extends HTMLElement {
           )
           .join("");
 
+    // --- the mirror [P53] ---------------------------------------------------
+    const mirrored = sources.filter(
+      (source) =>
+        CALENDAR_KINDS_ABOUT_THE_DAY.includes(source.kind) && source.mirror_entity_id,
+    );
+    const mirrorState = ((this._status || {}).mirror) || null;
+    const mirrorLast = mirrorState
+      ? t("panel.calendar.mirror.state", {
+          time: fmtDateTime(mirrorState.at) || "",
+          created: fmtNum(mirrorState.created || 0),
+          deleted: fmtNum(mirrorState.deleted || 0),
+        })
+      : t("panel.calendar.mirror.never");
+    // A target that is also a source would stand twice on the wall, and the
+    // mirror would tidy up the very calendar it was copying. The transport
+    // refuses only the identical pair; this catches the more likely mistake of
+    // pointing one source at another source's calendar.
+    const sourceIds = sources.map((source) => source.entity_id).filter(Boolean);
+    const clash = mirrored
+      .map((source) => source.mirror_entity_id)
+      .filter((id) => sourceIds.includes(id));
+    const result = this._mirrorResult;
+    const mirrorFailed = Object.entries((result || {}).failed || {});
+    const mirrorNote = !result
+      ? ""
+      : `<div class="note${mirrorFailed.length ? " warn" : ""}">${esc(
+          result.dry_run
+            ? t("panel.calendar.mirror.plan", {
+                create: fmtNum(result.to_create || 0),
+                delete: fmtNum(result.to_delete || 0),
+                foreign: fmtNum(result.foreign || 0),
+              })
+            : t("panel.calendar.mirror.done", {
+                created: fmtNum(result.created || 0),
+                deleted: fmtNum(result.deleted || 0),
+              }),
+        )}</div>` +
+        (result.foreign
+          ? `<div class="note warn">${esc(
+              t("panel.calendar.mirror.foreign", { count: fmtNum(result.foreign) }),
+            )}</div>`
+          : "") +
+        mirrorFailed
+          .map(
+            ([id, message]) =>
+              `<div class="note bad">${esc(
+                t("panel.calendar.mirror.failed", { entity: id, msg: message }),
+              )}</div>`,
+          )
+          .join("");
+
     const sync = this._calendarSync;
     const syncNote = !sync
       ? ""
@@ -1383,10 +1489,11 @@ class EPaperEnginePanel extends HTMLElement {
             esc(t("panel.calendar.kind." + kind)) + "</option>",
         ).join("");
         // A holiday belongs to nobody, so it wears no colour and stands in no
-        // legend [P48]. The cell says so rather than going blank — an empty
-        // box beside four filled ones reads as something that failed to load.
+        // legend [P48]; since P52 the same holds for a waste calendar. The cell
+        // says so rather than going blank — an empty box beside four filled
+        // ones reads as something that failed to load.
         const swatches =
-          source.kind === CALENDAR_KIND_HOLIDAYS
+          CALENDAR_KINDS_ABOUT_THE_DAY.includes(source.kind)
             ? '<span class="muted">' + esc(t("panel.calendar.color.none")) + "</span>"
             : Object.entries(CALENDAR_COLORS)
                 .map(
@@ -1397,6 +1504,33 @@ class EPaperEnginePanel extends HTMLElement {
                     esc(hex) + '"></span></button>',
                 )
                 .join("");
+        // The sync target [P53]. Only the two kinds that are *about* the day
+        // can have one — a diary and an anniversary list already live on the
+        // server they came from, and copying one into a second calendar would
+        // duplicate it. A configured target that is no longer offered stays
+        // selectable for the same reason the entity does: saving must not drop
+        // it silently.
+        const target = source.mirror_entity_id || "";
+        const targets = this._mirrorTargets || [];
+        const known = targets.some((one) => one.entity_id === target);
+        const mirrorCell = !CALENDAR_KINDS_ABOUT_THE_DAY.includes(source.kind)
+          ? '<span class="muted">' + esc(t("panel.calendar.mirror.column.none")) + "</span>"
+          : '<select data-src-mirror="' + index + '" ' + lock + ">" +
+            '<option value=""' + (target ? "" : " selected") + ">" +
+            esc(t("panel.calendar.mirror.off")) + "</option>" +
+            (target && !known
+              ? '<option value="' + esc(target) + '" selected>' +
+                esc(target + " " + t("panel.calendar.gone")) + "</option>"
+              : "") +
+            targets
+              .map(
+                (one) =>
+                  '<option value="' + esc(one.entity_id) + '"' +
+                  (one.entity_id === target ? " selected" : "") + ">" +
+                  esc(one.name) + "</option>",
+              )
+              .join("") +
+            "</select>";
         const answer = failed[id]
           ? '<span class="bad" title="' + esc(failed[id]) + '">' + esc(t("panel.calendar.failed")) + "</span>"
           : id in counts
@@ -1408,6 +1542,7 @@ class EPaperEnginePanel extends HTMLElement {
           '<td><input data-src-person="' + index + '" value="' + esc(source.person || "") + '" ' + lock + "></td>" +
           '<td><select data-src-kind="' + index + '" ' + lock + ">" + kinds + "</select></td>" +
           '<td><div class="swatches">' + swatches + "</div></td>" +
+          "<td>" + mirrorCell + "</td>" +
           "<td>" + answer + "</td>" +
           '<td><button class="plain" data-src-remove="' + index + '" ' + lock + ">✕</button></td>" +
           "</tr>"
@@ -1428,6 +1563,7 @@ class EPaperEnginePanel extends HTMLElement {
                 <th>${esc(t("panel.calendar.person"))}</th>
                 <th>${esc(t("panel.calendar.kind"))}</th>
                 <th>${esc(t("panel.calendar.color"))}</th>
+                <th>${esc(t("panel.calendar.mirror.column"))}</th>
                 <th>${esc(t("panel.calendar.entries"))}</th>
                 <th></th></tr></thead><tbody>${rows}</tbody></table>`
             : `<div class="muted">${esc(t("panel.calendar.sources.none"))}</div>`
@@ -1484,6 +1620,59 @@ class EPaperEnginePanel extends HTMLElement {
         </div>
         ${hasAnniversaries ? "" : `<div class="muted">${esc(t("panel.calendar.anniv.none"))}</div>`}
         ${annivNote}
+      </div>
+
+      <div class="card">
+        <h2>${esc(t("panel.calendar.mirror"))}</h2>
+        <div class="hint">${esc(t("panel.calendar.mirror.hint"))}</div>
+        <div class="muted">${esc(t("panel.calendar.mirror.target.hint"))}</div>
+        <div class="kv">
+          <div class="k">${esc(t("panel.calendar.mirror.last"))}</div>
+          <div>${esc(mirrorLast)}</div>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <input type="checkbox" id="calendar-mirror-auto" ${
+            cal.mirror_sync === false ? "" : "checked"
+          } ${lock}>
+          <label for="calendar-mirror-auto">${esc(t("panel.calendar.mirror.auto"))}</label>
+        </div>
+        <div class="muted">${esc(
+          t("panel.calendar.mirror.auto.hint", {
+            time: ((this._status || {}).mirror_time) || "00:30",
+          }),
+        )}</div>
+        <div class="actions">
+          <button class="plain" id="calendar-mirror-preview" ${
+            mirrored.length && !this._mirrorRunning ? "" : "disabled"
+          }>${esc(
+            this._mirrorRunning
+              ? t("panel.calendar.mirror.running")
+              : t("panel.calendar.mirror.preview"),
+          )}</button>
+          <button class="plain" id="calendar-mirror-run" ${
+            mirrored.length && !this._mirrorRunning ? "" : "disabled"
+          }>${esc(t("panel.calendar.mirror.run"))}</button>
+          <button class="primary" data-save="calendar" ${lock}>${esc(t("common.save"))}</button>
+        </div>
+        ${
+          mirrored.length
+            ? ""
+            : `<div class="muted">${esc(t("panel.calendar.mirror.none"))}</div>`
+        }
+        ${
+          (this._mirrorTargets || []).length
+            ? ""
+            : `<div class="note warn">${esc(t("panel.calendar.mirror.no_targets"))}</div>`
+        }
+        ${clash
+          .map(
+            (id) =>
+              `<div class="note bad">${esc(
+                t("panel.calendar.mirror.same", { entity: id }),
+              )}</div>`,
+          )
+          .join("")}
+        ${mirrorNote}
       </div>
 
       <div class="card">
@@ -2158,6 +2347,14 @@ class EPaperEnginePanel extends HTMLElement {
       this._collect();
       this._writeAnniversaries();
     });
+    on("#calendar-mirror-preview", () => {
+      this._collect();
+      this._mirror(true);
+    });
+    on("#calendar-mirror-run", () => {
+      this._collect();
+      this._mirror(false);
+    });
     on("#calendar-sync", () => {
       // Collect first: the press blurs whatever field was being typed in, and
       // the repaint that follows would otherwise throw the draft away.
@@ -2179,6 +2376,14 @@ class EPaperEnginePanel extends HTMLElement {
       // has to be repainted when it changes. Collect first, exactly as the
       // swatch and the remove button do: the repaint rebuilds every field from
       // the draft, and a half-typed name would be gone.
+      select.onchange = () => {
+        this._collect();
+        this._render();
+      };
+    });
+    root.querySelectorAll("[data-src-mirror]").forEach((select) => {
+      // Repaint on change so the clash warning appears the moment a target that
+      // is also a source is picked, rather than after the next save.
       select.onchange = () => {
         this._collect();
         this._render();
@@ -2275,11 +2480,18 @@ class EPaperEnginePanel extends HTMLElement {
         const person = root.querySelector('[data-src-person="' + index + '"]');
         const kind = root.querySelector('[data-src-kind="' + index + '"]');
         const previous = (this._draft.calendar.sources || [])[index] || {};
+        const mirror = root.querySelector('[data-src-mirror="' + index + '"]');
+        // A row whose kind cannot be mirrored has no select at all, and its
+        // stored target is dropped on purpose: leaving it would keep a target
+        // configured that nothing can act on, and it would come back the moment
+        // the kind changed again.
+        const chosen = mirror ? mirror.value : "";
         return {
           entity_id: select.value || "",
           person: person ? person.value.trim() : "",
           kind: kind ? kind.value : "events",
           color: previous.color || "blue",
+          mirror_entity_id: chosen || null,
         };
       });
       this._draft.calendar.query_days_events = number(
@@ -2297,6 +2509,8 @@ class EPaperEnginePanel extends HTMLElement {
       if (past) this._draft.calendar.show_past_today = !!past.checked;
       const auto = root.querySelector("#calendar-anniv-auto");
       if (auto) this._draft.calendar.anniversary_writeback = !!auto.checked;
+      const mirrorAuto = root.querySelector("#calendar-mirror-auto");
+      if (mirrorAuto) this._draft.calendar.mirror_sync = !!mirrorAuto.checked;
     }
     if (this._tab === "photos") {
       this._draft.photos.rotation_interval_min = number(

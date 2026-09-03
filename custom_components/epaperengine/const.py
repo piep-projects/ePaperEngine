@@ -112,6 +112,17 @@ WS_CALENDAR_SYNC: Final = f"{DOMAIN}/calendar/sync"
 # changes somebody's real calendar on somebody else's server, and the two must
 # never be one button by accident. Defaults to a dry run.
 WS_CALENDAR_ANNIVERSARIES: Final = f"{DOMAIN}/calendar/anniversaries"
+# Mirroring a Home Assistant calendar into a real one [P53]. Its own command
+# for the same reason the write-back has one: it changes data on somebody
+# else's server. Defaults to a dry run, which is what makes a target picked by
+# mistake visible before it is emptied.
+WS_CALENDAR_MIRROR: Final = f"{DOMAIN}/calendar/mirror"
+# Which calendars may be a mirror target at all. The panel cannot work this out
+# from ``hass.states``: whether an entity is served by the CalDAV integration is
+# in the entity registry, and only a CalDAV one has the authenticated client
+# this borrows. Offering the rest and failing later would be worse than not
+# offering them.
+WS_CALENDAR_TARGETS: Final = f"{DOMAIN}/calendar/targets"
 
 # --- Services (FSD §3.1) ------------------------------------------------------
 SERVICE_GET_RENDER_DATA: Final = "get_render_data"
@@ -121,6 +132,7 @@ SERVICE_SET_VIEW: Final = "set_view"
 SERVICE_SYNC_RECIPES: Final = "sync_recipes"
 SERVICE_SET_GUESTS: Final = "set_guests"
 SERVICE_SYNC_ANNIVERSARIES: Final = "sync_anniversaries"
+SERVICE_SYNC_CALENDARS: Final = "sync_calendars"
 
 # --- Priority resolution (FSD §5) ---------------------------------------------
 # Candidates of the ordered priority list. ``manual``/``schedule``/``fallback``
@@ -187,8 +199,8 @@ ANNIVERSARY_SYNC_HOUR: Final = 0
 ANNIVERSARY_SYNC_MINUTE: Final = 15
 
 # On by default [Festlegung 2026-09-02, Wolfgang]. The counter-argument was
-# that this is the only place in the project that changes data on somebody
-# else's server without being asked — but it only ever writes the number the
+# that this changes data on somebody else's server without being asked — until
+# 0.24.0 the only thing in the project that did, and since P53 one of two — but it only ever writes the number the
 # wall is already showing, it writes nothing when nothing changed (measured
 # 2026-09-02 at the real server: a second run is 0 changed, 0 written — it does
 # read the calendar, roughly four seconds, but it cannot alter it), and an
@@ -196,6 +208,30 @@ ANNIVERSARY_SYNC_MINUTE: Final = 15
 # feature exists to end. A switch that has to be found first would leave it
 # there.
 DEFAULT_ANNIVERSARY_WRITEBACK: Final = True
+
+# --- Calendar mirror (P53, Festlegung 2026-09-03) -----------------------------
+# Holidays and waste collection are produced by Home Assistant integrations and
+# exist nowhere else — the phone in somebody's pocket never sees them. A source
+# of one of those kinds may name a **target calendar**, and the mirror copies
+# its entries there [Wolfgang: „ich würde gerne für die beiden Kategorien die
+# Möglichkeit haben einen Sync-Kalender zusätzlich einzutragen"].
+#
+# **A year ahead** [Wolfgang: „ein Jahr"]. The wall's horizon is 30 days; a
+# phone wants the year, or in October there is still no November collection to
+# be seen. The window also bounds the tidying — nothing outside it is touched.
+#
+# **00:30, and unlike the anniversary hour that is not a calculation.** There is
+# no number here that turns at a date boundary, only a window that moves one day
+# on. It sits half an hour after the write-back so the two do not hold the same
+# borrowed ``DAVClient`` at the same second.
+MIRROR_SYNC_HOUR: Final = 0
+MIRROR_SYNC_MINUTE: Final = 30
+
+# On by default, like the write-back and for the same reason: a mirror nobody
+# switches on is a phone that never shows the bin day. It is also the safer
+# default of the two — it only ever writes into a calendar somebody entered by
+# hand for exactly this, and it only removes entries it wrote itself.
+DEFAULT_CALENDAR_MIRROR: Final = True
 
 # --- Recipes (FSD §9) ---------------------------------------------------------
 # How close together two Paprika syncs may sit. This is the replacement for a
@@ -231,10 +267,29 @@ DEFAULT_RECIPE_SYNC_INTERVAL_H: Final = 24
 CALENDAR_KIND_EVENTS: Final = "events"
 CALENDAR_KIND_BIRTHDAYS: Final = "birthdays"
 CALENDAR_KIND_HOLIDAYS: Final = "holidays"
+
+# **Waste collection is the fourth kind** [Festlegung P52, 2026-09-03, Wolfgang:
+# „analog zu Feiertag - allerdings keine Färbung für den Tag … in sattem grün"].
+# Like a holiday its entries are *about* the day rather than *of* it — one line
+# of its own, above the appointments, without a time and without a colour bar,
+# and every collection of a day folded into that one line. Two differences, both
+# asked for: the badge stays black (nobody has the day off because the bin goes
+# out), and the line is green. It carries no colour of its own and no legend row
+# for the same reason a holiday does not: it belongs to nobody.
+CALENDAR_KIND_WASTE: Final = "waste"
 CALENDAR_KINDS: Final[tuple[str, ...]] = (
     CALENDAR_KIND_EVENTS,
     CALENDAR_KIND_BIRTHDAYS,
     CALENDAR_KIND_HOLIDAYS,
+    CALENDAR_KIND_WASTE,
+)
+
+# The kinds that stand *about* the day rather than *of* it: no colour to pick,
+# no legend row, one line above the appointments. Named once so the panel and
+# the renderer cannot drift apart on which of the four are which.
+CALENDAR_KINDS_ABOUT_THE_DAY: Final[tuple[str, ...]] = (
+    CALENDAR_KIND_HOLIDAYS,
+    CALENDAR_KIND_WASTE,
 )
 
 # The colour of the bar beside a line [Festlegung C8]. **Spectra primaries

@@ -87,3 +87,10 @@ sync_anniversaries:
           min: 0
           max: 1000
           mode: box
+
+sync_calendars:
+  fields:
+    dry_run:
+      default: true
+      selector:
+        boolean:

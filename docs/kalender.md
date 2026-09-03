@@ -14,7 +14,7 @@ Panel → **Calendar**. Each source is four things:
 | **Entity** | any `calendar.*` entity |
 | **Person** | the name in the legend |
 | **Colour** | one of the panel's six primaries |
-| **Kind** | *appointments*, *birthdays* or *public holidays* |
+| **Kind** | *appointments*, *birthdays*, *public holidays* or *waste collection* |
 
 **The kind matters.** A birthday source shows the year count worked out from
 the year in the entry, shows only a start time, and — this is the point — is
@@ -22,8 +22,8 @@ the year in the entry, shows only a start time, and — this is the point — is
 exemption the same switch would throw a birthday off the wall at 09:16 on the
 very morning it is meant to be read.
 
-A **holiday source** has no colour: the cell stays empty and says "none". Why is
-below.
+A **holiday source and a waste source** have no colour: the cell stays empty and
+says "none". Why is below.
 
 ### Public holidays
 
@@ -66,6 +66,73 @@ it costs one.
 **Red now says three things:** Sunday, public holiday — and, if you set it that
 way, the colour of a source. To keep them apart, give your appointment sources
 blue, green or black.
+
+### Waste collection
+
+The fourth kind also says something **about** the day — but something else, so
+it looks different:
+
+- **the date badge stays black.** Nobody has the day off because the bin goes
+  out;
+- **what goes out stands in a green line of its own** above the day's
+  appointments, without a time and without a colour bar;
+- **every collection of one day stands in one line**, separated by "·".
+
+```
+┌────────┐
+│   17   │  Food waste · Recycling
+│   Thu  │  ▌ 10:00   Breakfast at Grandma's
+└────────┘  ▌ 14:00   Walk
+ (black)
+```
+
+**The HACS integration *Waste Collection Schedule* makes a good source** — it
+knows most European collectors. It hands out separate entries per waste type;
+the wall folds together whatever falls on the same day.
+
+!!! tip "Pick short names"
+    The line is 673 px wide. "Residual · Food waste · Recycling · Glass" fits;
+    the collectors' full designations do not — they wrap and make the day block
+    taller. *Waste Collection Schedule* can give each waste type an alias, and
+    that is the place for it.
+
+**Green now says two things:** the waste line — and, if you set it that way, the
+colour of an appointment source. Tell them apart by their form: the waste line
+carries no time and no colour bar and stands above the appointments. To separate
+them entirely, give your appointment sources blue, red or black.
+
+### Getting holidays and waste onto a phone
+
+Both kinds are produced by Home Assistant integrations. That means they sit on
+no server a phone could subscribe to — in the calendar app they are simply
+missing.
+
+So every source of those two kinds carries a **sync calendar** column. Enter a
+CalDAV calendar there and ePaperEngine copies that source's entries into it **a
+year ahead** — and the calendar on the phone shows what the wall shows.
+
+| | |
+|---|---|
+| **What can be a target** | **CalDAV** calendars only; nothing else is offered |
+| **When** | every night at **00:30**, plus the *Sync now* button |
+| **Window** | 365 days; nothing outside it is touched |
+| **The wall** | unchanged — it keeps reading the Home Assistant entity |
+
+!!! warning "The target calendar belongs to ePaperEngine"
+    What the source no longer names is **deleted** from the target — a
+    collection date that moves disappears and comes back on its new date. So use
+    a calendar kept for this, and **never** enter the sync calendar as a source
+    as well: everything would stand twice on the wall and the sync would tidy up
+    the source. The panel warns you if you do.
+
+    Only entries ePaperEngine wrote itself are ever deleted; anything else stays
+    where it is and is counted as "foreign". That is why holidays and waste may
+    share **one** target calendar, and why pointing this at the wrong calendar
+    by mistake does not empty it.
+
+**Press *Preview* before the first sync.** The answer reads something like
+"Would add 19 and remove 0. 0 other entries stay untouched" — and that sentence
+is where a wrongly picked calendar shows up, before anything happens.
 
 ### Not only birthdays
 

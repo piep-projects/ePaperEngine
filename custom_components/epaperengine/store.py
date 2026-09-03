@@ -25,6 +25,7 @@ from .const import (
     DEFAULT_CALENDAR_BAR_PX,
     DEFAULT_CALENDAR_DAYS_BIRTHDAYS,
     DEFAULT_CALENDAR_DAYS_EVENTS,
+    DEFAULT_CALENDAR_MIRROR,
     DEFAULT_CALENDAR_SHOW_EMPTY_DAYS,
     DEFAULT_CALENDAR_SHOW_PAST_TODAY,
     DEFAULT_GUEST_ANGLE,
@@ -85,12 +86,17 @@ def default_config() -> dict[str, Any]:
         # ICS, Google, CalDAV, Local Calendar — never reaches this document.
         # ``kind`` is the one distinction that does: ``birthdays`` turns a year
         # into a count and keeps the entry up all day, ``holidays`` turns the
-        # day's badge red and puts the name in a line of its own [P48]. There is
+        # day's badge red and puts the name in a line of its own [P48], and
+        # ``waste`` puts what goes out in one green line without touching the
+        # badge [P52]. There is
         # no validation here — the renderer's ``read_source`` turns anything it
         # does not know into ``events``, which is the only safe fallback for a
         # store written by an older or newer build.
         "calendar": {
-            "sources": [],  # [{entity_id, person, color, kind}]
+            # ``mirror_entity_id`` is the CalDAV calendar this source is copied
+            # into [P53], and it is only ever set on the two kinds that are
+            # about the day: a diary already lives on the server it came from.
+            "sources": [],  # [{entity_id, person, color, kind, mirror_entity_id}]
             "query_days_events": DEFAULT_CALENDAR_DAYS_EVENTS,
             "query_days_birthdays": DEFAULT_CALENDAR_DAYS_BIRTHDAYS,
             "color_bar_px": DEFAULT_CALENDAR_BAR_PX,
@@ -102,6 +108,10 @@ def default_config() -> dict[str, Any]:
             # calendar at all, which is an administrator's call, and the
             # hour it runs at is fixed in ``const.py`` on purpose.
             "anniversary_writeback": DEFAULT_ANNIVERSARY_WRITEBACK,
+            # The nightly mirror [P53]. Same argument as the line above: whether
+            # this installation writes into somebody's real calendar is an
+            # administrator's decision, and the hour is fixed in ``const.py``.
+            "mirror_sync": DEFAULT_CALENDAR_MIRROR,
         },
         # The cached collection itself lives in its own store (``STORE_RECIPES``,
         # FSD §9.1); what is configuration is the account, the sync clock and

@@ -260,6 +260,47 @@ HOLIDAY_LINE_H = 38    # every further line of a name that wraps
 # the way this fails is a day block growing into the next one.
 HOLIDAY_CHAR_RATIO = 0.676
 
+# --- the waste collection line (P52) ------------------------------------------
+# **A fourth kind: the waste calendar** [Festlegung P52, 2026-09-03, Wolfgang:
+# „analog zu Feiertag - allerdings keine Färbung für den Tag … Die Schriftfarbe
+# für den Mülleintrag soll in sattem grün sein"].
+#
+# It is the holiday line with two differences, and both were asked for:
+#
+#   * **the badge stays black.** A collection is not what the day *is* — nobody
+#     has the day off because the bin goes out, and the household reads a red
+#     badge as "no work today". Red already says three things on this page
+#     (Sunday, the anniversary source, a holiday); a fourth would leave it
+#     saying nothing in particular;
+#   * **green**, off the palette like every colour on this page — any other
+#     tone is dithered out of these six and a 32 px line of dithered near-green
+#     is a speckle [P23, P28]. ⚠ Green is also an appointment colour: on the
+#     wall it is a member of the household. The two are told apart by **form** —
+#     a line of its own, no time, no bar — and by nothing else, because there is
+#     no legend row to help [P52, Wolfgang: „keine Legende"].
+#
+# **Every collection of one day stands in one line** [P52, Wolfgang:
+# „zusammenfassen, eine Zeile"]. The source hands out one all-day event per
+# waste type, and this household's four regularly fall together — measured over
+# the window 3.9.–15.11.2026: 19 events out of four types. "Biomüll · Grüne
+# Tonne" is one statement about the day; two lines of 46 px would cost twice
+# what it is worth. What does not fit wraps, measured against the font file
+# like every other line here.
+WASTE_PX = 32
+WASTE_H = 46           # one line plus the air under it
+WASTE_LINE_H = 38      # every further line of a day that wraps
+
+# The wrap ratio is a **measurement of the bold face** at this size, not a
+# decision, so it is the holiday line's — same file, same size. The heights
+# above are decisions and stand as their own numbers: either line may be
+# re-decided without dragging the other with it.
+WASTE_CHAR_RATIO = HOLIDAY_CHAR_RATIO
+
+# What stands between two types on one line. The wall already separates with
+# this elsewhere ("Heute · Sonntag"), and a comma would read as a list of
+# appointments rather than as one.
+WASTE_SEPARATOR = " · "
+
 # What ``fc-match "DejaVu Sans"`` and ``…:bold`` answer inside the add-on image
 # [gemessen 2026-09-01 und 2026-09-02]. A list rather than one path so a
 # base-image move degrades to the ratio model instead of throwing.
@@ -326,7 +367,12 @@ KIND_BIRTHDAYS = "birthdays"
 # what the day is, the way the weekday abbreviation does, and that is why they
 # stand in a line of their own rather than among the appointments.
 KIND_HOLIDAYS = "holidays"
-KINDS = (KIND_EVENTS, KIND_BIRTHDAYS, KIND_HOLIDAYS)
+
+# **A fourth kind: waste collection** [Festlegung P52, 2026-09-03]. Like a
+# holiday it is *about* the day rather than *of* it — but it does not colour the
+# day, and it wears green. See the waste line above.
+KIND_WASTE = "waste"
+KINDS = (KIND_EVENTS, KIND_BIRTHDAYS, KIND_HOLIDAYS, KIND_WASTE)
 
 # What counts as a birth year in a description. Narrow on purpose: anything else
 # in that field is a note, and "turns 2019" under a name would be worse than no
@@ -405,6 +451,25 @@ class Holiday:
 
 
 @dataclass
+class Waste:
+    """What goes out on this day, in one line [P52].
+
+    One object per **day**, not per event: the collections of a day are folded
+    into a single line before this is built, because that is the one decision
+    that makes the line worth its 46 px on a household with four bins.
+    """
+
+    lines: list[str]
+
+    @property
+    def height(self) -> int:
+        return WASTE_H + WASTE_LINE_H * (max(len(self.lines), 1) - 1)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"lines": self.lines, "height": self.height}
+
+
+@dataclass
 class Day:
     """One day block: the badge and everything beside it."""
 
@@ -414,6 +479,9 @@ class Day:
     # above the appointments and turn the badge red; a day that holds nothing
     # but one of these is still not an empty day.
     holidays: list[Holiday] = field(default_factory=list)
+    # What goes out on this day, folded into one line [P52]. Unlike a holiday it
+    # leaves the badge black; a day that carries nothing else is still not empty.
+    waste: Waste | None = None
     today: bool = False
     cut: int = 0  # appointments that had to be dropped to make it fit
     # Both out of the catalogue, never sliced off the long form in code: "Mo"
@@ -436,6 +504,7 @@ class Day:
         """What stands beside the badge. Zero on an empty day."""
         return (
             sum(holiday.height for holiday in self.holidays)
+            + (self.waste.height if self.waste else 0)
             + sum(entry.height for entry in self.entries)
             + (CUT_H if self.cut else 0)
         )
@@ -482,6 +551,11 @@ class Day:
         so that a holiday falling on a Sunday changes nothing and a holiday on a
         Tuesday reads exactly like one — which is what the household asked for
         („den Tag dann in rot wie einen Sonntag darstellen").
+
+        **Waste is deliberately not a third fact here** [P52, Wolfgang:
+        „allerdings keine Färbung für den Tag"]. A collection says something
+        about the day too, but not that kind of something: nobody has the day
+        off because the bin goes out.
         """
         return self.sunday or bool(self.holidays)
 
@@ -492,8 +566,9 @@ class Day:
             "weekday": self.weekday_text,
             "month": self.month_text,
             "holidays": [holiday.as_dict() for holiday in self.holidays],
+            "waste": self.waste.as_dict() if self.waste else None,
             "entries": [entry.as_dict() for entry in self.entries],
-            "empty": not self.entries and not self.holidays,
+            "empty": not self.entries and not self.holidays and self.waste is None,
             "today": self.today,
             "sunday": self.sunday,
             "red": self.red,
@@ -582,6 +657,14 @@ HOLIDAY_W = COLUMN_W - RAIL_W  # 673
 # Only reached when the font is missing; see ``HOLIDAY_CHAR_RATIO``.
 HOLIDAY_CHARS = max(round(HOLIDAY_W / (HOLIDAY_CHAR_RATIO * HOLIDAY_PX)), 1)
 
+# A waste line gives up the time column exactly as a holiday does, so it has the
+# same body to run in. It needs it: four types separated by " · " are longer
+# than any German holiday name, which is why the aliases were kept short when
+# the source was configured (``muellkalender/muellkalender-konfiguration.md``).
+WASTE_W = COLUMN_W - RAIL_W  # 673
+# Only reached when the font is missing; see ``WASTE_CHAR_RATIO``.
+WASTE_CHARS = max(round(WASTE_W / (WASTE_CHAR_RATIO * WASTE_PX)), 1)
+
 _faces: dict[tuple[tuple[str, ...], int], Any] = {}
 
 
@@ -652,6 +735,13 @@ def holiday_lines(text: str, width: int = HOLIDAY_W) -> list[str]:
     """Wrap a holiday name the way Chromium will break it — bold face [P48a]."""
     return measured_lines(
         text, width, _face(DEJAVU_BOLD_CANDIDATES, HOLIDAY_PX), HOLIDAY_CHARS
+    )
+
+
+def waste_lines(text: str, width: int = WASTE_W) -> list[str]:
+    """Wrap a day's collections the way Chromium will break them — bold [P52]."""
+    return measured_lines(
+        text, width, _face(DEJAVU_BOLD_CANDIDATES, WASTE_PX), WASTE_CHARS
     )
 
 
@@ -786,6 +876,11 @@ def build_days(
     say = text or (lambda key, **fields: key)
     by_day: dict[date, list[Entry]] = {}
     names: dict[date, list[Holiday]] = {}
+    # Waste is gathered as **plain names per day** and only turned into a line
+    # once every source has been read [P52]: the whole point of the fourth kind
+    # is that a day gets one line, and two sources feeding the same day would
+    # otherwise each build their own.
+    bins: dict[date, list[str]] = {}
 
     def in_window(day: date) -> bool:
         return day >= today and (horizon is None or day <= horizon)
@@ -797,32 +892,47 @@ def build_days(
                     if in_window(day):
                         names.setdefault(day, []).append(holiday)
                 continue
+            if source.kind == KIND_WASTE:
+                for day, what in _waste_for(raw, say):
+                    if in_window(day) and what not in bins.setdefault(day, []):
+                        bins[day].append(what)
+                continue
             for day, entry in _entries_for(raw, source, today, now, show_past_today, say):
                 if in_window(day):
                     by_day.setdefault(day, []).append(entry)
 
     spans = _collapse_spans(by_day)
 
+    # One line per day, in the order the calendar handed the types over.
+    waste_by_day = {
+        day: Waste(lines=waste_lines(WASTE_SEPARATOR.join(what)))
+        for day, what in bins.items()
+        if what
+    }
+
     # The run of days is gapless *between* appointments, not after the last one:
     # trailing empty days are filler, and filler is measured in appointments
     # that did not fit.
     covered = [day for covered_days, _ in spans.values() for day in covered_days]
-    last = max([*by_day, *covered, *names] or [today])
+    last = max([*by_day, *covered, *names, *waste_by_day] or [today])
     days: list[Day] = []
     cursor = today
     while cursor <= last:
         entries = sorted(by_day.get(cursor, []), key=lambda item: item.sort_key)
         holidays = names.get(cursor, [])
+        waste = waste_by_day.get(cursor)
         touching = {key: hex_ for key, (_, hex_) in _touching(spans, cursor).items()}
         # A day a span merely runs through carries no entry any more, but the
         # stripe has to cross it — so it is never dropped as "empty". Neither is
-        # a day that only a holiday name stands on [P48].
-        if entries or holidays or touching or show_empty_days or cursor == today:
+        # a day that only a holiday name stands on [P48], nor one that only puts
+        # the bins out [P52].
+        if entries or holidays or waste or touching or show_empty_days or cursor == today:
             days.append(
                 Day(
                     day=cursor,
                     entries=entries,
                     holidays=holidays,
+                    waste=waste,
                     today=cursor == today,
                     weekday_text=say(f"weekday_short.{cursor.weekday()}"),
                     month_text=(
@@ -1030,6 +1140,25 @@ def _holidays_for(raw: dict[str, Any], say: Any) -> list[tuple[date, Holiday]]:
         return []
     summary = str(raw.get("summary") or "").strip() or say("calendar.untitled")
     return [(_local_date(start[0]), Holiday(lines=holiday_lines(summary)))]
+
+
+def _waste_for(raw: dict[str, Any], say: Any) -> list[tuple[date, str]]:
+    """One raw event from a waste calendar → the day and what goes out [P52].
+
+    It hands back a **name**, not a finished line: the collections of a day are
+    folded together in :func:`build_days` once every source has been read.
+
+    Otherwise the holiday rules apply unchanged, and for the same reasons: only
+    the first day (a collection is a date, not a period), and no visibility
+    filter — the bin goes out in the morning, which is exactly when "hide
+    today's past appointments" would take it off the wall, and the reader who
+    still has to carry it out is the one who needs it.
+    """
+    start = _parse(raw.get("start"))
+    if start is None:
+        return []
+    what = str(raw.get("summary") or "").strip() or say("calendar.untitled")
+    return [(_local_date(start[0]), what)]
 
 
 def _timed_days(start: datetime | date, end: datetime | date | None) -> list[date]:
@@ -1309,8 +1438,9 @@ def _fit(day: Day, column_h: int) -> Day | None:
     # A day whose every appointment had to go is still a day when it carries a
     # holiday name: dropping the block would take the red badge and the name
     # with it, and the run of days would lose Christmas because too much was
-    # happening on it [P48].
-    if not kept and not day.holidays:
+    # happening on it [P48]. The same holds for the bins [P52] — a busy day is
+    # exactly the day somebody forgets them.
+    if not kept and not day.holidays and day.waste is None:
         return None
     return replace(day, entries=kept, cut=dropped)
 
@@ -1382,6 +1512,7 @@ class Page:
     shown_days: int
     shown_entries: int
     shown_holidays: int
+    shown_waste: int
     dropped_days: int
     cut_entries: int
     # How many usable sources the page was built from — entity_id present, kind
@@ -1456,15 +1587,20 @@ def build_page(
     # visible refresh. The page still says how fresh it is, just by its content:
     # past appointments drop out as the day goes on. Callers may still pass a
     # foot line of their own; nothing in the product does.
-    # **A holiday source is not in the legend** [Festlegung P48]: the legend says
-    # whose appointment wears which colour, and a holiday is nobody's. It has no
-    # bar to explain, so a chip beside its name would point at nothing on the
-    # page — and it would cost the third column a 36 px line of foot.
+    # **Neither a holiday source nor a waste source is in the legend**
+    # [Festlegung P48, and P52: „keine Legende"]: the legend says whose
+    # appointment wears which colour, and neither of these is anybody's. They
+    # have no bar to explain, so a chip beside the name would point at nothing
+    # on the page — and it would cost the third column a 36 px line of foot.
+    #
+    # ⚠ For waste that is a knowing cost, not an oversight: its green is also a
+    # household colour, and without a row the only thing telling the two apart
+    # is the form of the line.
     rows = legend_lines(
         [
             {"label": source.label, "hex": source.hex}
             for source in sources
-            if source.kind != KIND_HOLIDAYS
+            if source.kind not in (KIND_HOLIDAYS, KIND_WASTE)
         ]
     )
     foot_h = foot_height(len(rows), len(notes), stamp=bool(stamp))
@@ -1496,6 +1632,10 @@ def build_page(
         # calendar reached the page at all — it is in no legend, so the source
         # count says nothing about it.
         shown_holidays=sum(len(day.holidays) for day in shown),
+        # Days that carry a collection, not collections — they are folded into
+        # one line by then, and the number a reader checks is "did the waste
+        # calendar reach the page at all" [P51's lesson, P52's line].
+        shown_waste=sum(1 for day in shown if day.waste),
         dropped_days=len(days) - len(shown),
         cut_entries=sum(day.cut for day in shown),
         sources=len(sources),

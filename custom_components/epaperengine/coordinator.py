@@ -37,16 +37,18 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.util import dt as dt_util
 
-from . import caldav_writer, mediapath
+from . import caldav_writer, calendar_mirror, mediapath
 from .addon import AddonClient, AddonError
 from .const import (
     ANNIVERSARY_SYNC_HOUR,
     ANNIVERSARY_SYNC_MINUTE,
     CALENDAR_KIND_BIRTHDAYS,
+    CALENDAR_KINDS_ABOUT_THE_DAY,
     CALENDAR_REFRESH_MIN_GAP_S,
     DEFAULT_ANNIVERSARY_WRITEBACK,
     DEFAULT_CALENDAR_DAYS_BIRTHDAYS,
     DEFAULT_CALENDAR_DAYS_EVENTS,
+    DEFAULT_CALENDAR_MIRROR,
     DEFAULT_GUEST_ANGLE,
     DEFAULT_GUEST_OUTLINE,
     DEFAULT_GUEST_OUTLINE_COLOR,
@@ -57,6 +59,8 @@ from .const import (
     DEFAULT_GUEST_NAME_PX,
     DEFAULT_RECIPE_SYNC_INTERVAL_H,
     DISPLAY_PROBE_INTERVAL_MIN,
+    MIRROR_SYNC_HOUR,
+    MIRROR_SYNC_MINUTE,
     RECIPE_SYNC_MIN_GAP_S,
     RENDER_DEBOUNCE_S,
     RENDER_INTERVAL_MIN,
@@ -158,6 +162,7 @@ class EPaperEngineCoordinator:
         self._schedule_watch: CALLBACK_TYPE | None = None
         self._recipe_timer: CALLBACK_TYPE | None = None
         self._anniversary_timer: CALLBACK_TYPE | None = None
+        self._mirror_timer: CALLBACK_TYPE | None = None
         self._manual_timer: CALLBACK_TYPE | None = None
         self._pending: tuple[str, bool] = ("startup", False)
         self._calendar_refreshed_at: datetime | None = None
@@ -192,6 +197,7 @@ class EPaperEngineCoordinator:
         )
         self._async_arm_recipe_timer()
         self._async_arm_anniversary_timer()
+        self._async_arm_mirror_timer()
 
     async def async_shutdown(self) -> None:
         """Drop every timer and listener — a reload must not leave one behind."""
@@ -207,6 +213,9 @@ class EPaperEngineCoordinator:
         if self._anniversary_timer is not None:
             self._anniversary_timer()
             self._anniversary_timer = None
+        if self._mirror_timer is not None:
+            self._mirror_timer()
+            self._mirror_timer = None
         if self._recipe_timer is not None:
             self._recipe_timer()
             self._recipe_timer = None
@@ -400,6 +409,48 @@ class EPaperEngineCoordinator:
         and with one it reads the calendar and writes nothing back.
         """
         await self.async_write_back_anniversaries(dry_run=False)
+
+    # --- calendar mirror (P53) ------------------------------------------------
+    @callback
+    def _async_arm_mirror_timer(self) -> None:
+        """(Re)start the nightly mirror clock.
+
+        A time of day like the write-back, but for a plainer reason: nothing
+        here turns at a date boundary, the window simply moves one day on. It
+        fires at :data:`MIRROR_SYNC_MINUTE` past midnight, a clear half hour
+        after the write-back, so the two never hold the borrowed ``DAVClient``
+        at the same second.
+
+        **No catch-up on startup**, same argument as the write-back: this needs
+        the CalDAV integration to be up, and a missed night costs a phone one
+        day of notice on a window that is a year deep.
+        """
+        if self._mirror_timer is not None:
+            self._mirror_timer()
+            self._mirror_timer = None
+
+        section = self.config.get("calendar") or {}
+        enabled = section.get("mirror_sync")
+        if enabled is None:
+            enabled = DEFAULT_CALENDAR_MIRROR
+        if not enabled:
+            return
+
+        self._mirror_timer = async_track_time_change(
+            self.hass,
+            self._async_mirror_tick,
+            hour=MIRROR_SYNC_HOUR,
+            minute=MIRROR_SYNC_MINUTE,
+            second=0,
+        )
+
+    async def _async_mirror_tick(self, _now: datetime) -> None:
+        """The nightly mirror. Never a dry run — a dry run at 00:30 helps nobody.
+
+        Free on an installation that has named no target: the source list is
+        filtered first, and with nothing to mirror no server is contacted.
+        """
+        await self.async_mirror_calendars(dry_run=False)
 
     # --- recipes (FSD §9) -----------------------------------------------------
     @callback
@@ -669,6 +720,9 @@ class EPaperEngineCoordinator:
             # calendar that just became an anniversary source is exactly as
             # good a reason to re-arm as the switch itself.
             self._async_arm_anniversary_timer()
+            # And the mirror for the same reason: a target calendar entered on
+            # a source is a reason to re-arm exactly as the switch is.
+            self._async_arm_mirror_timer()
         if "recipes" in patch:
             # Covers both halves of that page: a changed interval moves the
             # clock, and a freshly typed account makes the first sync due.
@@ -823,10 +877,12 @@ class EPaperEngineCoordinator:
         failed: dict[str, str] = {}
         for source in sources:
             entity_id = str(source["entity_id"])
-            # Holidays use the appointment window rather than one of their own
-            # [P48]: the page's horizon is ``query_days_events`` whatever the
-            # source, so a separate setting for them would be a field that
-            # changes nothing — the anniversary window is the exception because
+            # Holidays and waste collection use the appointment window rather
+            # than one of their own [P48, P52]: the page's horizon is
+            # ``query_days_events`` whatever the source, so a separate setting
+            # for them would be a field that changes nothing — the **mirror**
+            # is the place a year-deep window matters, and it asks for its own
+            # (``calendar_mirror.MIRROR_DAYS``) — the anniversary window is the exception because
             # one wants notice enough to buy a present, and it is already capped
             # by the same horizon.
             days = (
@@ -940,8 +996,8 @@ class EPaperEngineCoordinator:
         cannot be written back to at all) must not hide the result of the one
         that can.
 
-        The default is a **dry run**. This is the only place in the project that
-        changes data on somebody else's server, and the answer shows what it
+        The default is a **dry run**. This changes data on somebody else's
+        server — one of the two places that do, since P53, and the answer shows what it
         would do before it does it. ``limit`` caps how many entries are actually
         saved, so the first live run can be one entry.
         """
@@ -998,6 +1054,83 @@ class EPaperEngineCoordinator:
                 "total": sum(r["total"] for r in results),
                 "changed": answer["changed"],
                 "written": answer["written"],
+                "failed": failed or None,
+            }
+            await self.store.async_save_state(self.state)
+            self._async_notify()
+        return answer
+
+    async def async_mirror_calendars(self, *, dry_run: bool = True) -> dict[str, Any]:
+        """Copy the Home Assistant-made calendars into real ones [P53].
+
+        Only sources that **name a target** are touched, and only kinds that are
+        *about* the day — holidays and waste collection. That is not a
+        restriction so much as a description: those two are the ones produced by
+        a Home Assistant integration, so they are the two that exist nowhere a
+        phone can reach. A diary and an anniversary list already live on the
+        CalDAV server they came from; mirroring one into another calendar would
+        duplicate it.
+
+        Every source is tried on its own and its failure named, the same rule as
+        ``async_calendar_events`` and the write-back: a target that was renamed
+        on the server must not hide the result of the one that still works.
+
+        The default is a **dry run**, for the same reason as the write-back —
+        and here it does one thing more: it is what makes a target picked by
+        mistake visible ("foreign: 64") before anything is deleted.
+        """
+        section = self.config.get("calendar") or {}
+        sources = [
+            source
+            for source in (section.get("sources") or [])
+            if isinstance(source, dict)
+            and source.get("entity_id")
+            and source.get("mirror_entity_id")
+            and source.get("kind") in CALENDAR_KINDS_ABOUT_THE_DAY
+        ]
+
+        results: list[dict[str, Any]] = []
+        failed: dict[str, str] = {}
+        for source in sources:
+            entity_id = str(source["entity_id"])
+            target = str(source["mirror_entity_id"])
+            try:
+                answer = await calendar_mirror.async_mirror(
+                    self.hass, entity_id, target, dry_run=dry_run
+                )
+            except (calendar_mirror.MirrorError, caldav_writer.WriteBackError) as err:
+                failed[entity_id] = str(err)
+                continue
+            except Exception as err:  # noqa: BLE001 - one bad target must not hide the rest
+                _LOGGER.warning("Mirroring %s into %s failed: %s", entity_id, target, err)
+                failed[entity_id] = f"{type(err).__name__}: {err}"
+                continue
+            results.append(answer)
+
+        answer = {
+            "dry_run": dry_run,
+            "sources": results,
+            "failed": failed,
+            "created": sum(r["created"] for r in results),
+            "deleted": sum(r["deleted"] for r in results),
+            # What a dry run answers with, and the only numbers that mean
+            # anything before something has been written.
+            "to_create": sum(len(r["create"]) for r in results),
+            "to_delete": sum(len(r["delete"]) for r in results),
+            "foreign": sum(r["foreign"] for r in results),
+            "at": dt_util.now().isoformat(),
+        }
+
+        # Only a real run leaves a trace — the same rule as the write-back: the
+        # line the panel shows has to answer "when did this installation last
+        # touch that calendar", not "when was the button last pressed". The
+        # entry lists stay out of the state file; the panel has the answer it
+        # just received.
+        if not dry_run:
+            self.state["mirror"] = {
+                "at": answer["at"],
+                "created": answer["created"],
+                "deleted": answer["deleted"],
                 "failed": failed or None,
             }
             await self.store.async_save_state(self.state)
@@ -1136,6 +1269,10 @@ class EPaperEngineCoordinator:
             "anniversary_time": (
                 f"{ANNIVERSARY_SYNC_HOUR:02d}:{ANNIVERSARY_SYNC_MINUTE:02d}"
             ),
+            # What the nightly mirror last did, and when it fires — told rather
+            # than repeated in the catalogue, exactly as the hour above.
+            "mirror": self.state.get("mirror"),
+            "mirror_time": f"{MIRROR_SYNC_HOUR:02d}:{MIRROR_SYNC_MINUTE:02d}",
             "addon_error": self.addon_error,
             "addon_url": self.addon.base,
             # Unsigned on purpose — the frontend signs it through ``auth/sign_path``

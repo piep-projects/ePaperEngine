@@ -45,6 +45,15 @@ add-on, the rest are for automations — the front-ends use the WebSocket API in
     at ``ANNIVERSARY_SYNC_HOUR`` is built in, so the service is for a different
     time of day or an event of one's own; a run that finds nothing to change
     reads the calendar and writes nothing.
+
+``sync_calendars``
+    copy the Home Assistant-made calendars — public holidays, waste collection —
+    into the real ones configured beside them [P53], so a phone shows what the
+    wall shows. The second service that changes data outside this house, and the
+    one that can **delete**: an entry the source no longer names is removed from
+    the target. Hence ``dry_run`` defaults to true here too, and the response
+    carries what a run would create, delete and leave alone. A nightly run at
+    ``MIRROR_SYNC_HOUR`` is built in.
 """
 
 from __future__ import annotations
@@ -66,6 +75,7 @@ from .const import (
     SERVICE_SET_GUESTS,
     SERVICE_SET_VIEW,
     SERVICE_SYNC_ANNIVERSARIES,
+    SERVICE_SYNC_CALENDARS,
     SERVICE_SYNC_RECIPES,
     VIEWS,
 )
@@ -86,15 +96,21 @@ SET_VIEW_SCHEMA = vol.Schema({vol.Optional("view"): vol.In(VIEWS)})
 SET_GUESTS_SCHEMA = vol.Schema({vol.Required("active"): cv.boolean})
 
 # ``dry_run`` defaults to **true**, and that is a safety decision, not a style
-# one: this is the only service in the project that changes data on somebody
-# else's server. An automation that forgets the flag reports what it would do
-# and touches nothing. ``limit`` exists so the first live run can be one entry.
+# one: this is one of the two services that change data on somebody else's
+# server. An automation that forgets the flag reports what it would do and
+# touches nothing. ``limit`` exists so the first live run can be one entry.
 SYNC_ANNIVERSARIES_SCHEMA = vol.Schema(
     {
         vol.Optional("dry_run", default=True): cv.boolean,
         vol.Optional("limit"): vol.Any(None, vol.All(vol.Coerce(int), vol.Range(min=0))),
     }
 )
+
+# The other one [P53], and the only one that **deletes**: a dry run here does
+# not just refrain from writing, it is the step that shows a target picked by
+# mistake before it is emptied. There is no ``limit`` — half a mirror is not a
+# state worth being able to ask for.
+SYNC_CALENDARS_SCHEMA = vol.Schema({vol.Optional("dry_run", default=True): cv.boolean})
 
 REPORT_RUN_SCHEMA = vol.Schema(
     {
@@ -157,6 +173,11 @@ def async_register_services(hass: HomeAssistant) -> None:
             limit=call.data.get("limit"),
         )
 
+    async def _sync_calendars(call: ServiceCall) -> ServiceResponse:
+        return await _coordinator(hass).async_mirror_calendars(
+            dry_run=bool(call.data.get("dry_run", True)),
+        )
+
     if not hass.services.has_service(DOMAIN, SERVICE_GET_RENDER_DATA):
         hass.services.async_register(
             DOMAIN,
@@ -195,6 +216,14 @@ def async_register_services(hass: HomeAssistant) -> None:
             schema=SYNC_ANNIVERSARIES_SCHEMA,
             supports_response=SupportsResponse.OPTIONAL,
         )
+    if not hass.services.has_service(DOMAIN, SERVICE_SYNC_CALENDARS):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_SYNC_CALENDARS,
+            _sync_calendars,
+            schema=SYNC_CALENDARS_SCHEMA,
+            supports_response=SupportsResponse.OPTIONAL,
+        )
 
 
 def async_unregister_services(hass: HomeAssistant) -> None:
@@ -207,5 +236,6 @@ def async_unregister_services(hass: HomeAssistant) -> None:
         SERVICE_SET_GUESTS,
         SERVICE_SYNC_RECIPES,
         SERVICE_SYNC_ANNIVERSARIES,
+        SERVICE_SYNC_CALENDARS,
     ):
         hass.services.async_remove(DOMAIN, service)

@@ -15,7 +15,7 @@ Panel → **Kalender**. Jede Quelle ist vier Dinge:
 | **Entity** | eine beliebige `calendar.*`-Entity |
 | **Person** | der Name in der Legende |
 | **Farbe** | eine der sechs Primärfarben des Panels |
-| **Art** | *Termine*, *Geburtstage* oder *Feiertage* |
+| **Art** | *Termine*, *Geburtstage*, *Feiertage* oder *Müllkalender* |
 
 **Die Art trägt Gewicht.** Eine Geburtstagsquelle zeigt die gerechnete
 Jahreszahl, zeigt nur die Anfangszeit — und ist, darauf kommt es an, vom Filter
@@ -23,8 +23,8 @@ Jahreszahl, zeigt nur die Anfangszeit — und ist, darauf kommt es an, vom Filte
 Ausnahme würfe derselbe Schalter den Geburtstag um 09:16 an genau dem Morgen von
 der Wand, an dem er gelesen werden soll.
 
-Eine **Feiertagsquelle** hat keine Farbe: das Feld bleibt leer und sagt „keine".
-Warum, steht weiter unten.
+Eine **Feiertags- und eine Müllquelle** haben keine Farbe: das Feld bleibt leer
+und sagt „keine". Warum, steht weiter unten.
 
 ### Feiertage
 
@@ -69,6 +69,78 @@ zweien einer.
 **Rot sagt jetzt drei Dinge:** Sonntag, Feiertag — und, falls Sie sie so
 eingestellt haben, die Farbe einer Quelle. Wer das trennen will, gibt seinen
 Terminquellen Blau, Grün oder Schwarz.
+
+### Müllkalender
+
+Die vierte Art sagt ebenfalls etwas **über** den Tag — aber etwas anderes, und
+darum sieht sie anders aus:
+
+- **das Datumsfeld bleibt schwarz.** Niemand hat frei, weil die Tonne
+  rausmuss;
+- **was rausgeht, steht in einer eigenen grünen Zeile** über den Terminen,
+  ohne Uhrzeit und ohne Farbbalken;
+- **alle Abholungen eines Tages stehen in einer Zeile**, getrennt durch „·".
+
+```
+┌────────┐
+│   17   │  Biomüll · Grüne Tonne
+│   Do   │  ▌ 10:00   Frühstück bei Oma
+└────────┘  ▌ 14:00   Spaziergang
+(schwarz)
+```
+
+**Als Quelle eignet sich die HACS-Integration *Waste Collection Schedule***, die
+die meisten deutschen Entsorger kennt. Sie legt je Abfallart eigene Einträge an;
+die Wand fasst zusammen, was auf denselben Tag fällt.
+
+!!! tip "Kurze Namen wählen"
+    Die Zeile hat 673 px. „Restmüll · Biomüll · Grüne Tonne · Glas" passt
+    hinein, die vollen Bezeichnungen der Entsorger („Grüne Tonne plus
+    2-/4-Radbehälter 14-täglich") nicht — sie brechen dann um und machen den
+    Tagesblock höher. *Waste Collection Schedule* kann Abfallarten mit Aliasen
+    versehen; das ist der Ort dafür.
+
+**Grün sagt damit zwei Dinge:** die Müllzeile — und, falls Sie sie so
+eingestellt haben, die Farbe einer Terminquelle. Zu unterscheiden sind sie an
+der Form: die Müllzeile hat keine Uhrzeit und keinen Farbbalken und steht über
+den Terminen. Wer es ganz trennen will, gibt seinen Terminquellen Blau, Rot oder
+Schwarz.
+
+### Feiertage und Müll aufs Handy
+
+Beide Arten entstehen in Home-Assistant-Integrationen. Sie liegen damit auf
+keinem Server, den ein Telefon abonnieren könnte — im Kalender am Handy fehlen
+sie schlicht.
+
+Dafür trägt jede Quelle dieser beiden Arten in der Tabelle eine Spalte
+**Sync-Kalender**. Wird dort ein CalDAV-Kalender eingetragen, kopiert
+ePaperEngine die Termine dieser Quelle **ein Jahr im Voraus** dorthin — und der
+Kalender am Handy zeigt, was an der Wand steht.
+
+| | |
+|---|---|
+| **Wer darf Ziel sein** | nur **CalDAV**-Kalender; andere werden nicht angeboten |
+| **Wann** | jede Nacht um **00:30**, dazu der Knopf *Jetzt spiegeln* |
+| **Fenster** | 365 Tage; außerhalb wird nichts angefasst |
+| **Wand** | unverändert — sie liest weiter die Home-Assistant-Entity |
+
+!!! warning "Der Zielkalender gehört ePaperEngine"
+    Was die Quelle nicht mehr nennt, wird im Zielkalender **gelöscht** — ein
+    verschobener Abfuhrtermin verschwindet und kommt am neuen Datum wieder.
+    Nehmen Sie deshalb einen Kalender, der nur dafür da ist, und tragen Sie den
+    Sync-Kalender **nie** zusätzlich als Quelle ein: alles stünde doppelt auf
+    der Wand, und der Abgleich räumte die Quelle auf. Das Panel warnt, wenn Sie
+    es doch tun.
+
+    Gelöscht werden nur Einträge, die ePaperEngine selbst geschrieben hat —
+    alles andere bleibt liegen und wird als „fremd" gezählt. Deshalb dürfen sich
+    Feiertage und Müll **einen** Zielkalender teilen, und deshalb wird ein
+    versehentlich gewählter fremder Kalender nicht leergeräumt.
+
+**Vor dem ersten Abgleich auf *Vorschau* drücken.** Die Antwort lautet etwa
+„Würde 19 anlegen und 0 löschen. 0 fremde Einträge bleiben unberührt" — und
+genau in diesem Satz fällt ein falsch gewählter Kalender auf, bevor etwas
+passiert.
 
 ### Nicht nur Geburtstage
 

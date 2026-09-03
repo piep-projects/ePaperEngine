@@ -412,6 +412,7 @@ def _render_calendar(
         "days": page.shown_days,
         "entries": page.shown_entries,
         "holidays": page.shown_holidays,
+        "waste": page.shown_waste,
         # The two numbers worth reading in the log: how much of the window did
         # not fit on the wall, and whether a single day had to be cut.
         "days_dropped": page.dropped_days,

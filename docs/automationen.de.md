@@ -108,6 +108,51 @@ automation:
           dry_run: false
 ```
 
+### `epaperengine.sync_calendars`
+
+```yaml
+action: epaperengine.sync_calendars
+data:
+  dry_run: false
+```
+
+Kopiert die von Home Assistant erzeugten Kalender — **Feiertage** und
+**Müllabfuhr** — in die CalDAV-Kalender, die auf der Kalenderseite daneben
+eingetragen sind, ein Jahr im Voraus. Damit steht auf dem Handy, was an der Wand
+steht.
+
+Angefasst werden nur Quellen dieser beiden Arten, die einen Sync-Kalender
+nennen. Auf die Wand wirkt der Dienst in keinem Fall: sie liest weiter die
+Home-Assistant-Entity, ein Fehlschlag kostet also ein Handy seinen Abfuhrtag und
+nicht den Haushalt seine Kalenderseite.
+
+**`dry_run` ist Vorgabe `true`** — der Lauf meldet dann, was er anlegen und
+löschen würde, und fasst nichts an. Zum echten Abgleich ausschalten.
+
+!!! warning "Dieser Dienst löscht"
+    Das Ziel ist ein Spiegel: was die Quelle nicht mehr nennt, wird dort
+    **entfernt**. Gelöscht werden nur Einträge, die ePaperEngine selbst
+    geschrieben hat, und nur innerhalb des 365-Tage-Fensters — alles andere wird
+    als „fremd" gezählt und bleibt liegen. Nach einem Zielwechsel einmal mit
+    `dry_run: true` laufen lassen und die Antwort lesen.
+
+!!! note "Meistens braucht es diesen Dienst nicht"
+    Seit Version 0.24.0 gleicht ePaperEngine **von selbst ab, jede Nacht um
+    00:30**; das Häkchen dafür steht auf der Kalenderseite und ist von Anfang an
+    gesetzt.
+
+```yaml
+automation:
+  - alias: Abfuhrtermine nachziehen, wenn der Entsorger sie ändert
+    triggers:
+      - trigger: state
+        entity_id: calendar.muellabfuhr
+    actions:
+      - action: epaperengine.sync_calendars
+        data:
+          dry_run: false
+```
+
 ## Beispiele
 
 **Ein Gruß, wenn während einer Feier geklingelt wird**

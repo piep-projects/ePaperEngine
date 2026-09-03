@@ -133,6 +133,16 @@
           "description": "How many entries may be written in this run. Leave empty for all — set it to 1 to try a single entry first."
         }
       }
+    },
+    "sync_calendars": {
+      "name": "Sync calendars",
+      "description": "Copies the Home Assistant-made calendars — public holidays, waste collection — into the CalDAV calendars configured beside them, so a phone shows what the wall shows. Only sources of those two kinds that name a sync calendar are touched, a year ahead. The target is a mirror: entries the source no longer names are deleted from it, but only entries this integration wrote itself. Since 0.24.0 this happens by itself every night, so the service is only needed for a different time of day.",
+      "fields": {
+        "dry_run": {
+          "name": "Dry run",
+          "description": "On by default. Reports what would be created and deleted without touching anything. Switch it off to actually sync — and read the report first if the target calendar is new."
+        }
+      }
     }
   }
 }
