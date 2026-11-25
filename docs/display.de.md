@@ -75,3 +75,8 @@ Das EM32DX läuft am Netz oder auf seinem eingebauten Akku. Das MAC-Feld gibt es
 damit ein schlafendes Panel vor einem Push mit einem Magic Packet geweckt werden
 kann. **Ob Wake-on-LAN es über WiFi zuverlässig erreicht, ist ungeprüft** — am
 Netzstrom stellt sich die Frage nicht.
+
+Das Paket geht zweimal raus: als Broadcast und adressiert an den **Host** des
+Panels. Das zweite erreicht ein Panel in einem anderen Subnetz, wo ein Broadcast
+am Router endet. Geweckt wird nur für einen Push — ein Lauf, der mit `unchanged`
+endet, sendet nichts, und die Erreichbarkeitsabfrage weckt das Panel nie.

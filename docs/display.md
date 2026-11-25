@@ -69,3 +69,8 @@ The EM32DX runs on mains or on its internal battery. The MAC address field
 exists so a sleeping panel can be woken with a magic packet before a push.
 **Whether wake-on-LAN reaches it reliably over WiFi is untested** — on mains
 power the question does not arise.
+
+The packet is sent twice: as a broadcast, and addressed to the panel's own
+**Host**. The second one is what reaches a panel in another subnet, where a
+broadcast stops at the router. Only a push wakes the panel — a run that ends in
+`unchanged` sends nothing, and the reachability probe never wakes it.

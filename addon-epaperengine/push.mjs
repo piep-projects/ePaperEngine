@@ -25,11 +25,32 @@ if (!host || !pin || !url) {
 
 const device = new Device({ host, pin, ...(mac ? { mac } : {}) });
 
+/**
+ * Send the magic packet twice: as a broadcast and addressed to the display.
+ *
+ * The library's default target is 255.255.255.255. A limited broadcast does
+ * not leave its subnet, so a display in another network would never be woken.
+ * A packet addressed to the display itself is routed like any other traffic.
+ * The broadcast is kept for networks where the router no longer has an ARP
+ * entry for a display that has been asleep for a long time.
+ *
+ * A wake packet that cannot be sent does not fail the push: `connect()` below
+ * determines whether the display is reachable and reports the actual error.
+ */
+async function wake() {
+  for (const target of [{}, { host }]) {
+    try {
+      await device.wakeup(target);
+    } catch {
+      // Ignored on purpose, see above.
+    }
+  }
+}
+
 try {
   if (mac) {
-    // Wake-on-LAN before talking. Harmless while the panel is on mains power,
-    // and it is the flow that was proven; phase 7 leans on it properly.
-    await device.wakeup();
+    // Wake-on-LAN before talking. Harmless while the panel is on mains power.
+    await wake();
     await new Promise(resolve => setTimeout(resolve, 1000));
   }
 

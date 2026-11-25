@@ -107,5 +107,42 @@ class TestBestEffortMediaCopy(unittest.TestCase):
             self.assertEqual(target.read_bytes(), b"payload")
 
 
+class TestWakeOnLan(unittest.TestCase):
+    """The wake packet must reach a display in another subnet.
+
+    ``@weejewel/samsung-mdc`` sends the magic packet to 255.255.255.255 by
+    default, and a limited broadcast is not forwarded by routers. ``push.mjs``
+    therefore sends a second packet addressed to the display itself.
+
+    The checks read the source, as in ``test_push_switch.py``, because Node is
+    not available on the CI runner.
+    """
+
+    SOURCE = (REPO_ROOT / "addon-epaperengine" / "push.mjs").read_text(encoding="utf-8")
+
+    def test_the_packet_is_also_addressed_to_the_display(self) -> None:
+        self.assertRegex(
+            self.SOURCE,
+            r"for \(const target of \[\{\}, \{ host \}\]\)",
+            "push.mjs no longer sends a wake packet to the display's own address",
+        )
+        self.assertIn("await device.wakeup(target)", self.SOURCE)
+
+    def test_the_broadcast_is_kept(self) -> None:
+        """``{}`` selects the library default, the broadcast address."""
+        self.assertNotIn("device.wakeup({ host })", self.SOURCE)
+
+    def test_a_wake_that_cannot_be_sent_does_not_fail_the_push(self) -> None:
+        wake = self.SOURCE.split("async function wake()", 1)[1].split("\n}\n", 1)[0]
+        self.assertIn("try {", wake)
+        self.assertIn("catch", wake)
+
+    def test_only_a_push_wakes_the_panel(self) -> None:
+        """The probe must report the current state without waking the display,
+        which would falsify the reachability sensor and drain the battery."""
+        probe = (REPO_ROOT / "addon-epaperengine" / "probe.mjs").read_text(encoding="utf-8")
+        self.assertNotIn("device.wakeup(", probe)
+
+
 if __name__ == "__main__":
     unittest.main()
